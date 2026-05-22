@@ -70,18 +70,25 @@
   color: #fff;
 }
 
-.single-panel,
-.diff-grid {
+.topbar .icon-button {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.single-panel {
   flex: 1;
   display: flex;
   min-height: 0;
   padding: 4px;
-}
-
-.compact-diff-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 4px;
 }
 
 .panel {
@@ -213,24 +220,6 @@
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.patch-panel textarea {
-  min-height: 120px;
-  border: none;
-  resize: vertical;
-  padding: 8px;
-  font: 12px/1.5 var(--mono);
-  color: #1c1917;
-}
-
-.generated-patch {
-  margin: 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  padding: 8px;
-  overflow: auto;
-  background: #fcfcfc;
-  flex: 1;
-}
-
 .statusbar {
   min-height: 22px;
   padding: 0 8px;
@@ -248,9 +237,5 @@
   .topbar {
     flex-wrap: wrap;
     justify-content: flex-start;
-  }
-
-  .compact-diff-grid {
-    grid-template-columns: 1fr;
   }
 }

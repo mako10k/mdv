@@ -8,8 +8,6 @@ import {
   type ReactElement,
 } from 'react'
 import ToastUiEditor from '@toast-ui/editor'
-import { DiffEditor } from '@monaco-editor/react'
-import { applyPatch, createPatch } from 'diff'
 import MarkdownIt from 'markdown-it'
 import markdownItContainer from 'markdown-it-container'
 import markdownItFootnote from 'markdown-it-footnote'
@@ -34,7 +32,6 @@ const initialDocument = `# MDV Editor
 Windows 向けの Markdown ワークベンチです。
 
 - WYSIWYG と Markdown ソースの切り替え
-- diff / patch の確認と適用
 - CodeBlock renderer registry による拡張
 
 :::note
@@ -43,8 +40,8 @@ Windows 向けの Markdown ワークベンチです。
 
 \`\`\`mermaid
 flowchart LR
-  Writer[Editor] --> Diff[Diff / Patch]
-  Diff --> Preview[Extensible Preview]
+  Editor[Editor] --> Preview[Rendered Preview]
+  Preview --> Blocks[Custom Code Blocks]
 \`\`\`
 
 \`\`\`ts
@@ -225,21 +222,82 @@ function basename(filePath: string | null): string {
   return parts.at(-1) || 'Untitled.md'
 }
 
+type ToolbarButtonProps = {
+  label: string
+  active?: boolean
+  onClick: () => void | Promise<void>
+  children: ReactElement
+}
+
+function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
+  return (
+    <button
+      type="button"
+      className={active ? 'active icon-button' : 'icon-button'}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
+function EditorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function RenderedIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M3.5 12s3.2-5 8.5-5 8.5 5 8.5 5-3.2 5-8.5 5-8.5-5-8.5-5z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="2.7" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function OpenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M4 8.5h5l1.6 2H20v7A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M4 8V6.5A1.5 1.5 0 0 1 5.5 5H9l1.5 2H18.5A1.5 1.5 0 0 1 20 8.5V10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function SaveIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M5.5 4h10.8L20 7.7v10.8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M8 4.5v5h7v-5M8 16h8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function SaveAsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M5.5 4h10.8L20 7.7v10.8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M8 4.5v5h7v-5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 13v5M9.5 15.5 12 13l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function App() {
   const [markdownText, setMarkdownText] = useState(initialDocument)
-  const [baseline, setBaseline] = useState(initialDocument)
-  const [patchText, setPatchText] = useState('')
-  const [activePanel, setActivePanel] = useState<'write' | 'preview' | 'diff'>('write')
+  const [activePanel, setActivePanel] = useState<'write' | 'preview'>('write')
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
   const [statusText, setStatusText] = useState('Ready')
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
-  const generatedPatch = useMemo(
-    () => createPatch('document.md', baseline, markdownText, 'baseline', 'working'),
-    [baseline, markdownText],
-  )
 
   useEffect(() => {
     document.title = `${basename(currentFilePath)} - MDV`
@@ -251,8 +309,6 @@ function App() {
     }
 
     setMarkdownText(payload.content)
-    setBaseline(payload.content)
-    setPatchText('')
     setCurrentFilePath(payload.path)
     editorRef.current?.setMarkdown(payload.content)
     setStatusText(`Opened ${basename(payload.path)}`)
@@ -296,8 +352,6 @@ function App() {
 
     const content = await droppedFile.text()
     setMarkdownText(content)
-    setBaseline(content)
-    setPatchText('')
     setCurrentFilePath(null)
     editorRef.current?.setMarkdown(content)
     setStatusText(`Loaded ${droppedFile.name}`)
@@ -316,15 +370,6 @@ function App() {
     setIsDraggingFile(false)
   }
 
-  const applyUnifiedPatch = () => {
-    const nextDocument = applyPatch(baseline, patchText)
-    if (typeof nextDocument === 'string') {
-      setMarkdownText(nextDocument)
-      editorRef.current?.setMarkdown(nextDocument)
-      setStatusText('Patch applied')
-    }
-  }
-
   return (
     <main className="shell">
       <section
@@ -340,48 +385,24 @@ function App() {
           </div>
 
           <div className="view-switch">
-            <button
-              type="button"
-              className={activePanel === 'write' ? 'active' : ''}
-              onClick={() => setActivePanel('write')}
-            >
-              Editor
-            </button>
-            <button
-              type="button"
-              className={activePanel === 'preview' ? 'active' : ''}
-              onClick={() => setActivePanel('preview')}
-            >
-              Rendered
-            </button>
-            <button
-              type="button"
-              className={activePanel === 'diff' ? 'active' : ''}
-              onClick={() => setActivePanel('diff')}
-            >
-              Diff
-            </button>
+            <ToolbarButton label="Editor" active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
+              <EditorIcon />
+            </ToolbarButton>
+            <ToolbarButton label="Rendered" active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
+              <RenderedIcon />
+            </ToolbarButton>
           </div>
 
           <div className="action-strip">
-            <button type="button" onClick={handleOpen}>
-              Open
-            </button>
-            <button type="button" onClick={() => void handleSave(false)}>
-              Save
-            </button>
-            <button type="button" onClick={() => void handleSave(true)}>
-              Save As
-            </button>
-            <button type="button" onClick={() => setBaseline(markdownText)}>
-              Set Base
-            </button>
-            <button type="button" onClick={() => setPatchText(generatedPatch)}>
-              Fill Patch
-            </button>
-            <button type="button" onClick={applyUnifiedPatch}>
-              Apply
-            </button>
+            <ToolbarButton label="Open" onClick={handleOpen}>
+              <OpenIcon />
+            </ToolbarButton>
+            <ToolbarButton label="Save" onClick={() => void handleSave(false)}>
+              <SaveIcon />
+            </ToolbarButton>
+            <ToolbarButton label="Save As" onClick={() => void handleSave(true)}>
+              <SaveAsIcon />
+            </ToolbarButton>
           </div>
         </header>
 
@@ -426,35 +447,6 @@ function App() {
                   )
                 })}
               </div>
-            </div>
-          </div>
-        ) : null}
-
-        {activePanel === 'diff' ? (
-          <div className="diff-grid compact-diff-grid">
-            <div className="panel full-panel">
-              <DiffEditor
-                height="100%"
-                language="markdown"
-                original={baseline}
-                modified={markdownText}
-                options={{
-                  readOnly: true,
-                  renderSideBySide: true,
-                  minimap: { enabled: false },
-                }}
-              />
-            </div>
-
-            <div className="panel patch-panel compact-patch-panel">
-              <textarea
-                value={patchText}
-                onChange={(event) => setPatchText(event.target.value)}
-                placeholder="Unified diff"
-              />
-              <pre className="generated-patch">
-                <code>{generatedPatch}</code>
-              </pre>
             </div>
           </div>
         ) : null}
