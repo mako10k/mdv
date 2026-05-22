@@ -63,7 +63,7 @@ const markdownParser = new MarkdownIt({
   .use(markdownItContainer, 'note')
 
 function splitMarkdownSegments(markdown: string): MarkdownSegment[] {
-  const fencePattern = /```([\w-]*)\n([\s\S]*?)```/g
+  const fencePattern = /```([\w-]*)\r?\n([\s\S]*?)```/g
   const segments: MarkdownSegment[] = []
   let currentIndex = 0
 
@@ -345,14 +345,14 @@ function App() {
               className={activePanel === 'write' ? 'active' : ''}
               onClick={() => setActivePanel('write')}
             >
-              Write
+              Editor
             </button>
             <button
               type="button"
               className={activePanel === 'preview' ? 'active' : ''}
               onClick={() => setActivePanel('preview')}
             >
-              Preview
+              Rendered
             </button>
             <button
               type="button"

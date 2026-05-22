@@ -106,11 +106,28 @@
   min-height: 0;
   border: none;
   border-radius: 0;
+  font-family: var(--sans);
+  color: var(--text);
 }
 
 .editor-panel .toastui-editor-main {
   flex: 1;
   min-height: 0;
+}
+
+.editor-panel .toastui-editor-contents,
+.editor-panel .toastui-editor-contents p,
+.editor-panel .toastui-editor-md-container .toastui-editor,
+.editor-panel .toastui-editor-md-preview,
+.editor-panel .ProseMirror {
+  font-family: var(--sans);
+  color: var(--text);
+}
+
+.editor-panel .toastui-editor-contents,
+.editor-panel .ProseMirror {
+  font-size: 14px;
+  line-height: 1.75;
 }
 
 .editor-panel .toastui-editor-toolbar {
@@ -155,6 +172,8 @@
 }
 
 .code-block-shell {
+  display: flex;
+  flex-direction: column;
   border-radius: 4px;
   background: #292524;
   color: #fafaf9;
@@ -170,9 +189,21 @@
 }
 
 .code-block-shell pre {
+  display: block;
   margin: 0;
   padding: 10px;
   overflow: auto;
+  font: 12px/1.6 var(--mono);
+  background: transparent;
+}
+
+.code-block-shell pre code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }
 
 .mermaid-block {
