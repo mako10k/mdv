@@ -4,8 +4,8 @@
   --bg: #fffaf4;
   --border: rgba(194, 65, 12, 0.16);
   --code-bg: #fff7ed;
-  --sans: 'IBM Plex Sans JP', 'Segoe UI', sans-serif;
-  --heading: 'Alegreya Sans SC', 'Yu Gothic UI', sans-serif;
+  --sans: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
+  --heading: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
   --mono: 'Cascadia Code', 'Consolas', monospace;
 
   font: 16px/1.5 var(--sans);
