@@ -1,0 +1,16 @@
+{
+    "productName":  "MarkDownViewer",
+    "version":  "0.1.9",
+    "releaseTag":  "v0.1.9",
+    "artifactSource":  "release",
+    "generatedAt":  "2026-06-08T03:10:29.7026086+00:00",
+    "artifacts":  {
+                      "portableExe":  "portable/MarkDownViewer-0.1.9-win.exe",
+                      "installerExe":  "installer/MarkDownViewer-0.1.9-win.exe",
+                      "installerBlockmap":  "installer/MarkDownViewer-0.1.9-win.exe.blockmap",
+                      "updaterManifest":  "installer/latest.yml",
+                      "winUnpackedExe":  "win-unpacked/MarkDownViewer.exe",
+                      "appArchive":  "win-unpacked/resources/app.asar",
+                      "updaterConfig":  "win-unpacked/resources/app-update.yml"
+                  }
+}

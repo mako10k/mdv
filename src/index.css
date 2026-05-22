@@ -1,0 +1,67 @@
+:root {
+  --text: #44403c;
+  --text-h: #1c1917;
+  --bg: #fffaf4;
+  --border: rgba(194, 65, 12, 0.16);
+  --code-bg: #fff7ed;
+  --sans: 'IBM Plex Sans JP', 'Segoe UI', sans-serif;
+  --heading: 'Alegreya Sans SC', 'Yu Gothic UI', sans-serif;
+  --mono: 'Cascadia Code', 'Consolas', monospace;
+
+  font: 16px/1.5 var(--sans);
+  letter-spacing: 0.18px;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(251, 191, 36, 0.22), transparent 24%),
+    linear-gradient(180deg, #fffbeb 0%, #fffaf4 100%);
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: clamp(2rem, 3vw, 3.4rem);
+  letter-spacing: -0.04em;
+  margin: 0 0 16px;
+}
+
+h2 {
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+p {
+  margin: 0;
+}
+
+code,
+pre,
+textarea,
+.monaco-editor {
+  font-family: var(--mono);
+}
+
+code {
+  font-size: 0.92rem;
+  line-height: 1.4;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--code-bg);
+}

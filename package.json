@@ -1,0 +1,73 @@
+{
+  "name": "mdv",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal Windows markdown editor with WYSIWYG, source, diff and patch support.",
+  "author": "GitHub Copilot",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:web": "vite",
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "tsc -b && vite build",
+    "start": "electron .",
+    "dist:win:host": "bash ./scripts/build-win-host.sh",
+    "dist:win:host:noadmin": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w ./scripts/build-win-host.ps1)\"",
+    "dist:win:dir": "npm run build && electron-builder --win dir",
+    "dist:win": "npm run build && electron-builder --win portable",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "local.mdv.editor",
+    "productName": "MDV Editor",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "artifactName": "MDV-Editor-${version}-${os}.${ext}",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "executableName": "MDV-Editor",
+      "target": [
+        "portable"
+      ]
+    }
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@toast-ui/editor": "^3.2.2",
+    "diff": "^8.0.2",
+    "markdown-it": "^14.1.0",
+    "markdown-it-container": "^4.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.12.1",
+    "monaco-editor": "^0.55.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.0",
+    "electron-builder": "^26.0.12",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12",
+    "wait-on": "^9.0.3"
+  }
+}

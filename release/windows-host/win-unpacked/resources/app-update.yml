@@ -1,0 +1,3 @@
+provider: generic
+url: https://github.com/mako10k/mdv/releases/latest/download
+updaterCacheDirName: mdv-updater

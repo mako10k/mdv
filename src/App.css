@@ -1,0 +1,225 @@
+.shell {
+  min-height: 100vh;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100vh;
+  background: #fbfbfb;
+}
+
+.workspace.dragging {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: #f3f3f3;
+}
+
+.title-strip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title-strip h1 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+
+.title-strip span {
+  font-size: 11px;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-switch,
+.action-strip {
+  display: flex;
+  gap: 4px;
+}
+
+.topbar button {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  color: #222;
+  border-radius: 4px;
+  padding: 4px 8px;
+  min-height: 28px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.topbar button.active {
+  background: #1f1f1f;
+  color: #fff;
+}
+
+.single-panel,
+.diff-grid {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  padding: 4px;
+}
+
+.compact-diff-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 4px;
+}
+
+.panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.full-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-panel .toastui-editor-defaultUI {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.editor-panel .toastui-editor-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.editor-panel .toastui-editor-toolbar {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.editor-panel .toastui-editor-md-tab-container,
+.editor-panel .toastui-editor-mode-switch {
+  margin: 0;
+}
+
+.toast-editor-host {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.preview-scroll {
+  overflow: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compact-preview {
+  font-size: 14px;
+}
+
+.markdown-fragment {
+  color: #292524;
+}
+
+.markdown-fragment p,
+.markdown-fragment ul,
+.markdown-fragment ol {
+  line-height: 1.75;
+}
+
+.markdown-fragment pre {
+  display: none;
+}
+
+.code-block-shell {
+  border-radius: 4px;
+  background: #292524;
+  color: #fafaf9;
+  overflow: hidden;
+}
+
+.code-block-header {
+  padding: 6px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.code-block-shell pre {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+}
+
+.mermaid-block {
+  border-radius: 4px;
+  background: #fff;
+  padding: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.patch-panel textarea {
+  min-height: 120px;
+  border: none;
+  resize: vertical;
+  padding: 8px;
+  font: 12px/1.5 var(--mono);
+  color: #1c1917;
+}
+
+.generated-patch {
+  margin: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 8px;
+  overflow: auto;
+  background: #fcfcfc;
+  flex: 1;
+}
+
+.statusbar {
+  min-height: 22px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: #f3f3f3;
+  font-size: 11px;
+  color: #666;
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .compact-diff-grid {
+    grid-template-columns: 1fr;
+  }
+}
