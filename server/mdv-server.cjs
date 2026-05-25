@@ -87,6 +87,8 @@ function loadInitialState() {
       phase: 'idle',
       suspendRequestedAt: null,
       resumeRequestedAt: null,
+      targetClientIds: [],
+      completedClientIds: [],
     },
   }
 
@@ -103,6 +105,10 @@ function loadInitialState() {
           ...fallbackState.server,
           ...(parsed.server || {}),
           activeScriptPath: __filename,
+        },
+        clientUpdate: {
+          ...fallbackState.clientUpdate,
+          ...(parsed.clientUpdate || {}),
         },
       }
     } catch {
@@ -387,7 +393,11 @@ function registerClient(payload) {
     updatedAt: now,
   }
 
-  if (state.clientUpdate.phase === 'resume-pending' && clientRecord.snapshot) {
+  if (
+    state.clientUpdate.phase === 'resume-pending' &&
+    clientRecord.snapshot &&
+    !hasPendingCommand(clientId, 'resume')
+  ) {
     enqueueCommand(clientId, {
       type: 'resume',
       requestId: randomUUID(),
@@ -404,6 +414,9 @@ function issueSuspendRequest(payload) {
   state.clientUpdate.suspendRequestedAt = new Date().toISOString()
 
   const targetedClients = Object.keys(state.clients)
+  state.clientUpdate.targetClientIds = targetedClients
+  state.clientUpdate.completedClientIds = []
+
   for (const clientId of targetedClients) {
     enqueueCommand(clientId, {
       type: 'suspend',
@@ -421,7 +434,14 @@ async function issueResumeRequest(payload) {
   state.clientUpdate.resumeRequestedAt = new Date().toISOString()
 
   const resumedClients = Object.keys(state.clients)
+  const relaunchedClientIds = []
+
   for (const clientId of resumedClients) {
+    if (shouldRelaunchClient(state.clients[clientId])) {
+      relaunchedClientIds.push(clientId)
+      continue
+    }
+
     enqueueCommand(clientId, {
       type: 'resume',
       requestId: randomUUID(),
@@ -431,17 +451,22 @@ async function issueResumeRequest(payload) {
     })
   }
 
-  const relaunchedClients = await relaunchStoppedClients()
+  state.clientUpdate.targetClientIds = resumedClients
+  state.clientUpdate.completedClientIds = []
+
+  const relaunchedClients = await relaunchClients(relaunchedClientIds)
   writeLog('INFO', 'client-update', 'resume-requested', { resumedClients, relaunchedClients })
 
   return resumedClients
 }
 
-async function relaunchStoppedClients() {
+async function relaunchClients(clientIds) {
   const relaunchedClients = []
 
-  for (const clientRecord of Object.values(state.clients)) {
-    if (clientRecord.status !== 'suspended' && clientRecord.status !== 'stopped') {
+  for (const clientId of clientIds) {
+    const clientRecord = state.clients[clientId]
+
+    if (!shouldRelaunchClient(clientRecord)) {
       continue
     }
 
@@ -456,12 +481,21 @@ async function relaunchStoppedClients() {
   return relaunchedClients
 }
 
+function shouldRelaunchClient(clientRecord) {
+  return clientRecord?.status === 'suspended' || clientRecord?.status === 'stopped'
+}
+
 function enqueueCommand(clientId, command) {
   if (!state.pendingCommands[clientId]) {
     state.pendingCommands[clientId] = []
   }
 
   state.pendingCommands[clientId].push(command)
+}
+
+function hasPendingCommand(clientId, commandType) {
+  const commands = state.pendingCommands[clientId] || []
+  return commands.some((command) => command.type === commandType)
 }
 
 function drainClientCommands(clientId) {
@@ -512,24 +546,40 @@ function recordClientCommandResult(clientId, payload) {
 
   if (payload?.type === 'suspend' && payload?.status === 'completed') {
     clientRecord.status = 'suspended'
+    markClientUpdateCompleted(clientId, 'suspending')
   }
 
   if (payload?.type === 'resume' && payload?.status === 'completed') {
     clientRecord.status = 'running'
-  }
-
-  if (payload?.type === 'resume' && payload?.status === 'completed') {
-    const hasPendingResume = Object.keys(state.clients).some((candidateClientId) => {
-      const commands = state.pendingCommands[candidateClientId] || []
-      return commands.some((command) => command.type === 'resume')
-    })
-
-    if (!hasPendingResume) {
-      state.clientUpdate.phase = 'idle'
-    }
+    markClientUpdateCompleted(clientId, 'resume-pending')
   }
 
   return clientRecord.lastCommandResult
+}
+
+function markClientUpdateCompleted(clientId, phase) {
+  if (state.clientUpdate.phase !== phase) {
+    return
+  }
+
+  if (!state.clientUpdate.completedClientIds.includes(clientId)) {
+    state.clientUpdate.completedClientIds.push(clientId)
+  }
+
+  const targetClientIds = state.clientUpdate.targetClientIds || []
+  if (targetClientIds.length === 0) {
+    state.clientUpdate.phase = 'idle'
+    state.clientUpdate.targetClientIds = []
+    state.clientUpdate.completedClientIds = []
+    return
+  }
+
+  const allCompleted = targetClientIds.every((targetClientId) => state.clientUpdate.completedClientIds.includes(targetClientId))
+  if (allCompleted) {
+    state.clientUpdate.phase = 'idle'
+    state.clientUpdate.targetClientIds = []
+    state.clientUpdate.completedClientIds = []
+  }
 }
 
 async function prepareServerCopy() {
