@@ -126,8 +126,10 @@ registry.set('mermaid', MermaidBlock)
 - 複数 client window/process の registry
 - client の state snapshot 保存
 - client update 向け suspend / resume command queue
+- resume 要求時に停止済み client を再起動し、再接続後に state を復元
 - server script 自身の copy 生成
 - copy へ handoff する failover 基盤
+- 更新済み script へ戻す failback 入口
 
 起動:
 
@@ -144,6 +146,7 @@ npm run server:start
 - `POST /api/updates/client/resume`
 - `POST /api/server/update/prepare-copy`
 - `POST /api/server/update/failover`
+- `POST /api/server/update/failback`
 
 client を server 配下で起動する場合は、server が child process 起動時に `MDV_SERVER_URL`, `MDV_CLIENT_ID`, `MDV_WINDOW_ID`, `MDV_ALLOW_MULTI_INSTANCE=1` を設定します。client 側はこれを検知して register/poll し、suspend 時に編集中状態を保存して終了し、resume 時に状態を復元します。
 

@@ -44,6 +44,7 @@ async function main() {
 
   await listenWithRetry(server, host, port, Boolean(restoreStatePath))
   writeLog('INFO', 'bootstrap', 'listening', { host, port })
+  void refreshPreparedCopy()
 }
 
 function parseCliOptions(argv) {
@@ -156,7 +157,7 @@ async function handleRequest(req, res) {
 
   if (req.method === 'POST' && pathname === '/api/updates/client/resume') {
     const payload = await readJson(req)
-    const resumedClients = issueResumeRequest(payload)
+    const resumedClients = await issueResumeRequest(payload)
     persistState()
     return writeJson(res, 202, {
       phase: state.clientUpdate.phase,
@@ -187,6 +188,27 @@ async function handleRequest(req, res) {
       targetScriptPath,
       handoffStatePath,
       message: 'handoff_scheduled',
+    })
+
+    res.on('finish', () => {
+      void handoffToReplacement(targetScriptPath, handoffStatePath)
+    })
+    return undefined
+  }
+
+  if (req.method === 'POST' && pathname === '/api/server/update/failback') {
+    const payload = await readJson(req)
+    const targetScriptPath = payload?.targetScriptPath
+
+    if (!targetScriptPath) {
+      return writeJson(res, 400, { error: 'missing_target_script_path' })
+    }
+
+    const handoffStatePath = await prepareHandoffState(targetScriptPath)
+    writeJson(res, 202, {
+      targetScriptPath,
+      handoffStatePath,
+      message: 'failback_scheduled',
     })
 
     res.on('finish', () => {
@@ -245,6 +267,7 @@ async function launchManagedWindow(payload) {
   const windowId = payload?.windowId || randomUUID()
   const clientId = payload?.clientId || windowId
   const filePath = typeof payload?.filePath === 'string' ? payload.filePath : null
+  const existingClientRecord = state.clients[clientId] || null
   const launcher = resolveClientLauncher()
   const child = spawn(launcher.command, [...launcher.args, ...(filePath ? [filePath] : [])], {
     cwd: launcher.cwd,
@@ -277,7 +300,7 @@ async function launchManagedWindow(payload) {
     status: 'launching',
     filePath,
     lastSeenAt: now,
-    snapshot: null,
+    snapshot: existingClientRecord?.snapshot || null,
     lastCommandResult: null,
   }
 
@@ -393,7 +416,7 @@ function issueSuspendRequest(payload) {
   return targetedClients
 }
 
-function issueResumeRequest(payload) {
+async function issueResumeRequest(payload) {
   state.clientUpdate.phase = 'resume-pending'
   state.clientUpdate.resumeRequestedAt = new Date().toISOString()
 
@@ -408,7 +431,29 @@ function issueResumeRequest(payload) {
     })
   }
 
+  const relaunchedClients = await relaunchStoppedClients()
+  writeLog('INFO', 'client-update', 'resume-requested', { resumedClients, relaunchedClients })
+
   return resumedClients
+}
+
+async function relaunchStoppedClients() {
+  const relaunchedClients = []
+
+  for (const clientRecord of Object.values(state.clients)) {
+    if (clientRecord.status !== 'suspended' && clientRecord.status !== 'stopped') {
+      continue
+    }
+
+    await launchManagedWindow({
+      clientId: clientRecord.clientId,
+      windowId: clientRecord.windowId,
+      filePath: clientRecord.filePath,
+    })
+    relaunchedClients.push(clientRecord.clientId)
+  }
+
+  return relaunchedClients
 }
 
 function enqueueCommand(clientId, command) {
@@ -496,6 +541,15 @@ async function prepareServerCopy() {
 
   writeLog('INFO', 'server-update', 'prepared-copy', { copyPath })
   return copyPath
+}
+
+async function refreshPreparedCopy() {
+  try {
+    state.server.preparedCopyPath = await prepareServerCopy()
+    persistState()
+  } catch (error) {
+    writeLog('ERROR', 'server-update', 'refreshPreparedCopy failed', error)
+  }
 }
 
 async function prepareHandoffState(targetScriptPath) {
