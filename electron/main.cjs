@@ -445,10 +445,11 @@ function createWindow(initialLaunchFilePath = null) {
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools({ mode: 'detach' })
-    return
+    return mainWindow
   }
 
   mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+  return mainWindow
 }
 
 const hasSingleInstanceLock = isManagedClient() ? true : app.requestSingleInstanceLock()
@@ -580,7 +581,7 @@ process.on('unhandledRejection', (reason) => {
 
 app.on('second-instance', (_event, argv) => {
   const filePath = resolveLaunchFilePath(argv)
-  const shouldOpenAdditionalWindow = process.platform === 'win32' && app.isPackaged && !isManagedClient()
+  const shouldOpenAdditionalWindow = Boolean(filePath) && !isManagedClient()
 
   if (shouldOpenAdditionalWindow) {
     const nextWindow = createWindow(filePath)

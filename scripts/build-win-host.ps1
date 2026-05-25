@@ -1,10 +1,16 @@
 param(
-  [string]$SourceRoot = "\\wsl.localhost\Ubuntu\home\katsumata-m\mdv",
+  [string]$SourceRoot,
   [string]$NodeVersion = "v22.22.3",
   [switch]$RequireElevation
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $SourceRoot) {
+  $SourceRoot = Split-Path (Split-Path $PSCommandPath -Parent) -Parent
+}
+
+$tempRoot = [System.IO.Path]::GetTempPath().TrimEnd('\')
 
 function Test-IsAdministrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -35,9 +41,9 @@ if ($RequireElevation -and -not (Test-IsAdministrator)) {
   Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion
 }
 
-$workRoot = Join-Path $env:TEMP 'mdv-winbuild'
-$nodeZip = Join-Path $env:TEMP "node-$NodeVersion-win-x64.zip"
-$nodeRoot = Join-Path $env:TEMP "node-$NodeVersion-win-x64"
+$workRoot = Join-Path $tempRoot 'mdv-winbuild'
+$nodeZip = Join-Path $tempRoot "node-$NodeVersion-win-x64.zip"
+$nodeRoot = Join-Path $tempRoot "node-$NodeVersion-win-x64"
 $artifactDest = Join-Path $SourceRoot 'release\windows-host'
 $localRunDest = Join-Path $env:LOCALAPPDATA 'MDV-Editor\latest'
 

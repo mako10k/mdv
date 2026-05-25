@@ -47,7 +47,7 @@ Linux / WSL での `electron-builder --win portable` は Wine を要求します
 Windows ホスト build 補助スクリプト:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '& "\\wsl.localhost\Ubuntu\home\katsumata-m\mdv\scripts\build-win-host.ps1"'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w ./scripts/build-win-host.ps1)"
 ```
 
 このスクリプトは UAC 昇格を要求します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
