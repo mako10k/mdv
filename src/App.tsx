@@ -252,6 +252,34 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
   return null
 }
 
+function resolveExternalAnchor(target: EventTarget | null): HTMLAnchorElement | null {
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  const anchor = target.closest('a[href]')
+
+  if (!(anchor instanceof HTMLAnchorElement)) {
+    return null
+  }
+
+  if (!anchor.href || anchor.hash === anchor.getAttribute('href')) {
+    return null
+  }
+
+  try {
+    const url = new URL(anchor.href)
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null
+    }
+
+    return anchor
+  } catch {
+    return null
+  }
+}
+
 type ToolbarButtonProps = {
   label: string
   active?: boolean
@@ -418,6 +446,37 @@ function App() {
       unsubscribe?.()
     }
   }, [handleOpen, handleSave])
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const anchor = resolveExternalAnchor(event.target)
+
+      if (!anchor) {
+        return
+      }
+
+      event.preventDefault()
+      void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
+        if (!result || result.status === 'opened') {
+          setStatusText(`Opened link: ${anchor.hostname}`)
+          return
+        }
+
+        if (result.status === 'cancelled') {
+          setStatusText('Cancelled external link')
+          return
+        }
+
+        setStatusText('Blocked external link')
+      })
+    }
+
+    document.addEventListener('click', handleDocumentClick, true)
+
+    return () => {
+      document.removeEventListener('click', handleDocumentClick, true)
+    }
+  }, [])
 
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault()

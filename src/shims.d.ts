@@ -36,6 +36,10 @@ type MdvSavePayload = {
   forceDialog?: boolean
 }
 
+type MdvExternalLinkResult = {
+  status: 'opened' | 'cancelled' | 'blocked'
+}
+
 type MdvMenuAction =
   | 'open'
   | 'save'
@@ -49,6 +53,7 @@ interface Window {
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     log: (level: string, scope: string, message: string) => void
     getLogPath: () => Promise<string>

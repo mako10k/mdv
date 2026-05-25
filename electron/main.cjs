@@ -5,6 +5,7 @@ const path = require('node:path')
 
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
+const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -12,6 +13,127 @@ app.commandLine.appendSwitch('disable-gpu-compositing')
 app.setAppLogsPath()
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
+let allowedLinkRules = loadAllowedLinkRules()
+
+function loadAllowedLinkRules() {
+  try {
+    const raw = fs.readFileSync(allowedLinkRulesPath, 'utf8')
+    const parsed = JSON.parse(raw)
+
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.filter((rule) => typeof rule === 'string' && rule.length > 0)
+  } catch {
+    return []
+  }
+}
+
+function saveAllowedLinkRules() {
+  fs.mkdirSync(path.dirname(allowedLinkRulesPath), { recursive: true })
+  fs.writeFileSync(allowedLinkRulesPath, JSON.stringify(allowedLinkRules, null, 2), 'utf8')
+}
+
+function isSupportedExternalUrl(targetUrl) {
+  return targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:'
+}
+
+function createAllowedLinkRule(targetUrl) {
+  return `${targetUrl.origin}/*`
+}
+
+function isUrlAllowed(targetUrl) {
+  return allowedLinkRules.some((rule) => {
+    if (rule.endsWith('*')) {
+      return targetUrl.href.startsWith(rule.slice(0, -1))
+    }
+
+    return targetUrl.href === rule
+  })
+}
+
+function registerAllowedLinkRule(rule) {
+  if (allowedLinkRules.includes(rule)) {
+    return
+  }
+
+  allowedLinkRules = [...allowedLinkRules, rule]
+  saveAllowedLinkRules()
+}
+
+async function confirmExternalNavigation(parentWindow, targetUrl) {
+  const suggestedRule = createAllowedLinkRule(targetUrl)
+  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+    type: 'warning',
+    buttons: ['許可リストに登録して表示', '今回のみ表示', '表示しない'],
+    defaultId: 1,
+    cancelId: 2,
+    title: '未許可の外部サイトです',
+    message: '未許可の外部サイトを開こうとしています。',
+    detail: `URL: ${targetUrl.href}\n登録候補: ${suggestedRule}`,
+    noLink: true,
+  })
+
+  if (response.response === 0) {
+    registerAllowedLinkRule(suggestedRule)
+    return true
+  }
+
+  return response.response === 1
+}
+
+function createExternalBrowserWindow(parentWindow, targetUrl) {
+  const externalWindow = new BrowserWindow({
+    width: 1280,
+    height: 900,
+    minWidth: 900,
+    minHeight: 640,
+    parent: parentWindow ?? undefined,
+    backgroundColor: '#ffffff',
+    autoHideMenuBar: false,
+    icon: windowIcon,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+
+  externalWindow.removeMenu()
+  externalWindow.loadURL(targetUrl.href)
+  return externalWindow
+}
+
+async function openExternalLink(parentWindow, href) {
+  let targetUrl
+
+  try {
+    targetUrl = new URL(href)
+  } catch {
+    writeLog('WARN', 'link', 'Invalid URL', href)
+    return { status: 'blocked' }
+  }
+
+  if (!isSupportedExternalUrl(targetUrl)) {
+    writeLog('WARN', 'link', 'Unsupported protocol', targetUrl.href)
+    return { status: 'blocked' }
+  }
+
+  if (!isUrlAllowed(targetUrl)) {
+    const confirmed = await confirmExternalNavigation(parentWindow, targetUrl)
+
+    if (!confirmed) {
+      writeLog('INFO', 'link', 'Blocked by confirmation dialog', targetUrl.href)
+      return { status: 'cancelled' }
+    }
+  }
+
+  createExternalBrowserWindow(parentWindow, targetUrl)
+  writeLog('INFO', 'link', 'Opened in external browser window', targetUrl.href)
+
+  return { status: 'opened' }
+}
 
 function serializeLogValue(value) {
   if (value instanceof Error) {
@@ -193,6 +315,16 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.handle('mdv:open-external-link', async (event, href) => {
+  if (typeof href !== 'string' || href.length === 0) {
+    writeLog('WARN', 'ipc', 'open-external-link received invalid URL', href)
+    return { status: 'blocked' }
+  }
+
+  const parentWindow = BrowserWindow.fromWebContents(event.sender)
+  return openExternalLink(parentWindow, href)
 })
 
 ipcMain.handle('mdv:save-file', async (_event, payload) => {

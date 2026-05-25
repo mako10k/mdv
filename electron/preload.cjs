@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
+  openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
   onMenuAction: (callback) => {
     const wrappedListener = (_event, action) => {
       callback(action)
