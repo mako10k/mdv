@@ -222,6 +222,36 @@ function basename(filePath: string | null): string {
   return parts.at(-1) || 'Untitled.md'
 }
 
+function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
+  return event.ctrlKey || event.metaKey
+}
+
+function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
+  if (event.defaultPrevented || event.isComposing || !isPrimaryModifierPressed(event)) {
+    return null
+  }
+
+  const key = event.key.toLowerCase()
+
+  if (key === 'o') {
+    return 'open'
+  }
+
+  if (key === 's') {
+    return event.shiftKey ? 'save-as' : 'save'
+  }
+
+  if (key === '1') {
+    return 'show-editor'
+  }
+
+  if (key === '2') {
+    return 'show-preview'
+  }
+
+  return null
+}
+
 type ToolbarButtonProps = {
   label: string
   active?: boolean
@@ -334,6 +364,61 @@ function App() {
     setStatusText(`Saved ${basename(result.path)}`)
   }
 
+  const runDesktopAction = (action: MdvMenuAction) => {
+    if (action === 'open') {
+      void handleOpen()
+      return
+    }
+
+    if (action === 'save') {
+      void handleSave(false)
+      return
+    }
+
+    if (action === 'save-as') {
+      void handleSave(true)
+      return
+    }
+
+    if (action === 'show-editor') {
+      setActivePanel('write')
+      setStatusText('Switched to editor')
+      return
+    }
+
+    setActivePanel('preview')
+    setStatusText('Switched to preview')
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const action = getActionForShortcut(event)
+
+      if (!action) {
+        return
+      }
+
+      event.preventDefault()
+      runDesktopAction(action)
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [handleOpen, handleSave])
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onMenuAction((action) => {
+      runDesktopAction(action)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [handleOpen, handleSave])
+
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
     setIsDraggingFile(false)
@@ -385,22 +470,22 @@ function App() {
           </div>
 
           <div className="view-switch">
-            <ToolbarButton label="Editor" active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
+            <ToolbarButton label="Editor (Ctrl/Cmd+1)" active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
               <EditorIcon />
             </ToolbarButton>
-            <ToolbarButton label="Rendered" active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
+            <ToolbarButton label="Rendered (Ctrl/Cmd+2)" active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
               <RenderedIcon />
             </ToolbarButton>
           </div>
 
           <div className="action-strip">
-            <ToolbarButton label="Open" onClick={handleOpen}>
+            <ToolbarButton label="Open (Ctrl/Cmd+O)" onClick={handleOpen}>
               <OpenIcon />
             </ToolbarButton>
-            <ToolbarButton label="Save" onClick={() => void handleSave(false)}>
+            <ToolbarButton label="Save (Ctrl/Cmd+S)" onClick={() => void handleSave(false)}>
               <SaveIcon />
             </ToolbarButton>
-            <ToolbarButton label="Save As" onClick={() => void handleSave(true)}>
+            <ToolbarButton label="Save As (Ctrl/Cmd+Shift+S)" onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
           </div>
@@ -452,7 +537,7 @@ function App() {
         ) : null}
 
         <div className="statusbar">
-          <span>Drop a .md or .txt file anywhere to open it</span>
+          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, S, Shift+S, 1, 2</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
       </section>

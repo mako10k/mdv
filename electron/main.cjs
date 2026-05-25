@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
@@ -73,6 +73,69 @@ function attachWindowLogging(mainWindow) {
   mainWindow.webContents.on('did-finish-load', () => {
     writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
   })
+}
+
+function sendMenuAction(action) {
+  const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+
+  if (!targetWindow) {
+    writeLog('WARN', 'menu', 'No window available for action', action)
+    return
+  }
+
+  writeLog('INFO', 'menu', 'Dispatch action', action)
+  targetWindow.webContents.send('mdv:menu-action', action)
+}
+
+function createApplicationMenu() {
+  const template = [
+    ...(process.platform === 'darwin'
+      ? [{ role: 'appMenu' }]
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => sendMenuAction('open'),
+        },
+        {
+          label: 'Save',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendMenuAction('save'),
+        },
+        {
+          label: 'Save As',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => sendMenuAction('save-as'),
+        },
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Editor',
+          accelerator: 'CmdOrCtrl+1',
+          click: () => sendMenuAction('show-editor'),
+        },
+        {
+          label: 'Rendered Preview',
+          accelerator: 'CmdOrCtrl+2',
+          click: () => sendMenuAction('show-preview'),
+        },
+        { type: 'separator' },
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+      ],
+    },
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function createWindow() {
@@ -190,6 +253,7 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   writeLog('INFO', 'main', 'app.whenReady resolved')
+  createApplicationMenu()
   createWindow()
 
   app.on('activate', () => {

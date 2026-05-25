@@ -36,12 +36,20 @@ type MdvSavePayload = {
   forceDialog?: boolean
 }
 
+type MdvMenuAction =
+  | 'open'
+  | 'save'
+  | 'save-as'
+  | 'show-editor'
+  | 'show-preview'
+
 interface Window {
   mdvDesktop?: {
     platform: string
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     log: (level: string, scope: string, message: string) => void
     getLogPath: () => Promise<string>
   }
