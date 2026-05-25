@@ -89,6 +89,7 @@ function loadInitialState() {
       resumeRequestedAt: null,
       targetClientIds: [],
       completedClientIds: [],
+      lastSuspendedClientIds: [],
     },
   }
 
@@ -413,9 +414,10 @@ function issueSuspendRequest(payload) {
   state.clientUpdate.phase = 'suspending'
   state.clientUpdate.suspendRequestedAt = new Date().toISOString()
 
-  const targetedClients = Object.keys(state.clients)
+  const targetedClients = getSuspendTargetClientIds()
   state.clientUpdate.targetClientIds = targetedClients
   state.clientUpdate.completedClientIds = []
+  state.clientUpdate.lastSuspendedClientIds = targetedClients
 
   for (const clientId of targetedClients) {
     enqueueCommand(clientId, {
@@ -433,7 +435,7 @@ async function issueResumeRequest(payload) {
   state.clientUpdate.phase = 'resume-pending'
   state.clientUpdate.resumeRequestedAt = new Date().toISOString()
 
-  const resumedClients = Object.keys(state.clients)
+  const resumedClients = getResumeTargetClientIds()
   const relaunchedClientIds = []
 
   for (const clientId of resumedClients) {
@@ -458,6 +460,24 @@ async function issueResumeRequest(payload) {
   writeLog('INFO', 'client-update', 'resume-requested', { resumedClients, relaunchedClients })
 
   return resumedClients
+}
+
+function getSuspendTargetClientIds() {
+  return Object.values(state.clients)
+    .filter((clientRecord) => clientRecord?.status === 'running')
+    .map((clientRecord) => clientRecord.clientId)
+}
+
+function getResumeTargetClientIds() {
+  const previousTargetIds = (state.clientUpdate.lastSuspendedClientIds || []).filter((clientId) => Boolean(state.clients[clientId]))
+
+  if (previousTargetIds.length > 0) {
+    return previousTargetIds
+  }
+
+  return Object.values(state.clients)
+    .filter((clientRecord) => clientRecord && clientRecord.status !== 'stopped')
+    .map((clientRecord) => clientRecord.clientId)
 }
 
 async function relaunchClients(clientIds) {
@@ -579,6 +599,9 @@ function markClientUpdateCompleted(clientId, phase) {
     state.clientUpdate.phase = 'idle'
     state.clientUpdate.targetClientIds = []
     state.clientUpdate.completedClientIds = []
+    if (phase === 'resume-pending') {
+      state.clientUpdate.lastSuspendedClientIds = []
+    }
   }
 }
 

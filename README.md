@@ -150,7 +150,7 @@ npm run server:start
 
 client を server 配下で起動する場合は、server が child process 起動時に `MDV_SERVER_URL`, `MDV_CLIENT_ID`, `MDV_WINDOW_ID`, `MDV_ALLOW_MULTI_INSTANCE=1` を設定します。client 側はこれを検知して register/poll し、suspend 時に編集中状態を保存して終了し、resume 時に状態を復元します。
 
-`GET /api/status` の `clientUpdate` には、更新中フェーズに加えて `targetClientIds` と `completedClientIds` が含まれます。これで suspend / resume の進捗を server 側から追跡できます。
+`GET /api/status` の `clientUpdate` には、更新中フェーズに加えて `targetClientIds`、`completedClientIds`、`lastSuspendedClientIds` が含まれます。これで suspend / resume の進捗と、次回 resume の再起動対象を server 側から追跡できます。
 
 補足:
 
