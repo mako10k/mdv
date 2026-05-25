@@ -40,6 +40,21 @@ type MdvExternalLinkResult = {
   status: 'opened' | 'cancelled' | 'blocked'
 }
 
+type MdvClientSnapshot = {
+  markdownText: string
+  currentFilePath: string | null
+  activePanel: 'write' | 'preview'
+  themeMode: 'system' | 'light' | 'dark'
+}
+
+type MdvServerCommand = {
+  type: 'suspend' | 'resume'
+  requestId: string
+  snapshot?: MdvClientSnapshot | null
+  reason?: string
+  requestedAt?: string
+}
+
 type MdvMenuAction =
   | 'open'
   | 'save'
@@ -54,6 +69,13 @@ interface Window {
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
+    onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
+    sendServerCommandResult: (payload: {
+      requestId: string
+      type: 'suspend' | 'resume'
+      status: 'completed' | 'failed'
+      snapshot?: MdvClientSnapshot | null
+    }) => void
     onOpenFileRequested: (callback: (filePath: string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     log: (level: string, scope: string, message: string) => void

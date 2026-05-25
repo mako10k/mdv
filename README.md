@@ -114,4 +114,41 @@ registry.set('mermaid', MermaidBlock)
 - [src/App.tsx](src/App.tsx): UI、本体ロジック、renderer registry
 - [electron/main.cjs](electron/main.cjs): Electron メインプロセス、ファイルダイアログ、保存処理
 - [electron/preload.cjs](electron/preload.cjs): renderer へ公開する desktop API
+- [server/mdv-server.cjs](server/mdv-server.cjs): MDV-Server。multi-window 母艦、client suspend/resume、server handoff の入口
 - [build/icon.ico](build/icon.ico): Windows アプリ用アイコン
+
+## MDV-Server
+
+最近の定石として、更新対象プロセス自身に「自分を書き換えてそのまま生き続ける」責務を持たせるより、更新対象の前段に supervisor を置き、side-by-side copy と handoff で切り替えるほうが安全です。MDV-Server はその前提で追加しています。
+
+今回の初期実装で入っているもの:
+
+- 複数 client window/process の registry
+- client の state snapshot 保存
+- client update 向け suspend / resume command queue
+- server script 自身の copy 生成
+- copy へ handoff する failover 基盤
+
+起動:
+
+```bash
+npm run server:start
+```
+
+主な API:
+
+- `GET /health`
+- `GET /api/status`
+- `POST /api/windows/open`
+- `POST /api/updates/client/suspend`
+- `POST /api/updates/client/resume`
+- `POST /api/server/update/prepare-copy`
+- `POST /api/server/update/failover`
+
+client を server 配下で起動する場合は、server が child process 起動時に `MDV_SERVER_URL`, `MDV_CLIENT_ID`, `MDV_WINDOW_ID`, `MDV_ALLOW_MULTI_INSTANCE=1` を設定します。client 側はこれを検知して register/poll し、suspend 時に編集中状態を保存して終了し、resume 時に状態を復元します。
+
+補足:
+
+- Electron の標準 `autoUpdater` は配布形式依存で、Windows でも Squirrel/MSIX の前提や制約があります。
+- Windows の Restart Manager も更新中の graceful shutdown には有効ですが、アプリ本体の自己置換を単独で安全化するものではありません。
+- そのため、このリポジトリでは外部 supervisor での handoff を先に採用しています。

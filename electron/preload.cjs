@@ -6,6 +6,18 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
+  onServerCommand: (callback) => {
+    const wrappedListener = (_event, command) => {
+      callback(command)
+    }
+
+    ipcRenderer.on('mdv:server-command', wrappedListener)
+
+    return () => {
+      ipcRenderer.removeListener('mdv:server-command', wrappedListener)
+    }
+  },
+  sendServerCommandResult: (payload) => ipcRenderer.send('mdv:server-command-result', payload),
   onOpenFileRequested: (callback) => {
     const wrappedListener = (_event, filePath) => {
       callback(filePath)

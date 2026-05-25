@@ -411,6 +411,21 @@ function App() {
     document.title = `${basename(currentFilePath)} - MDV`
   }, [currentFilePath])
 
+  const buildClientSnapshot = (): MdvClientSnapshot => ({
+    markdownText,
+    currentFilePath,
+    activePanel,
+    themeMode,
+  })
+
+  const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
+    setMarkdownText(snapshot.markdownText)
+    setCurrentFilePath(snapshot.currentFilePath)
+    setActivePanel(snapshot.activePanel)
+    setThemeMode(snapshot.themeMode)
+    editorRef.current?.setMarkdown(snapshot.markdownText)
+  }
+
   const loadFilePayload = (payload: MdvFilePayload | null) => {
     if (!payload) {
       return
@@ -491,6 +506,38 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [handleOpen, handleSave])
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onServerCommand((command) => {
+      if (command.type === 'suspend') {
+        const snapshot = buildClientSnapshot()
+        setStatusText('Suspending for update')
+        window.mdvDesktop?.sendServerCommandResult({
+          requestId: command.requestId,
+          type: 'suspend',
+          status: 'completed',
+          snapshot,
+        })
+        return
+      }
+
+      if (command.type === 'resume' && command.snapshot) {
+        applyClientSnapshot(command.snapshot)
+      }
+
+      setStatusText('Resumed from server state')
+      window.mdvDesktop?.sendServerCommandResult({
+        requestId: command.requestId,
+        type: 'resume',
+        status: 'completed',
+        snapshot: command.snapshot || buildClientSnapshot(),
+      })
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [activePanel, currentFilePath, markdownText, themeMode])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((filePath) => {

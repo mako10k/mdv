@@ -9,6 +9,7 @@
   "scripts": {
     "dev:web": "vite",
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "server:start": "node ./server/mdv-server.cjs",
     "build": "tsc -b && vite build",
     "start": "electron .",
     "dist:win:host": "bash ./scripts/build-win-host.sh",

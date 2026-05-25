@@ -6,6 +6,9 @@ const path = require('node:path')
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
+const managedServerUrl = process.env.MDV_SERVER_URL || null
+const managedClientId = process.env.MDV_CLIENT_ID || null
+const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -15,6 +18,13 @@ app.setAppLogsPath()
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
 let allowedLinkRules = loadAllowedLinkRules()
 let pendingLaunchFilePath = resolveLaunchFilePath(process.argv)
+let managedMainWindow = null
+let commandPollTimer = null
+const pendingServerRequests = new Map()
+
+function isManagedClient() {
+  return Boolean(managedServerUrl && managedClientId && managedWindowId)
+}
 
 function getFileArgumentStartIndex() {
   return process.defaultApp ? 2 : 1
@@ -55,6 +65,14 @@ function dispatchOpenFileToWindow(targetWindow, filePath) {
 
   writeLog('INFO', 'main', 'Dispatch launch/open file request', filePath)
   targetWindow.webContents.send('mdv:open-file-requested', filePath)
+}
+
+function dispatchServerCommand(command) {
+  if (!managedMainWindow || managedMainWindow.isDestroyed()) {
+    return
+  }
+
+  managedMainWindow.webContents.send('mdv:server-command', command)
 }
 
 function queueOrDispatchOpenFile(filePath) {
@@ -169,6 +187,97 @@ async function openExternalLink(parentWindow, href) {
   writeLog('INFO', 'link', 'Opened in default browser', targetUrl.href)
 
   return { status: 'opened' }
+}
+
+async function postServerJson(routePath, payload) {
+  if (!managedServerUrl) {
+    return null
+  }
+
+  const response = await fetch(new URL(routePath, managedServerUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload ?? {}),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Server request failed: ${response.status} ${routePath}`)
+  }
+
+  return response.json()
+}
+
+async function getServerJson(routePath) {
+  if (!managedServerUrl) {
+    return null
+  }
+
+  const response = await fetch(new URL(routePath, managedServerUrl))
+
+  if (!response.ok) {
+    throw new Error(`Server request failed: ${response.status} ${routePath}`)
+  }
+
+  return response.json()
+}
+
+async function registerManagedClient(window) {
+  if (!isManagedClient()) {
+    return
+  }
+
+  const registration = {
+    clientId: managedClientId,
+    windowId: managedWindowId,
+    pid: process.pid,
+    filePath: pendingLaunchFilePath,
+    version: app.getVersion(),
+  }
+
+  await postServerJson('/api/clients/register', registration)
+  writeLog('INFO', 'server-client', 'registered', registration)
+
+  if (commandPollTimer) {
+    clearInterval(commandPollTimer)
+  }
+
+  commandPollTimer = setInterval(() => {
+    void pollManagedServerCommands(window)
+  }, 1000)
+
+  void pollManagedServerCommands(window)
+}
+
+async function pollManagedServerCommands(window) {
+  if (!isManagedClient() || !window || window.isDestroyed()) {
+    return
+  }
+
+  const payload = await getServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/commands`)
+  const commands = Array.isArray(payload?.commands) ? payload.commands : []
+
+  for (const command of commands) {
+    await handleManagedServerCommand(window, command)
+  }
+}
+
+async function handleManagedServerCommand(window, command) {
+  if (!command || typeof command.type !== 'string') {
+    return
+  }
+
+  writeLog('INFO', 'server-client', 'command', command)
+
+  if (command.type === 'suspend') {
+    pendingServerRequests.set(command.requestId, { type: 'suspend' })
+    dispatchServerCommand(command)
+    return
+  }
+
+  if (command.type === 'resume') {
+    pendingServerRequests.set(command.requestId, { type: 'resume' })
+    dispatchServerCommand(command)
+  }
 }
 
 function serializeLogValue(value) {
@@ -319,7 +428,14 @@ function createWindow() {
   })
 
   attachWindowLogging(mainWindow)
+  managedMainWindow = mainWindow
   writeLog('INFO', 'main', 'BrowserWindow created')
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (isManagedClient()) {
+      void registerManagedClient(mainWindow)
+    }
+  })
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173')
@@ -330,7 +446,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
+const hasSingleInstanceLock = isManagedClient() ? true : app.requestSingleInstanceLock()
 
 if (!hasSingleInstanceLock) {
   app.quit()
@@ -415,6 +531,32 @@ ipcMain.on('mdv:log', (_event, payload) => {
   writeLog(level.toUpperCase(), scope, message)
 })
 
+ipcMain.on('mdv:server-command-result', (_event, payload) => {
+  if (!isManagedClient() || !payload?.requestId) {
+    return
+  }
+
+  const pendingRequest = pendingServerRequests.get(payload.requestId)
+
+  if (pendingRequest?.type === 'suspend') {
+    pendingServerRequests.delete(payload.requestId)
+  }
+
+  void postServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/state`, {
+    snapshot: payload.snapshot || null,
+    filePath: payload.snapshot?.currentFilePath || null,
+    status: payload.type === 'suspend' ? 'suspended' : 'running',
+  })
+
+  void postServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/command-result`, payload)
+
+  if (payload.type === 'suspend' && payload.status === 'completed') {
+    setTimeout(() => {
+      app.quit()
+    }, 100)
+  }
+})
+
 ipcMain.handle('mdv:get-log-path', () => logFilePath)
 
 app.on('web-contents-created', (_event, contents) => {
@@ -458,6 +600,10 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   writeLog('INFO', 'main', 'window-all-closed')
+  if (commandPollTimer) {
+    clearInterval(commandPollTimer)
+    commandPollTimer = null
+  }
   if (process.platform !== 'darwin') {
     app.quit()
   }
