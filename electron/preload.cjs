@@ -1,5 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+const pendingOpenFileRequests = []
+const openFileRequestListeners = new Set()
+
+ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
+  if (openFileRequestListeners.size === 0) {
+    pendingOpenFileRequests.push(filePath)
+    return
+  }
+
+  for (const listener of openFileRequestListeners) {
+    listener(filePath)
+  }
+})
+
 contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
@@ -19,14 +33,18 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   },
   sendServerCommandResult: (payload) => ipcRenderer.send('mdv:server-command-result', payload),
   onOpenFileRequested: (callback) => {
-    const wrappedListener = (_event, filePath) => {
+    const wrappedListener = (filePath) => {
       callback(filePath)
     }
 
-    ipcRenderer.on('mdv:open-file-requested', wrappedListener)
+    openFileRequestListeners.add(wrappedListener)
+
+    while (pendingOpenFileRequests.length > 0) {
+      wrappedListener(pendingOpenFileRequests.shift())
+    }
 
     return () => {
-      ipcRenderer.removeListener('mdv:open-file-requested', wrappedListener)
+      openFileRequestListeners.delete(wrappedListener)
     }
   },
   onMenuAction: (callback) => {
