@@ -1,9 +1,26 @@
 :root {
-  --text: #44403c;
-  --text-h: #1c1917;
-  --bg: #fffaf4;
-  --border: rgba(194, 65, 12, 0.16);
-  --code-bg: #fff7ed;
+  --text: #312e2b;
+  --text-muted: #6b655e;
+  --text-h: #171412;
+  --bg: #f6f2ea;
+  --bg-elevated: rgba(255, 252, 247, 0.88);
+  --bg-panel: #fffdf9;
+  --bg-panel-strong: #f7f0e5;
+  --bg-toolbar: rgba(249, 244, 236, 0.94);
+  --bg-status: rgba(244, 238, 229, 0.94);
+  --bg-hover: rgba(186, 128, 64, 0.12);
+  --bg-active: #2e251d;
+  --bg-active-text: #fffdf8;
+  --border: rgba(120, 92, 56, 0.18);
+  --border-strong: rgba(91, 69, 42, 0.26);
+  --shadow: 0 18px 44px rgba(89, 58, 16, 0.09);
+  --link: #b45309;
+  --link-hover: #92400e;
+  --code-bg: #f4eadb;
+  --code-border: rgba(143, 97, 40, 0.14);
+  --code-shell-bg: #201a16;
+  --code-shell-text: #f9f5ef;
+  --selection: rgba(217, 119, 6, 0.18);
   --sans: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
   --heading: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
   --mono: 'Cascadia Code', 'Consolas', monospace;
@@ -18,6 +35,31 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --text: #e7ded3;
+  --text-muted: #b6ab9d;
+  --text-h: #fff7f0;
+  --bg: #151311;
+  --bg-elevated: rgba(28, 24, 21, 0.88);
+  --bg-panel: #1b1815;
+  --bg-panel-strong: #25201c;
+  --bg-toolbar: rgba(33, 28, 24, 0.94);
+  --bg-status: rgba(28, 24, 21, 0.94);
+  --bg-hover: rgba(245, 158, 11, 0.14);
+  --bg-active: #f1e5d6;
+  --bg-active-text: #1d1712;
+  --border: rgba(241, 229, 214, 0.14);
+  --border-strong: rgba(241, 229, 214, 0.24);
+  --shadow: 0 22px 54px rgba(0, 0, 0, 0.36);
+  --link: #fbbf24;
+  --link-hover: #fcd34d;
+  --code-bg: #2c251f;
+  --code-border: rgba(251, 191, 36, 0.12);
+  --code-shell-bg: #0f0d0b;
+  --code-shell-text: #f7efe5;
+  --selection: rgba(245, 158, 11, 0.28);
+}
+
 #root {
   min-height: 100vh;
 }
@@ -25,8 +67,20 @@
 body {
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(251, 191, 36, 0.22), transparent 24%),
-    linear-gradient(180deg, #fffbeb 0%, #fffaf4 100%);
+    radial-gradient(circle at top left, rgba(251, 191, 36, 0.18), transparent 24%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, #ffffff 12%) 0%, var(--bg) 100%);
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  color: var(--text);
+}
+
+::selection {
+  background: var(--selection);
 }
 
 h1,
@@ -64,4 +118,5 @@ code {
   padding: 2px 6px;
   border-radius: 8px;
   background: var(--code-bg);
+  border: 1px solid var(--code-border);
 }

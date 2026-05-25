@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
@@ -14,6 +14,64 @@ app.setAppLogsPath()
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
 let allowedLinkRules = loadAllowedLinkRules()
+let pendingLaunchFilePath = resolveLaunchFilePath(process.argv)
+
+function getFileArgumentStartIndex() {
+  return process.defaultApp ? 2 : 1
+}
+
+function resolveLaunchFilePath(argv) {
+  for (const candidate of argv.slice(getFileArgumentStartIndex())) {
+    if (typeof candidate !== 'string' || candidate.length === 0 || candidate.startsWith('-')) {
+      continue
+    }
+
+    const resolvedPath = path.resolve(candidate)
+
+    try {
+      if (fs.statSync(resolvedPath).isFile()) {
+        return resolvedPath
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+function focusWindow(window) {
+  if (window.isMinimized()) {
+    window.restore()
+  }
+
+  window.focus()
+}
+
+function dispatchOpenFileToWindow(targetWindow, filePath) {
+  if (!targetWindow || !filePath) {
+    return
+  }
+
+  writeLog('INFO', 'main', 'Dispatch launch/open file request', filePath)
+  targetWindow.webContents.send('mdv:open-file-requested', filePath)
+}
+
+function queueOrDispatchOpenFile(filePath) {
+  if (!filePath) {
+    return
+  }
+
+  const targetWindow = BrowserWindow.getAllWindows()[0]
+
+  if (!targetWindow || targetWindow.webContents.isLoading()) {
+    pendingLaunchFilePath = filePath
+    writeLog('INFO', 'main', 'Queued launch file path', filePath)
+    return
+  }
+
+  dispatchOpenFileToWindow(targetWindow, filePath)
+}
 
 function loadAllowedLinkRules() {
   try {
@@ -83,28 +141,6 @@ async function confirmExternalNavigation(parentWindow, targetUrl) {
   return response.response === 1
 }
 
-function createExternalBrowserWindow(parentWindow, targetUrl) {
-  const externalWindow = new BrowserWindow({
-    width: 1280,
-    height: 900,
-    minWidth: 900,
-    minHeight: 640,
-    parent: parentWindow ?? undefined,
-    backgroundColor: '#ffffff',
-    autoHideMenuBar: false,
-    icon: windowIcon,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-
-  externalWindow.removeMenu()
-  externalWindow.loadURL(targetUrl.href)
-  return externalWindow
-}
-
 async function openExternalLink(parentWindow, href) {
   let targetUrl
 
@@ -129,8 +165,8 @@ async function openExternalLink(parentWindow, href) {
     }
   }
 
-  createExternalBrowserWindow(parentWindow, targetUrl)
-  writeLog('INFO', 'link', 'Opened in external browser window', targetUrl.href)
+  await shell.openExternal(targetUrl.href)
+  writeLog('INFO', 'link', 'Opened in default browser', targetUrl.href)
 
   return { status: 'opened' }
 }
@@ -194,6 +230,12 @@ function attachWindowLogging(mainWindow) {
 
   mainWindow.webContents.on('did-finish-load', () => {
     writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
+
+    if (pendingLaunchFilePath) {
+      const filePath = pendingLaunchFilePath
+      pendingLaunchFilePath = null
+      dispatchOpenFileToWindow(mainWindow, filePath)
+    }
   })
 }
 
@@ -286,6 +328,12 @@ function createWindow() {
   }
 
   mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
 }
 
 ipcMain.handle('mdv:open-file', async () => {
@@ -381,6 +429,19 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason) => {
   writeLog('ERROR', 'process', 'unhandledRejection', reason)
+})
+
+app.on('second-instance', (_event, argv) => {
+  const targetWindow = BrowserWindow.getAllWindows()[0]
+  const filePath = resolveLaunchFilePath(argv)
+
+  if (targetWindow) {
+    focusWindow(targetWindow)
+  }
+
+  if (filePath) {
+    queueOrDispatchOpenFile(filePath)
+  }
 })
 
 app.whenReady().then(() => {

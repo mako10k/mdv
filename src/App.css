@@ -7,11 +7,12 @@
   flex-direction: column;
   min-width: 0;
   min-height: 100vh;
-  background: #fbfbfb;
+  background: var(--bg-elevated);
+  color: var(--text);
 }
 
 .workspace.dragging {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--link);
   outline-offset: -2px;
 }
 
@@ -21,8 +22,9 @@
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  background: #f3f3f3;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-toolbar);
+  backdrop-filter: blur(16px);
 }
 
 .title-strip {
@@ -42,7 +44,7 @@
 
 .title-strip span {
   font-size: 11px;
-  color: #666;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -51,23 +53,33 @@
 .view-switch,
 .action-strip {
   display: flex;
+  align-items: center;
   gap: 4px;
 }
 
 .topbar button {
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background: #ffffff;
-  color: #222;
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  border-radius: 8px;
   padding: 4px 8px;
   min-height: 28px;
   font-size: 12px;
   cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.topbar button:hover,
+.topbar button:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  outline: none;
 }
 
 .topbar button.active {
-  background: #1f1f1f;
-  color: #fff;
+  background: var(--bg-active);
+  color: var(--bg-active-text);
+  border-color: transparent;
 }
 
 .topbar .icon-button {
@@ -84,11 +96,36 @@
   height: 16px;
 }
 
+.theme-select-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.theme-select {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  min-width: 86px;
+}
+
+.theme-select:focus {
+  outline: none;
+}
+
 .single-panel {
   flex: 1;
   display: flex;
   min-height: 0;
-  padding: 4px;
+  padding: 10px;
 }
 
 .panel {
@@ -96,10 +133,11 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 
 .full-panel {
@@ -115,35 +153,86 @@
   border-radius: 0;
   font-family: var(--sans);
   color: var(--text);
+  background: var(--bg-panel);
 }
 
 .editor-panel .toastui-editor-main {
   flex: 1;
   min-height: 0;
+  background: var(--bg-panel);
 }
 
 .editor-panel .toastui-editor-contents,
 .editor-panel .toastui-editor-contents p,
 .editor-panel .toastui-editor-md-container .toastui-editor,
 .editor-panel .toastui-editor-md-preview,
-.editor-panel .ProseMirror {
+.editor-panel .ProseMirror,
+.markdown-fragment {
   font-family: var(--sans);
   color: var(--text);
 }
 
 .editor-panel .toastui-editor-contents,
-.editor-panel .ProseMirror {
+.editor-panel .toastui-editor-md-preview,
+.editor-panel .ProseMirror,
+.compact-preview {
   font-size: 14px;
   line-height: 1.75;
 }
 
 .editor-panel .toastui-editor-toolbar {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-strong);
 }
 
 .editor-panel .toastui-editor-md-tab-container,
 .editor-panel .toastui-editor-mode-switch {
   margin: 0;
+}
+
+.editor-panel .toastui-editor-mode-switch .tab-item,
+.editor-panel .toastui-editor-tabs .tab-item {
+  color: var(--text-muted);
+}
+
+.editor-panel .toastui-editor-mode-switch .active,
+.editor-panel .toastui-editor-tabs .active {
+  color: var(--text-h);
+  background: var(--bg-panel);
+}
+
+.editor-panel .toastui-editor-toolbar button,
+.editor-panel .toastui-editor-toolbar-icons {
+  color: var(--text);
+}
+
+.editor-panel .toastui-editor-md-container,
+.editor-panel .toastui-editor-ww-container,
+.editor-panel .toastui-editor-md-preview {
+  background: var(--bg-panel);
+}
+
+.editor-panel .toastui-editor-md-container {
+  border-right: 1px solid var(--border);
+}
+
+.editor-panel .toastui-editor-md-container .toastui-editor,
+.editor-panel .toastui-editor-md-preview,
+.editor-panel .toastui-editor-ww-container .ProseMirror {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.editor-panel .toastui-editor-md-container .toastui-editor,
+.editor-panel .toastui-editor-md-preview,
+.editor-panel .toastui-editor-ww-container .ProseMirror,
+.compact-preview {
+  padding: 22px 24px;
+}
+
+.editor-panel .toastui-editor-md-container .toastui-editor::selection,
+.editor-panel .toastui-editor-ww-container .ProseMirror ::selection {
+  background: var(--selection);
 }
 
 .toast-editor-host {
@@ -154,24 +243,132 @@
 
 .preview-scroll {
   overflow: auto;
-  padding: 10px 12px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 
 .compact-preview {
   font-size: 14px;
 }
 
-.markdown-fragment {
-  color: #292524;
-}
-
+.editor-panel .toastui-editor-contents p,
+.editor-panel .toastui-editor-contents ul,
+.editor-panel .toastui-editor-contents ol,
+.editor-panel .ProseMirror p,
+.editor-panel .ProseMirror ul,
+.editor-panel .ProseMirror ol,
 .markdown-fragment p,
 .markdown-fragment ul,
-.markdown-fragment ol {
+.markdown-fragment ol,
+.markdown-fragment blockquote,
+.editor-panel .toastui-editor-contents blockquote,
+.editor-panel .ProseMirror blockquote {
   line-height: 1.75;
+}
+
+.editor-panel .toastui-editor-contents h1,
+.editor-panel .toastui-editor-contents h2,
+.editor-panel .toastui-editor-contents h3,
+.editor-panel .toastui-editor-contents h4,
+.editor-panel .ProseMirror h1,
+.editor-panel .ProseMirror h2,
+.editor-panel .ProseMirror h3,
+.editor-panel .ProseMirror h4,
+.markdown-fragment h1,
+.markdown-fragment h2,
+.markdown-fragment h3,
+.markdown-fragment h4 {
+  margin: 1.4em 0 0.6em;
+  color: var(--text-h);
+  line-height: 1.18;
+}
+
+.editor-panel .toastui-editor-contents h1,
+.editor-panel .ProseMirror h1,
+.markdown-fragment h1 {
+  font-size: 1.9rem;
+}
+
+.editor-panel .toastui-editor-contents h2,
+.editor-panel .ProseMirror h2,
+.markdown-fragment h2 {
+  font-size: 1.45rem;
+}
+
+.editor-panel .toastui-editor-contents h3,
+.editor-panel .ProseMirror h3,
+.markdown-fragment h3 {
+  font-size: 1.15rem;
+}
+
+.editor-panel .toastui-editor-contents a,
+.editor-panel .ProseMirror a,
+.markdown-fragment a {
+  color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.editor-panel .toastui-editor-contents a:hover,
+.editor-panel .ProseMirror a:hover,
+.markdown-fragment a:hover {
+  color: var(--link-hover);
+}
+
+.editor-panel .toastui-editor-contents blockquote,
+.editor-panel .ProseMirror blockquote,
+.markdown-fragment blockquote {
+  margin: 1em 0;
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--link);
+  background: var(--bg-panel-strong);
+  color: var(--text-muted);
+}
+
+.editor-panel .toastui-editor-contents hr,
+.editor-panel .ProseMirror hr,
+.markdown-fragment hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+
+.editor-panel .toastui-editor-contents table,
+.editor-panel .ProseMirror table,
+.markdown-fragment table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.editor-panel .toastui-editor-contents th,
+.editor-panel .toastui-editor-contents td,
+.editor-panel .ProseMirror th,
+.editor-panel .ProseMirror td,
+.markdown-fragment th,
+.markdown-fragment td {
+  border: 1px solid var(--border);
+  padding: 0.65em 0.75em;
+}
+
+.editor-panel .toastui-editor-contents th,
+.editor-panel .ProseMirror th,
+.markdown-fragment th {
+  background: var(--bg-panel-strong);
+  color: var(--text-h);
+}
+
+.editor-panel .toastui-editor-contents code,
+.editor-panel .ProseMirror code,
+.markdown-fragment code {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  color: var(--text);
 }
 
 .markdown-fragment pre {
@@ -181,10 +378,11 @@
 .code-block-shell {
   display: flex;
   flex-direction: column;
-  border-radius: 4px;
-  background: #292524;
-  color: #fafaf9;
+  border-radius: 12px;
+  background: var(--code-shell-bg);
+  color: var(--code-shell-text);
   overflow: hidden;
+  border: 1px solid var(--border);
 }
 
 .code-block-header {
@@ -214,10 +412,10 @@
 }
 
 .mermaid-block {
-  border-radius: 4px;
-  background: #fff;
-  padding: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  padding: 14px;
+  border: 1px solid var(--border);
 }
 
 .statusbar {
@@ -227,15 +425,23 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  background: #f3f3f3;
+  border-top: 1px solid var(--border);
+  background: var(--bg-status);
   font-size: 11px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 @media (max-width: 1100px) {
   .topbar {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .single-panel {
+    padding: 8px;
+  }
+
+  .theme-select-shell {
+    order: -1;
   }
 }

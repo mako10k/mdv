@@ -19,6 +19,7 @@ import '@toast-ui/editor/dist/toastui-editor.css'
 type CodeBlockProps = {
   code: string
   language: string
+  theme: ResolvedTheme
 }
 
 type CodeBlockRenderer = (props: CodeBlockProps) => ReactElement
@@ -26,6 +27,11 @@ type CodeBlockRenderer = (props: CodeBlockProps) => ReactElement
 type MarkdownSegment =
   | { type: 'markdown'; value: string }
   | { type: 'code'; language: string; code: string }
+
+type ThemeMode = 'system' | 'light' | 'dark'
+type ResolvedTheme = 'light' | 'dark'
+
+const themeStorageKey = 'mdv-theme-mode'
 
 const initialDocument = `# MDV Editor
 
@@ -99,6 +105,24 @@ function DefaultCodeBlock({ code, language }: CodeBlockProps) {
   )
 }
 
+function readStoredThemeMode(): ThemeMode {
+  const storedValue = window.localStorage.getItem(themeStorageKey)
+
+  if (storedValue === 'light' || storedValue === 'dark' || storedValue === 'system') {
+    return storedValue
+  }
+
+  return 'system'
+}
+
+function getSystemTheme(): ResolvedTheme {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function resolveTheme(themeMode: ThemeMode): ResolvedTheme {
+  return themeMode === 'system' ? getSystemTheme() : themeMode
+}
+
 type EditorSurfaceProps = {
   value: string
   onChange: (nextMarkdown: string) => void
@@ -155,13 +179,13 @@ function EditorSurface({ value, onChange, editorRef }: EditorSurfaceProps) {
   return <div className="toast-editor-host" ref={hostRef} />
 }
 
-function MermaidBlock({ code }: CodeBlockProps) {
+function MermaidBlock({ code, theme }: CodeBlockProps) {
   const [svg, setSvg] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    mermaid.initialize({ startOnLoad: false, theme: 'neutral' })
-  }, [])
+    mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'neutral' })
+  }, [theme])
 
   useEffect(() => {
     let active = true
@@ -187,10 +211,10 @@ function MermaidBlock({ code }: CodeBlockProps) {
     return () => {
       active = false
     }
-  }, [code])
+  }, [code, theme])
 
   if (error) {
-    return <DefaultCodeBlock code={code} language="mermaid error" />
+    return <DefaultCodeBlock code={code} language="mermaid error" theme={theme} />
   }
 
   return (
@@ -348,14 +372,40 @@ function SaveAsIcon() {
 }
 
 function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode())
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme())
   const [markdownText, setMarkdownText] = useState(initialDocument)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>('write')
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
   const [statusText, setStatusText] = useState('Ready')
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const editorRef = useRef<ToastUiEditor | null>(null)
+  const resolvedTheme = useMemo(
+    () => (themeMode === 'system' ? systemTheme : resolveTheme(themeMode)),
+    [systemTheme, themeMode],
+  )
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme
+    document.documentElement.dataset.themeMode = themeMode
+    window.localStorage.setItem(themeStorageKey, themeMode)
+  }, [resolvedTheme, themeMode])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = () => {
+      setSystemTheme(mediaQuery.matches ? 'dark' : 'light')
+    }
+
+    handleChange()
+    mediaQuery.addEventListener('change', handleChange)
+
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+    }
+  }, [])
 
   useEffect(() => {
     document.title = `${basename(currentFilePath)} - MDV`
@@ -374,6 +424,11 @@ function App() {
 
   const handleOpen = async () => {
     const payload = await window.mdvDesktop?.openFile()
+    loadFilePayload(payload ?? null)
+  }
+
+  const handleOpenByPath = async (filePath: string) => {
+    const payload = await window.mdvDesktop?.readFile(filePath)
     loadFilePayload(payload ?? null)
   }
 
@@ -436,6 +491,16 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [handleOpen, handleSave])
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onOpenFileRequested((filePath) => {
+      void handleOpenByPath(filePath)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onMenuAction((action) => {
@@ -538,6 +603,18 @@ function App() {
           </div>
 
           <div className="action-strip">
+            <label className="theme-select-shell" title="Theme">
+              <span>Theme</span>
+              <select
+                className="theme-select"
+                value={themeMode}
+                onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
             <ToolbarButton label="Open (Ctrl/Cmd+O)" onClick={handleOpen}>
               <OpenIcon />
             </ToolbarButton>
@@ -587,6 +664,7 @@ function App() {
                       key={`code-${index}`}
                       code={segment.code}
                       language={segment.language}
+                      theme={resolvedTheme}
                     />
                   )
                 })}

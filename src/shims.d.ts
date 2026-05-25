@@ -54,6 +54,7 @@ interface Window {
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
+    onOpenFileRequested: (callback: (filePath: string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     log: (level: string, scope: string, message: string) => void
     getLogPath: () => Promise<string>
