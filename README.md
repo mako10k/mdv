@@ -90,6 +90,7 @@ npm run dist:win:dir
 - portable の単一 EXE 化は、Windows 側で symlink 展開権限が無いと `winCodeSign` 展開時に失敗することがあります。
 - その場合でも `win-unpacked` は生成されるため、standalone アプリとしては利用できます。
 - `\\wsl.localhost\...` の UNC パス上の exe は GPU subprocess 起動に失敗することがあるため、Windows ローカルへコピーされた exe を起動してください。
+- Windows の packaged binary は 2 回目以降の起動で既存 process を再利用しつつ、新しい editor window を追加で開きます。
 - 白画面や起動失敗のときは `%APPDATA%\MDV Editor\logs\mdv.log` を確認してください。
 
 ## ファイル操作

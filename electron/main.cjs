@@ -316,7 +316,7 @@ async function readUtf8File(filePath) {
   }
 }
 
-function attachWindowLogging(mainWindow) {
+function attachWindowLogging(mainWindow, initialLaunchFilePath = null) {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     writeLog('ERROR', 'webContents', 'did-fail-load', {
       errorCode,
@@ -339,6 +339,11 @@ function attachWindowLogging(mainWindow) {
 
   mainWindow.webContents.on('did-finish-load', () => {
     writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
+
+    if (initialLaunchFilePath) {
+      dispatchOpenFileToWindow(mainWindow, initialLaunchFilePath)
+      return
+    }
 
     if (pendingLaunchFilePath) {
       const filePath = pendingLaunchFilePath
@@ -411,7 +416,7 @@ function createApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function createWindow() {
+function createWindow(initialLaunchFilePath = null) {
   const mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
@@ -427,7 +432,7 @@ function createWindow() {
     },
   })
 
-  attachWindowLogging(mainWindow)
+  attachWindowLogging(mainWindow, initialLaunchFilePath)
   managedMainWindow = mainWindow
   writeLog('INFO', 'main', 'BrowserWindow created')
 
@@ -574,8 +579,16 @@ process.on('unhandledRejection', (reason) => {
 })
 
 app.on('second-instance', (_event, argv) => {
-  const targetWindow = BrowserWindow.getAllWindows()[0]
   const filePath = resolveLaunchFilePath(argv)
+  const shouldOpenAdditionalWindow = process.platform === 'win32' && app.isPackaged && !isManagedClient()
+
+  if (shouldOpenAdditionalWindow) {
+    const nextWindow = createWindow(filePath)
+    focusWindow(nextWindow)
+    return
+  }
+
+  const targetWindow = BrowserWindow.getAllWindows()[0]
 
   if (targetWindow) {
     focusWindow(targetWindow)
@@ -589,7 +602,9 @@ app.on('second-instance', (_event, argv) => {
 app.whenReady().then(() => {
   writeLog('INFO', 'main', 'app.whenReady resolved')
   createApplicationMenu()
-  createWindow()
+  const initialFilePath = pendingLaunchFilePath
+  pendingLaunchFilePath = null
+  createWindow(initialFilePath)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
