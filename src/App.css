@@ -354,6 +354,23 @@
 .markdown-fragment td {
   border: 1px solid var(--border);
   padding: 0.65em 0.75em;
+  color: var(--text);
+  background: var(--bg-panel);
+}
+
+.editor-panel .toastui-editor-md-table,
+.editor-panel .toastui-editor-md-table-cell {
+  border-color: var(--border);
+}
+
+.editor-panel .toastui-editor-md-table .toastui-editor-md-table-cell {
+  color: var(--text);
+  background: var(--bg-panel);
+}
+
+.editor-panel .toastui-editor-md-table .toastui-editor-md-table-cell.header {
+  color: var(--text-h);
+  background: var(--bg-panel-strong);
 }
 
 .editor-panel .toastui-editor-contents th,
