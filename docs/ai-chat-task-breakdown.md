@@ -4,7 +4,7 @@
 
 [docs/ai-chat-design.md](docs/ai-chat-design.md) を実装へ落とすための作業分解。
 
-方針は、最大の技術リスクである editor selection 操作を先に切り分け、その後に chat window、OpenAI 接続、tool bridge を段階導入すること。
+方針は、まず settings 基盤を main process 正本で固め、その上で最大の技術リスクである editor selection 操作を切り分け、chat window、OpenAI 接続、tool bridge を段階導入すること。
 
 ## Track 0: Feasibility Checks
 
@@ -106,11 +106,18 @@
 
 - main process に OpenAI client wrapper を追加する
 - API キー未設定時のエラーを定義する
-- model と base URL を環境変数から読めるようにする
+- settings store から model と base URL を読めるようにする
+- 環境変数 fallback を補助経路として残す
 
 完了条件:
 
 - main process 単体で会話 API を呼べる
+
+前提:
+
+- settings window scaffold
+- settings preload bridge
+- provider configured state の取得経路
 
 ### T3-2 Non-tool chat flow
 
@@ -259,6 +266,7 @@
 
 - Web fetch は初期スコープ外であることを docs と実装境界で明示する
 - HTML 本文取得や危険 URL 対策は別トラックへ分離する
+- 既存の `allowed-link-rules.json` は legacy の read-only 参照として維持し、fetch 用 allowlist 統合は後段へ送る
 
 完了条件:
 
@@ -292,6 +300,20 @@
 - 典型操作で過剰変更が減る
 
 ## Milestone Proposal
+
+### Milestone S
+
+- settings window scaffold
+- auxiliary settings window classification
+- settings.json store
+- preload settings bridge
+- theme source-of-truth migration start
+- provider configured state
+- legacy allowed-link-rules.json read-only 参照
+
+成果:
+
+- AI 実装の前提となる settings 基盤が成立する
 
 ### Milestone A
 
@@ -351,12 +373,21 @@
 
 最初の実装スライスは次にする。
 
+- settings window scaffold
+- auxiliary settings window classification
+- settings.json store
+- preload settings bridge
+- theme の source-of-truth 移行開始
+- provider configured state
+
+settings 導入後の次スライスは次にする。
+
 - Toast UI の selection 可否調査
 - Ctrl+I とメニュー action 追加
 - chat window の空 UI 作成
 
 理由:
 
-- 最大リスクを早く潰せる
-- UI と main process の接点を先に安定化できる
-- OpenAI 接続前でも進捗が目に見える
+- provider 設定の正本を先に固められる
+- 複数 window で共有する theme と configured state を先に安定化できる
+- その後の selection 調査と chat window 実装を手戻り少なく進められる

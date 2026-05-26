@@ -358,10 +358,17 @@ type ChatMessage = {
 
 ### Environment Variables
 
-- OPENAI_API_KEY
-- MDV_OPENAI_MODEL
-- MDV_OPENAI_BASE_URL optional
-- TAVILY_API_KEY optional
+- OPENAI_API_KEY fallback
+- MDV_OPENAI_MODEL fallback
+- MDV_OPENAI_BASE_URL optional fallback
+- TAVILY_API_KEY optional fallback
+
+Settings 実装後の優先順位:
+
+1. settings store
+2. environment variable fallback
+
+環境変数は、settings UI 未設定時の bootstrap と managed deployment の補助経路として残す。
 
 ### System Prompt Policy
 
@@ -406,6 +413,12 @@ main process から chat window へ送るイベント:
 7. editor tool の場合は editor window へ IPC を送る
 8. 結果を OpenAI へ返し最終応答を得る
 9. chat window に assistant message と tool log を流す
+
+補足:
+
+- settings window はこの editor/chat 対応関係には含めない auxiliary window として扱う
+- settings window は AI target resolution や editor menu routing の対象外とする
+- settings window は managed client の suspend/resume snapshot 対象からも外す
 
 ## Editor Responsibilities
 
@@ -454,9 +467,20 @@ grep は release、dist、node_modules などを既定除外する必要があ�
 
 fetch を同時に入れると、レスポンスサイズ制御、本文抽出、allowlist、危険 URL 回避、リダイレクト制御など論点が急増する。
 
+既存の `allowed-link-rules.json` は初期段階では legacy の read-only 参照として維持し、fetch 用 allowlist の統合は後段に分離する。
+
 そのため初期の Web 機能は Tavily による検索結果取得だけに限定する。
 
 ## Recommended Phases
+
+### Phase 0
+
+- settings window scaffold
+- auxiliary settings window classification
+- settings.json store
+- preload settings bridge
+- theme source-of-truth migration start
+- provider configured state
 
 ### Phase 1
 
