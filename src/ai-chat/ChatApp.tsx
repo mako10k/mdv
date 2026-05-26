@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
 import ChatMarkdown from './ChatMarkdown'
 
 type Message = {
   id: string
-  role: 'system' | 'assistant'
+  role: 'tool' | 'assistant' | 'user'
   content: string
+  title?: string
 }
 
 type ExternalAnchor = {
@@ -15,14 +16,14 @@ type ExternalAnchor = {
 
 const initialMessages: Message[] = [
   {
-    id: 'system-welcome',
-    role: 'system',
-    content: 'AI chat window is ready. Context lookup, document read, selection read, and AI write actions are wired in this scaffold.',
+    id: 'assistant-welcome',
+    role: 'assistant',
+    content: 'AI chat window scaffold is ready. Explicit context should be attached with the buttons below, not typed manually.',
   },
   {
     id: 'assistant-placeholder',
     role: 'assistant',
-    content: 'Planned next tools: new editor output, grep, Tavily web search, and OpenAI orchestration.',
+    content: 'OpenAI orchestration is still the next stage. For now, use the context buttons to pull the active editor state into this transcript.',
   },
 ]
 
@@ -59,11 +60,6 @@ function resolveExternalAnchor(target: EventTarget | null): ExternalAnchor | nul
   }
 }
 
-function getWriteSelectionPermission(): boolean {
-  const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
-  return bootstrap?.settings.ai.toolPermissions.writeActiveSelection !== false
-}
-
 function formatContext(context: MdvAiContextPayload | null): string {
   if (!context) {
     return 'No editor context available.'
@@ -81,42 +77,14 @@ function formatContext(context: MdvAiContextPayload | null): string {
 
 function ChatApp() {
   const { resolvedTheme } = useDesktopTheme()
-  const [contextText, setContextText] = useState('Loading editor context...')
-  const [documentPreview, setDocumentPreview] = useState('')
-  const [selectionPreview, setSelectionPreview] = useState('')
-  const [selectionWriteResult, setSelectionWriteResult] = useState('')
-  const [composerText, setComposerText] = useState('# Rewritten by AI bridge\n\nReplace this text from the AI chat window.')
+  const transcriptRef = useRef<HTMLElement | null>(null)
+  const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const [composerText, setComposerText] = useState('')
   const [statusText, setStatusText] = useState('Scaffold + IPC')
-  const [canWriteSelection, setCanWriteSelection] = useState(() => getWriteSelectionPermission())
 
-  useEffect(() => {
-    void window.mdvDesktop?.getAiChatContext()
-      .then((context) => {
-        setContextText(formatContext(context ?? null))
-      })
-      .catch((error: unknown) => {
-        setContextText(error instanceof Error ? error.message : String(error))
-      })
-  }, [])
-
-  useEffect(() => {
-    const settingsApi = window.mdvDesktop?.settings
-    const unsubscribe = settingsApi?.onSettingsChanged((settings) => {
-      setCanWriteSelection(settings.ai.toolPermissions.writeActiveSelection)
-    })
-
-    void settingsApi?.getSettings()
-      .then((settings) => {
-        setCanWriteSelection(settings.ai.toolPermissions.writeActiveSelection)
-      })
-      .catch(() => {
-        setCanWriteSelection(getWriteSelectionPermission())
-      })
-
-    return () => {
-      unsubscribe?.()
-    }
-  }, [])
+  const appendMessage = (message: Message) => {
+    setMessages((currentMessages) => [...currentMessages, message])
+  }
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -149,16 +117,33 @@ function ChatApp() {
     }
   }, [])
 
+  useEffect(() => {
+    transcriptRef.current?.scrollTo({
+      top: transcriptRef.current.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [messages])
+
   const handleRefreshContext = () => {
     setStatusText('Refreshing context')
     void window.mdvDesktop?.getAiChatContext()
       .then((context) => {
-        setContextText(formatContext(context ?? null))
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'get_context',
+          content: formatContext(context ?? null),
+        })
         setStatusText('Context refreshed')
       })
       .catch((error: unknown) => {
         setStatusText('Context failed')
-        setContextText(error instanceof Error ? error.message : String(error))
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'get_context',
+          content: error instanceof Error ? error.message : String(error),
+        })
       })
   }
 
@@ -166,11 +151,21 @@ function ChatApp() {
     setStatusText('Reading active document')
     void window.mdvDesktop?.readAiActiveDocument()
       .then((payload) => {
-        setDocumentPreview(payload?.text ?? '')
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'read active:document',
+          content: payload?.text ?? '',
+        })
         setStatusText('Document loaded')
       })
       .catch((error: unknown) => {
-        setDocumentPreview(error instanceof Error ? error.message : String(error))
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'read active:document',
+          content: error instanceof Error ? error.message : String(error),
+        })
         setStatusText('Read failed')
       })
   }
@@ -179,44 +174,57 @@ function ChatApp() {
     setStatusText('Reading selection')
     void window.mdvDesktop?.readAiActiveSelection()
       .then((payload) => {
-        setSelectionPreview(payload?.text ?? '')
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'read active:selection',
+          content: payload?.text ?? '',
+        })
         setStatusText('Selection loaded')
       })
       .catch((error: unknown) => {
-        setSelectionPreview(error instanceof Error ? error.message : String(error))
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'tool',
+          title: 'read active:selection',
+          content: error instanceof Error ? error.message : String(error),
+        })
         setStatusText('Selection failed')
       })
   }
 
-  const handleWriteDocument = () => {
-    setStatusText('Writing active document')
-    void window.mdvDesktop?.writeAiActiveDocument({ content: composerText })
-      .then((payload) => {
-        setDocumentPreview(payload?.text ?? composerText)
-        setStatusText('Document updated')
-      })
-      .catch((error: unknown) => {
-        setStatusText('Write failed')
-        setDocumentPreview(error instanceof Error ? error.message : String(error))
-      })
-  }
+  const handleSendMessage = () => {
+    const trimmedMessage = composerText.trim()
 
-  const handleWriteSelection = () => {
-    if (!canWriteSelection) {
-      setStatusText('Selection write disabled in settings')
+    if (!trimmedMessage) {
       return
     }
 
-    setStatusText('Writing active selection')
-    void window.mdvDesktop?.writeAiActiveSelection({ content: composerText })
-      .then((payload) => {
-        setSelectionWriteResult(payload?.text ?? composerText)
-        setStatusText('Selection updated')
-      })
-      .catch((error: unknown) => {
-        setStatusText('Selection write failed')
-        setSelectionWriteResult(error instanceof Error ? error.message : String(error))
-      })
+    appendMessage({
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: trimmedMessage,
+    })
+    setComposerText('')
+    setStatusText('Assistant runtime not connected yet')
+    appendMessage({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: 'Message received. Model execution is not wired yet, so this window currently collects explicit context and will host normal assistant replies in the next stage.',
+    })
+  }
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) {
+      return
+    }
+
+    if (event.key !== 'Enter' || event.shiftKey) {
+      return
+    }
+
+    event.preventDefault()
+    handleSendMessage()
   }
 
   return (
@@ -225,6 +233,7 @@ function ChatApp() {
         <div>
           <p className="ai-chat-eyebrow">MDV Assistant</p>
           <h1>AI Chat</h1>
+          <p className="ai-chat-subtitle">Explicit context comes from buttons. Settings are available from this window and Ctrl/Cmd+,.</p>
         </div>
         <div className="ai-chat-header-actions">
           <button type="button" className="ai-chat-secondary" onClick={() => void window.mdvDesktop?.openSettingsWindow()}>
@@ -234,71 +243,46 @@ function ChatApp() {
         </div>
       </header>
 
-      <section className="ai-chat-transcript" aria-label="AI chat transcript">
-        {initialMessages.map((message) => (
+      <section ref={transcriptRef} className="ai-chat-transcript" aria-label="AI chat transcript">
+        {messages.map((message) => (
           <article
             key={message.id}
-            className={message.role === 'assistant' ? 'chat-bubble assistant' : 'chat-bubble system'}
+            className={`chat-bubble ${message.role}`}
           >
+            {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
             <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
           </article>
         ))}
-
-        <article className="chat-bubble system">
-          <p className="chat-bubble-title">get_context</p>
-          <pre className="chat-bubble-pre">{contextText}</pre>
-        </article>
-
-        {documentPreview ? (
-          <article className="chat-bubble assistant">
-            <p className="chat-bubble-title">read active:document</p>
-            <ChatMarkdown markdown={documentPreview} theme={resolvedTheme} />
-          </article>
-        ) : null}
-
-        {selectionPreview ? (
-          <article className="chat-bubble assistant">
-            <p className="chat-bubble-title">read active:selection</p>
-            <ChatMarkdown markdown={selectionPreview} theme={resolvedTheme} />
-          </article>
-        ) : null}
-
-        {selectionWriteResult ? (
-          <article className="chat-bubble assistant">
-            <p className="chat-bubble-title">write active:selection</p>
-            <ChatMarkdown markdown={selectionWriteResult} theme={resolvedTheme} />
-          </article>
-        ) : null}
       </section>
 
       <footer className="ai-chat-composer-shell">
-        <label className="ai-chat-composer-label" htmlFor="ai-chat-input">
-          Composer
-        </label>
+        <div className="ai-chat-context-row">
+          <span className="ai-chat-composer-label">Context</span>
+          <div className="ai-chat-actions">
+            <button type="button" className="ai-chat-chip" onClick={handleRefreshContext}>
+              Current Editor
+            </button>
+            <button type="button" className="ai-chat-chip" onClick={handleReadDocument}>
+              Whole Document
+            </button>
+            <button type="button" className="ai-chat-chip" onClick={handleReadSelection}>
+              Selection
+            </button>
+          </div>
+        </div>
         <textarea
           id="ai-chat-input"
           className="ai-chat-composer"
-          placeholder="Type replacement markdown for write active:document or write active:selection."
+          placeholder="Send a message to the assistant. Shift+Enter inserts a newline."
           value={composerText}
           onChange={(event) => setComposerText(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
         />
         <div className="ai-chat-footer-row">
-          <span>Shortcut: Ctrl/Cmd+I opens this window.</span>
+          <span>Shortcuts: Ctrl/Cmd+I opens chat, Ctrl/Cmd+, opens settings.</span>
           <div className="ai-chat-actions">
-            <button type="button" className="ai-chat-send" onClick={handleRefreshContext}>
-              Refresh Context
-            </button>
-            <button type="button" className="ai-chat-send" onClick={handleReadDocument}>
-              Read Document
-            </button>
-            <button type="button" className="ai-chat-send" onClick={handleReadSelection}>
-              Read Selection
-            </button>
-            <button type="button" className="ai-chat-send" onClick={handleWriteDocument}>
-              Write Document
-            </button>
-            <button type="button" className="ai-chat-send" onClick={handleWriteSelection} disabled={!canWriteSelection}>
-              Write Selection
+            <button type="button" className="ai-chat-send" onClick={handleSendMessage}>
+              Send
             </button>
           </div>
         </div>

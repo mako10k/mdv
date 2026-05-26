@@ -6,7 +6,12 @@
 
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 
-## Goals
+注記:
+
+- 現在の実装は chat window / settings 導線 / explicit context 添付 UI までの scaffold 段階である
+- OpenAI 実行、write / grep / web_search / list_editors のモデル主導 tool orchestration は後続フェーズで追加する
+
+## Target Goals
 
 - Ctrl+I またはメニューから AI チャットウィンドウを開けること
 - チャットウィンドウは上部に Markdown 対応チャットバブル、下部に固定入力欄を持つこと
@@ -16,6 +21,14 @@
 - AI がワークスペース grep 相当の検索を行えること
 - AI が Tavily を使った Web 検索を行えること
 - OpenAI API キーを renderer に露出しないこと
+
+## Current Scaffold Scope
+
+- Ctrl+I またはメニューから AI チャットウィンドウを開けること
+- chat window は上部に transcript、下部に固定入力欄を持つこと
+- Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
+- chat / editor の両 window と Ctrl+, から settings window を開けること
+- AI 応答バブルは Markdown を描画できること
 
 ## Non-Goals For Initial Scope
 
@@ -57,7 +70,7 @@
 - ユーザ入力の送信
 - AI 応答の Markdown レンダリング
 - ツール呼び出しログの表示
-- 対象 editor 情報の表示
+- 明示的に添付した editor context の表示
 
 ### 3. Main Process AI Orchestrator
 
@@ -77,7 +90,7 @@
 
 AI が使う操作面。
 
-初期ツール:
+最終的な tool surface:
 
 - read
 - write
@@ -85,6 +98,12 @@ AI が使う操作面。
 - web_search
 - list_editors
 - get_context
+
+現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
+
+- get_context
+- read active:document
+- read active:selection
 
 ## Why Separate Chat Window
 
@@ -99,17 +118,20 @@ AI が使う操作面。
 
 - Ctrl+I
 - メニューの AI Chat
+- Ctrl+, または各 window の Settings ボタンから settings window を開ける
 
 ### Window Behavior
 
 - 現在 active な editor window に紐づく chat window を開く
 - 既存の chat window が対象 editor に対して存在する場合は再利用して前面化する
-- chat window header に対象ファイル名、editor id、モデル名、実行状態を表示する
+- chat window header には AI Chat と実行状態を表示し、対象情報は必要時に tool result として transcript へ積む
 
 ### Chat Layout
 
 - 上部はスクロール可能なメッセージ一覧
 - 下部は固定の複数行入力欄
+- 入力欄の直上に explicit context attachment 用のボタンを置く
+- 初期 scaffold の explicit context は Current Editor / Whole Document / Selection の 3 ボタンに限定する
 - Enter で送信、Shift+Enter で改行
 - 実行中は Stop か Cancel を表示
 
@@ -117,9 +139,7 @@ AI が使う操作面。
 
 - user
 - assistant
-- tool-call
-- tool-result
-- system
+- tool
 - error
 
 ## Core Data Model
@@ -185,9 +205,10 @@ type AiChatSession = {
 
 type ChatMessage = {
   id: string
-  role: 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'system' | 'error'
+  role: 'user' | 'assistant' | 'tool'
   content: string
   createdAt: string
+  title?: string
   meta?: Record<string, unknown>
 }
 ```
@@ -221,6 +242,11 @@ type ChatMessage = {
 ```
 
 ### write
+
+ステータス:
+
+- editor bridge には実装済み
+- 現行 scaffold の chat UI からは露出していない
 
 用途:
 
@@ -261,6 +287,10 @@ type ChatMessage = {
 
 ### grep
 
+ステータス:
+
+- 後続フェーズ
+
 用途:
 
 - ワークスペース検索
@@ -294,6 +324,10 @@ type ChatMessage = {
 
 ### list_editors
 
+ステータス:
+
+- 後続フェーズ
+
 用途:
 
 - active の解決
@@ -301,12 +335,20 @@ type ChatMessage = {
 
 ### get_context
 
+ステータス:
+
+- 現行 scaffold で Current Editor ボタンから利用可能
+
 用途:
 
 - 現在の editor 状態を軽量に取得
 - ファイル名、path、selection 有無、text length、dirty 状態をモデルに伝える
 
 ### web_search
+
+ステータス:
+
+- 後続フェーズ
 
 用途:
 

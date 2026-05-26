@@ -75,6 +75,7 @@ type MdvMenuAction =
   | 'open'
   | 'save'
   | 'save-as'
+  | 'open-settings'
   | 'open-ai-chat'
   | 'show-editor'
   | 'show-preview'

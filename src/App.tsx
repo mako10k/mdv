@@ -250,6 +250,10 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
     return event.shiftKey ? 'save-as' : 'save'
   }
 
+  if (key === ',') {
+    return 'open-settings'
+  }
+
   if (key === 'i') {
     return 'open-ai-chat'
   }
@@ -356,6 +360,15 @@ function SaveAsIcon() {
       <path d="M5.5 4h10.8L20 7.7v10.8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
       <path d="M8 4.5v5h7v-5" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M12 13v5M9.5 15.5 12 13l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M12 8.9a3.1 3.1 0 1 0 0 6.2 3.1 3.1 0 0 0 0-6.2z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M19.4 13.2v-2.4l-2-.5a5.8 5.8 0 0 0-.6-1.4l1.1-1.8-1.7-1.7-1.8 1.1a5.8 5.8 0 0 0-1.4-.6l-.5-2h-2.4l-.5 2a5.8 5.8 0 0 0-1.4.6L6.4 5.4 4.7 7.1l1.1 1.8a5.8 5.8 0 0 0-.6 1.4l-2 .5v2.4l2 .5a5.8 5.8 0 0 0 .6 1.4l-1.1 1.8 1.7 1.7 1.8-1.1a5.8 5.8 0 0 0 1.4.6l.5 2h2.4l.5-2a5.8 5.8 0 0 0 1.4-.6l1.8 1.1 1.7-1.7-1.1-1.8a5.8 5.8 0 0 0 .6-1.4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -560,6 +573,13 @@ function App() {
 
     if (action === 'save-as') {
       void handleSave(true)
+      return
+    }
+
+    if (action === 'open-settings') {
+      void window.mdvDesktop?.openSettingsWindow().then(() => {
+        setStatusText('Opened settings')
+      })
       return
     }
 
@@ -775,6 +795,9 @@ function App() {
             <ToolbarButton label="Save As (Ctrl/Cmd+Shift+S)" onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
+            <ToolbarButton label="Settings (Ctrl/Cmd+,)" onClick={() => runDesktopAction('open-settings')}>
+              <SettingsIcon />
+            </ToolbarButton>
           </div>
         </header>
 
@@ -825,7 +848,7 @@ function App() {
         ) : null}
 
         <div className="statusbar">
-          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, S, Shift+S, I, 1, 2</span>
+          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
       </section>

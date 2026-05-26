@@ -25,6 +25,14 @@
   font-size: 1.8rem;
 }
 
+.ai-chat-subtitle {
+  margin: 8px 0 0;
+  max-width: 44rem;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .ai-chat-eyebrow {
   font-size: 11px;
   letter-spacing: 0.16em;
@@ -51,7 +59,7 @@
 }
 
 .chat-bubble {
-  max-width: 92%;
+  max-width: min(92%, 52rem);
   padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid var(--border);
@@ -177,8 +185,15 @@
   align-self: flex-start;
 }
 
-.chat-bubble.system {
+.chat-bubble.user {
   align-self: flex-end;
+  background: color-mix(in srgb, var(--link) 12%, var(--bg-panel));
+  border-color: color-mix(in srgb, var(--link) 30%, var(--border));
+}
+
+.chat-bubble.tool {
+  align-self: stretch;
+  max-width: 100%;
   background: var(--bg-panel-strong);
 }
 
@@ -201,13 +216,16 @@
 
 .ai-chat-composer {
   width: 100%;
-  min-height: 120px;
+  min-height: 56px;
+  max-height: 180px;
   resize: vertical;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
   padding: 14px;
   box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
 }
 
 .ai-chat-footer-row {
@@ -226,13 +244,30 @@
   gap: 10px;
 }
 
-.ai-chat-send {
-  min-width: 120px;
-  height: 36px;
-  padding: 0 16px;
+.ai-chat-context-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ai-chat-chip {
+  height: 34px;
+  padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--bg-panel-strong);
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+.ai-chat-send {
+  min-width: 96px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--link) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--link) 10%, var(--bg-panel));
   cursor: pointer;
 }
 
@@ -246,6 +281,15 @@
   cursor: pointer;
 }
 
+.ai-chat-chip:hover,
+.ai-chat-chip:focus-visible,
+.ai-chat-send:hover,
+.ai-chat-send:focus-visible,
+.ai-chat-secondary:hover,
+.ai-chat-secondary:focus-visible {
+  border-color: var(--link);
+}
+
 @media (max-width: 640px) {
   .ai-chat-shell {
     padding: 12px;
@@ -257,6 +301,10 @@
 
   .ai-chat-footer-row {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ai-chat-context-row {
     align-items: stretch;
   }
 

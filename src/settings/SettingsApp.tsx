@@ -122,7 +122,7 @@ function SettingsApp() {
                 </div>
                 <div>
                   <dt>OpenAI model</dt>
-                  <dd>{settings?.ai.openai.model ?? 'gpt-5.4'}</dd>
+                  <dd>{settings?.ai.openai.model ?? 'gpt-5.4-mini'}</dd>
                 </div>
                 <div>
                   <dt>Tavily enabled</dt>

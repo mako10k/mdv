@@ -97,7 +97,7 @@ function createDefaultSettings() {
       openai: {
         enabled: false,
         baseUrl: null,
-        model: process.env.MDV_OPENAI_MODEL || 'gpt-5.4',
+        model: process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini',
       },
       tavily: {
         enabled: false,
