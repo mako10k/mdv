@@ -88,12 +88,60 @@
   max-width: 280px;
 }
 
-.settings-field select {
+.settings-field-wide {
+  max-width: 560px;
+}
+
+.settings-field select,
+.settings-field input {
   min-height: 40px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   padding: 0 12px;
+  color: var(--text);
+}
+
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-primary-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.settings-primary-button:disabled,
+.settings-secondary-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .settings-facts {

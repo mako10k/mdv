@@ -164,14 +164,15 @@ Target categories after expansion:
 
 #### OpenAI Section
 
-初期 scaffold では `Enabled` / `Configured` / `Model` の read-only 表示を優先し、編集 UI は後段で配線する。
+現行 scaffold では `Enabled` / `Base URL` / `Model` / `API Key` の編集 UI を配線し、`Configured` は configured state の read-only 表示として扱う。
 
 - Enabled
 - Base URL
 - Model
 - API Key
-  - 画面上は masked 表示
+  - 画面上は masked input を使う
   - renderer は実キーを再取得しない
+  - 保存と削除は main process の secret backend へ一方向で送る
 - Temperature optional future
 - Test Connection button
 
@@ -325,7 +326,7 @@ renderer は次だけを行う。
 - 第1候補: OS keychain wrapper
 - 代替: 環境変数のみ read-only 利用
 
-初期実装では、秘密情報の保存がまだ無い場合でも UI は対応済みにして、保存 backend は抽象越しに差し替え可能にする。
+初期実装では、main process 専用の file-backed secret store を置き、後から OS credential store へ差し替え可能にする。
 
 ## Preload / IPC Design
 
@@ -349,6 +350,14 @@ window.mdvDesktop.settings = {
   getSettings(): Promise<MdvSettings>
   migrateLegacyTheme(themeMode: 'light' | 'dark'): Promise<MdvSettings>
   updateSettings(patch: DeepPartial<MdvSettings>): Promise<MdvSettings>
+  saveOpenAiApiKey(apiKey: string): Promise<{
+    openaiConfigured: boolean
+    tavilyConfigured: boolean
+  }>
+  clearOpenAiApiKey(): Promise<{
+    openaiConfigured: boolean
+    tavilyConfigured: boolean
+  }>
   getProviderStatus(): Promise<{
     openaiConfigured: boolean
     tavilyConfigured: boolean
@@ -357,13 +366,12 @@ window.mdvDesktop.settings = {
 }
 ```
 
-`saveSecret` / `clearSecret` は後段の secret backend 導入フェーズで追加する。
-
 ### Secret Handling Rule
 
 - renderer は secret の生値を取得しない
 - renderer は `configured / not configured` だけを受け取る
 - secret の保存は main process 経由で一方向に送る
+- 初期 secret backend は `app.getPath('userData')/secrets.json` に保存し、renderer からは read 不可にする
 
 ## Validation Rules
 

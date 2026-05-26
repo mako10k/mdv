@@ -222,6 +222,8 @@ interface Window {
       getSettings: () => Promise<MdvSettings>
       migrateLegacyTheme: (themeMode: 'light' | 'dark') => Promise<MdvSettings>
       updateSettings: (patch: MdvSettingsPatch) => Promise<MdvSettings>
+      saveOpenAiApiKey: (apiKey: string) => Promise<MdvProviderStatus>
+      clearOpenAiApiKey: () => Promise<MdvProviderStatus>
       getProviderStatus: () => Promise<MdvProviderStatus>
       onSettingsChanged: (callback: (settings: MdvSettings) => void) => () => void
     }

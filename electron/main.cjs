@@ -9,10 +9,12 @@ const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+const secretsPath = path.join(app.getPath('userData'), 'secrets.json')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
 const appDisplayName = 'MarkDownViewer'
+const defaultOpenAiModel = process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini'
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -32,6 +34,7 @@ const pendingAiEditorRequests = new Map()
 let settingsWindow = null
 let settingsWindowOwnerEditorId = null
 let settingsState = loadSettings()
+let secretsState = loadSecrets()
 let hasPersistedSettings = fs.existsSync(settingsPath)
 let hasReadableSettings = loadSettings.didLoadPersisted === true
 
@@ -98,7 +101,7 @@ function createDefaultSettings() {
       openai: {
         enabled: true,
         baseUrl: null,
-        model: process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini',
+        model: defaultOpenAiModel,
       },
       tavily: {
         enabled: false,
@@ -161,8 +164,26 @@ function normalizeWriteMode(value) {
   return value === 'suggest' ? 'suggest' : 'direct'
 }
 
+function normalizeOpenAiModel(value) {
+  if (typeof value !== 'string') {
+    return defaultOpenAiModel
+  }
+
+  const trimmedValue = value.trim()
+
+  if (trimmedValue.length === 0) {
+    return defaultOpenAiModel
+  }
+
+  return trimmedValue
+}
+
 function normalizeSearchDepth(value) {
   return value === 'advanced' ? 'advanced' : 'basic'
+}
+
+function normalizeSecret(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
 function clampDefaultMaxResults(value) {
@@ -207,9 +228,7 @@ function sanitizeSettings(candidate) {
         baseUrl: typeof merged.ai?.openai?.baseUrl === 'string' && merged.ai.openai.baseUrl.trim().length > 0
           ? merged.ai.openai.baseUrl.trim()
           : null,
-        model: typeof merged.ai?.openai?.model === 'string' && merged.ai.openai.model.trim().length > 0
-          ? merged.ai.openai.model.trim()
-          : defaults.ai.openai.model,
+        model: normalizeOpenAiModel(merged.ai?.openai?.model),
       },
       tavily: {
         enabled: merged.ai?.tavily?.enabled === true,
@@ -222,6 +241,13 @@ function sanitizeSettings(candidate) {
       confirmBeforeNewDocumentFromAi: merged.safety?.confirmBeforeNewDocumentFromAi !== false,
       confirmBeforeExternalUrlOpen: merged.safety?.confirmBeforeExternalUrlOpen !== false,
     },
+  }
+}
+
+function sanitizeSecrets(candidate) {
+  return {
+    openaiApiKey: normalizeSecret(candidate?.openaiApiKey),
+    tavilyApiKey: normalizeSecret(candidate?.tavilyApiKey),
   }
 }
 
@@ -244,6 +270,20 @@ function loadSettings() {
 
 loadSettings.didLoadPersisted = false
 
+function loadSecrets() {
+  try {
+    if (!fs.existsSync(secretsPath)) {
+      return sanitizeSecrets({})
+    }
+
+    const raw = fs.readFileSync(secretsPath, 'utf8')
+    return sanitizeSecrets(JSON.parse(raw))
+  } catch (error) {
+    writeLog('WARN', 'settings', 'Falling back to empty secrets store', error instanceof Error ? error.message : String(error))
+    return sanitizeSecrets({})
+  }
+}
+
 async function persistSettings() {
   await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true })
   await fsPromises.writeFile(settingsPath, `${JSON.stringify(settingsState, null, 2)}\n`, 'utf8')
@@ -251,10 +291,15 @@ async function persistSettings() {
   hasReadableSettings = true
 }
 
+async function persistSecrets() {
+  await fsPromises.mkdir(path.dirname(secretsPath), { recursive: true })
+  await fsPromises.writeFile(secretsPath, `${JSON.stringify(secretsState, null, 2)}\n`, 'utf8')
+}
+
 function getProviderStatus() {
   return {
     openaiConfigured: getOpenAiApiKey() !== null,
-    tavilyConfigured: Boolean(process.env.TAVILY_API_KEY),
+    tavilyConfigured: getTavilyApiKey() !== null,
   }
 }
 
@@ -270,9 +315,17 @@ const openAiChatInstructions = [
 ].join(' ')
 
 function getOpenAiApiKey() {
-  return typeof process.env.OPENAI_API_KEY === 'string' && process.env.OPENAI_API_KEY.trim().length > 0
-    ? process.env.OPENAI_API_KEY.trim()
-    : null
+  return secretsState.openaiApiKey
+    || (typeof process.env.OPENAI_API_KEY === 'string' && process.env.OPENAI_API_KEY.trim().length > 0
+      ? process.env.OPENAI_API_KEY.trim()
+      : null)
+}
+
+function getTavilyApiKey() {
+  return secretsState.tavilyApiKey
+    || (typeof process.env.TAVILY_API_KEY === 'string' && process.env.TAVILY_API_KEY.trim().length > 0
+      ? process.env.TAVILY_API_KEY.trim()
+      : null)
 }
 
 function getOpenAiBaseUrl() {
@@ -1048,6 +1101,30 @@ ipcMain.handle('mdv:settings-update', async (_event, patch) => {
   await persistSettings()
   broadcastSettingsChanged()
   return settingsState
+})
+
+ipcMain.handle('mdv:settings-save-openai-api-key', async (_event, apiKey) => {
+  const normalizedApiKey = normalizeSecret(apiKey)
+
+  if (!normalizedApiKey) {
+    throw new Error('OpenAI API key cannot be empty')
+  }
+
+  secretsState = sanitizeSecrets({
+    ...secretsState,
+    openaiApiKey: normalizedApiKey,
+  })
+  await persistSecrets()
+  return getProviderStatus()
+})
+
+ipcMain.handle('mdv:settings-clear-openai-api-key', async () => {
+  secretsState = sanitizeSecrets({
+    ...secretsState,
+    openaiApiKey: null,
+  })
+  await persistSecrets()
+  return getProviderStatus()
 })
 
 ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
