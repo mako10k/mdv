@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
+  readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),
+  writeAiActiveDocument: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-active-document', payload),
   openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
   onServerCommand: (callback) => {
     const wrappedListener = (_event, command) => {

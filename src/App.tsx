@@ -476,6 +476,12 @@ function App() {
     setStatusText(`Saved ${basename(result.path)}`)
   }
 
+  const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
+    setMarkdownText(nextMarkdown)
+    editorRef.current?.setMarkdown(nextMarkdown)
+    setStatusText(statusMessage)
+  }
+
   const respondToAiEditorRequest = (request: MdvAiEditorRequest) => {
     try {
       if (request.type === 'get-context') {
@@ -503,6 +509,31 @@ function App() {
           payload: {
             source: 'active:document',
             text: markdownText,
+          },
+        })
+        return
+      }
+
+      if (request.type === 'read' && request.source === 'active:selection') {
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            source: 'active:selection',
+            text: editorRef.current?.getSelectedText() ?? '',
+          },
+        })
+        return
+      }
+
+      if (request.type === 'write' && request.destination === 'active:document') {
+        applyMarkdownContent(request.content, 'AI updated document')
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            destination: 'active:document',
+            text: request.content,
           },
         })
         return

@@ -618,6 +618,25 @@ ipcMain.handle('mdv:ai-chat-read-active-document', async (event) => {
   })
 })
 
+ipcMain.handle('mdv:ai-chat-read-active-selection', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return requestEditorWindowData(editorWindow, {
+    type: 'read',
+    source: 'active:selection',
+  })
+})
+
+ipcMain.handle('mdv:ai-chat-write-active-document', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return requestEditorWindowData(editorWindow, {
+    type: 'write',
+    destination: 'active:document',
+    content: typeof payload?.content === 'string' ? payload.content : '',
+  })
+})
+
 ipcMain.handle('mdv:open-external-link', async (event, href) => {
   if (typeof href !== 'string' || href.length === 0) {
     writeLog('WARN', 'ipc', 'open-external-link received invalid URL', href)

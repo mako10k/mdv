@@ -90,6 +90,17 @@ type MdvAiEditorRequest =
       type: 'read'
       source: 'active:document'
     }
+  | {
+      requestId: string
+      type: 'read'
+      source: 'active:selection'
+    }
+  | {
+      requestId: string
+      type: 'write'
+      destination: 'active:document'
+      content: string
+    }
 
 type MdvAiContextPayload = {
   currentFilePath: string | null
@@ -101,7 +112,12 @@ type MdvAiContextPayload = {
 }
 
 type MdvAiReadPayload = {
-  source: 'active:document'
+  source: 'active:document' | 'active:selection'
+  text: string
+}
+
+type MdvAiWritePayload = {
+  destination: 'active:document'
   text: string
 }
 
@@ -114,6 +130,8 @@ interface Window {
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
+    readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
+    writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
     onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
     sendServerCommandResult: (payload: {
@@ -128,7 +146,7 @@ interface Window {
     sendAiEditorResponse: (payload: {
       requestId: string
       ok: boolean
-      payload?: MdvAiContextPayload | MdvAiReadPayload | null
+      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | null
       error?: string
     }) => void
     log: (level: string, scope: string, message: string) => void

@@ -10,12 +10,12 @@ const initialMessages: Message[] = [
   {
     id: 'system-welcome',
     role: 'system',
-    content: 'AI chat window is ready. OpenAI integration and editor tools will be connected in the next slice.',
+    content: 'AI chat window is ready. Context lookup, document read, selection read, and full document write are available in this scaffold.',
   },
   {
     id: 'assistant-placeholder',
     role: 'assistant',
-    content: 'Planned tools: read selection, write selection, new editor output, grep, Tavily web search.',
+    content: 'Planned next tools: write selection, new editor output, grep, Tavily web search, and OpenAI orchestration.',
   },
 ]
 
@@ -37,6 +37,8 @@ function formatContext(context: MdvAiContextPayload | null): string {
 function ChatApp() {
   const [contextText, setContextText] = useState('Loading editor context...')
   const [documentPreview, setDocumentPreview] = useState('')
+  const [selectionPreview, setSelectionPreview] = useState('')
+  const [composerText, setComposerText] = useState('# Rewritten by AI bridge\n\nReplace this text from the AI chat window.')
   const [statusText, setStatusText] = useState('Scaffold + IPC')
 
   useEffect(() => {
@@ -75,6 +77,32 @@ function ChatApp() {
       })
   }
 
+  const handleReadSelection = () => {
+    setStatusText('Reading selection')
+    void window.mdvDesktop?.readAiActiveSelection()
+      .then((payload) => {
+        setSelectionPreview(payload?.text ?? '')
+        setStatusText('Selection loaded')
+      })
+      .catch((error: unknown) => {
+        setSelectionPreview(error instanceof Error ? error.message : String(error))
+        setStatusText('Selection failed')
+      })
+  }
+
+  const handleWriteDocument = () => {
+    setStatusText('Writing active document')
+    void window.mdvDesktop?.writeAiActiveDocument({ content: composerText })
+      .then((payload) => {
+        setDocumentPreview(payload?.text ?? composerText)
+        setStatusText('Document updated')
+      })
+      .catch((error: unknown) => {
+        setStatusText('Write failed')
+        setDocumentPreview(error instanceof Error ? error.message : String(error))
+      })
+  }
+
   return (
     <main className="ai-chat-shell">
       <header className="ai-chat-header">
@@ -106,6 +134,13 @@ function ChatApp() {
             <pre className="chat-bubble-pre">{documentPreview}</pre>
           </article>
         ) : null}
+
+        {selectionPreview ? (
+          <article className="chat-bubble assistant">
+            <p className="chat-bubble-title">read active:selection</p>
+            <pre className="chat-bubble-pre">{selectionPreview}</pre>
+          </article>
+        ) : null}
       </section>
 
       <footer className="ai-chat-composer-shell">
@@ -115,8 +150,9 @@ function ChatApp() {
         <textarea
           id="ai-chat-input"
           className="ai-chat-composer"
-          placeholder="OpenAI integration will be connected in the next slice."
-          disabled
+          placeholder="Type replacement markdown for write active:document."
+          value={composerText}
+          onChange={(event) => setComposerText(event.target.value)}
         />
         <div className="ai-chat-footer-row">
           <span>Shortcut: Ctrl/Cmd+I opens this window.</span>
@@ -126,6 +162,12 @@ function ChatApp() {
             </button>
             <button type="button" className="ai-chat-send" onClick={handleReadDocument}>
               Read Document
+            </button>
+            <button type="button" className="ai-chat-send" onClick={handleReadSelection}>
+              Read Selection
+            </button>
+            <button type="button" className="ai-chat-send" onClick={handleWriteDocument}>
+              Write Document
             </button>
           </div>
         </div>
