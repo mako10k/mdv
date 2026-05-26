@@ -100,6 +100,12 @@ type MdvAiEditorRequest =
       destination: 'active:document'
       content: string
     }
+  | {
+      requestId: string
+      type: 'write'
+      destination: 'active:selection'
+      content: string
+    }
 
 type MdvSettings = {
   version: 1
@@ -180,7 +186,7 @@ type MdvAiReadPayload = {
 }
 
 type MdvAiWritePayload = {
-  destination: 'active:document'
+  destination: 'active:document' | 'active:selection'
   text: string
 }
 
@@ -196,6 +202,7 @@ interface Window {
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
+    writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
       getSettings: () => Promise<MdvSettings>

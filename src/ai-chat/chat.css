@@ -74,6 +74,105 @@
   font: 12px/1.6 var(--mono);
 }
 
+.chat-markdown-content {
+  display: grid;
+  gap: 12px;
+}
+
+.chat-bubble .markdown-fragment p,
+.chat-bubble .markdown-fragment ul,
+.chat-bubble .markdown-fragment ol,
+.chat-bubble .markdown-fragment blockquote {
+  line-height: 1.7;
+}
+
+.chat-bubble .markdown-fragment h1,
+.chat-bubble .markdown-fragment h2,
+.chat-bubble .markdown-fragment h3,
+.chat-bubble .markdown-fragment h4 {
+  margin: 1.1em 0 0.5em;
+  color: var(--text-h);
+  line-height: 1.18;
+}
+
+.chat-bubble .markdown-fragment h1 {
+  font-size: 1.45rem;
+}
+
+.chat-bubble .markdown-fragment h2 {
+  font-size: 1.2rem;
+}
+
+.chat-bubble .markdown-fragment h3 {
+  font-size: 1rem;
+}
+
+.chat-bubble .markdown-fragment a {
+  color: var(--link);
+}
+
+.chat-bubble .markdown-fragment blockquote {
+  margin: 0;
+  padding: 0.7em 0.9em;
+  border-left: 3px solid var(--link);
+  background: var(--bg-panel-strong);
+  color: var(--text-muted);
+}
+
+.chat-bubble .markdown-fragment pre,
+.chat-bubble .markdown-fragment table {
+  margin: 0;
+}
+
+.chat-bubble .markdown-fragment table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+}
+
+.chat-bubble .markdown-fragment th,
+.chat-bubble .markdown-fragment td {
+  border: 1px solid var(--border);
+  padding: 0.55em 0.7em;
+}
+
+.chat-bubble .markdown-fragment code {
+  white-space: break-spaces;
+}
+
+.code-block-shell {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--code-shell-bg);
+}
+
+.code-block-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--code-shell-text);
+  background: color-mix(in srgb, var(--code-shell-bg) 82%, #ffffff 18%);
+}
+
+.code-block-shell pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.code-block-shell pre code {
+  border: none;
+  background: transparent;
+  color: var(--code-shell-text);
+  padding: 0;
+}
+
+.mermaid-block {
+  overflow: auto;
+}
+
 .chat-bubble.assistant {
   align-self: flex-start;
 }

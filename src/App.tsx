@@ -508,11 +508,36 @@ function App() {
         return
       }
 
-      window.mdvDesktop?.sendAiEditorResponse({
-        requestId: request.requestId,
-        ok: false,
-        error: `Unsupported AI editor request: ${request.type}`,
-      })
+      if (request.type === 'write' && request.destination === 'active:selection') {
+        const editor = editorRef.current
+
+        if (!editor) {
+          throw new Error('Editor is unavailable')
+        }
+
+        const selectedText = editor.getSelectedText()
+
+        if (!selectedText) {
+          throw new Error('No active selection to replace')
+        }
+
+        editor.replaceSelection(request.content)
+        const nextMarkdown = editor.getMarkdown()
+        setMarkdownText(nextMarkdown)
+        setStatusText('AI updated selection')
+
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            destination: 'active:selection',
+            text: request.content,
+          },
+        })
+        return
+      }
+
+      throw new Error('Unsupported AI editor request')
     } catch (error) {
       window.mdvDesktop?.sendAiEditorResponse({
         requestId: request.requestId,

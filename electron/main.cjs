@@ -980,6 +980,20 @@ ipcMain.handle('mdv:ai-chat-write-active-document', async (event, payload) => {
   })
 })
 
+ipcMain.handle('mdv:ai-chat-write-active-selection', async (event, payload) => {
+  if (!settingsState.ai.toolPermissions.writeActiveSelection) {
+    throw new Error('Active selection write is disabled in settings')
+  }
+
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return requestEditorWindowData(editorWindow, {
+    type: 'write',
+    destination: 'active:selection',
+    content: typeof payload?.content === 'string' ? payload.content : '',
+  })
+})
+
 ipcMain.handle('mdv:open-external-link', async (event, href) => {
   if (typeof href !== 'string' || href.length === 0) {
     writeLog('WARN', 'ipc', 'open-external-link received invalid URL', href)

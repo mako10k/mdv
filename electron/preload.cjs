@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
   readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),
   writeAiActiveDocument: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-active-document', payload),
+  writeAiActiveSelection: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-active-selection', payload),
   settings: {
     getBootstrapSettings: () => settingsBootstrap,
     getSettings: () => ipcRenderer.invoke('mdv:settings-get'),
