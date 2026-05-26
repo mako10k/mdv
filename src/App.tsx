@@ -272,6 +272,10 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
     return event.shiftKey ? 'save-as' : 'save'
   }
 
+  if (key === 'i') {
+    return 'open-ai-chat'
+  }
+
   if (key === '1') {
     return 'show-editor'
   }
@@ -482,6 +486,13 @@ function App() {
 
     if (action === 'save-as') {
       void handleSave(true)
+      return
+    }
+
+    if (action === 'open-ai-chat') {
+      void window.mdvDesktop?.openAiChat().then(() => {
+        setStatusText('Opened AI chat')
+      })
       return
     }
 
@@ -728,7 +739,7 @@ function App() {
         ) : null}
 
         <div className="statusbar">
-          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, S, Shift+S, 1, 2</span>
+          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, S, Shift+S, I, 1, 2</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
       </section>

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
+  openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
   onServerCommand: (callback) => {
     const wrappedListener = (_event, command) => {

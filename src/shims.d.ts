@@ -1,6 +1,12 @@
 declare module '@toast-ui/editor' {
+  export type MarkdownPos = [number, number]
+  export type Sourcepos = [MarkdownPos, MarkdownPos]
+  export type SelectionPos = Sourcepos | [number, number]
+  export type EditorPos = MarkdownPos | number
+
   export type EditorOptions = {
     el: HTMLElement
+    minHeight?: string
     height?: string
     initialValue?: string
     previewStyle?: 'tab' | 'vertical'
@@ -16,6 +22,15 @@ declare module '@toast-ui/editor' {
     constructor(options: EditorOptions)
     getMarkdown(): string
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
+    getSelection(): SelectionPos
+    setSelection(start: EditorPos, end?: EditorPos): void
+    getSelectedText(start?: EditorPos, end?: EditorPos): string
+    replaceSelection(text: string, start?: EditorPos, end?: EditorPos): void
+    deleteSelection(start?: EditorPos, end?: EditorPos): void
+    changeMode(mode: 'markdown' | 'wysiwyg', withoutFocus?: boolean): void
+    isMarkdownMode(): boolean
+    isWysiwygMode(): boolean
+    convertPosToMatchEditorMode(start: EditorPos, end?: EditorPos, mode?: 'markdown' | 'wysiwyg'): EditorPos[]
     destroy(): void
   }
 }
@@ -61,6 +76,7 @@ type MdvMenuAction =
   | 'open'
   | 'save'
   | 'save-as'
+  | 'open-ai-chat'
   | 'show-editor'
   | 'show-preview'
 
@@ -70,6 +86,7 @@ interface Window {
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
     onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
     sendServerCommandResult: (payload: {

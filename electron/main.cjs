@@ -23,6 +23,7 @@ let pendingLaunchFilePath = resolveLaunchFilePath(process.argv)
 let managedMainWindow = null
 let commandPollTimer = null
 const pendingServerRequests = new Map()
+const aiChatWindows = new Map()
 
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
@@ -58,6 +59,76 @@ function focusWindow(window) {
   }
 
   window.focus()
+}
+
+function loadRendererWindow(window, htmlFileName) {
+  if (isDev) {
+    window.loadURL(`http://localhost:5173/${htmlFileName}`)
+    return
+  }
+
+  window.loadFile(path.join(__dirname, '..', 'dist', htmlFileName))
+}
+
+function getEditorWindowForAiAction(candidateWindow) {
+  if (!candidateWindow) {
+    const firstEditorWindow = BrowserWindow.getAllWindows().find((window) => !aiChatWindows.has(window.id))
+    return firstEditorWindow ?? null
+  }
+
+  if (aiChatWindows.has(candidateWindow.id)) {
+    const ownerWindowId = aiChatWindows.get(candidateWindow.id)
+    return BrowserWindow.fromId(ownerWindowId) ?? null
+  }
+
+  return candidateWindow
+}
+
+function openAiChatWindow(targetWindow) {
+  const editorWindow = getEditorWindowForAiAction(targetWindow)
+
+  if (!editorWindow || editorWindow.isDestroyed()) {
+    writeLog('WARN', 'ai-chat', 'No editor window available')
+    return { status: 'focused' }
+  }
+
+  const existingChatWindowId = aiChatWindows.get(editorWindow.id)
+  const existingChatWindow = existingChatWindowId ? BrowserWindow.fromId(existingChatWindowId) : null
+
+  if (existingChatWindow && !existingChatWindow.isDestroyed()) {
+    focusWindow(existingChatWindow)
+    return { status: 'focused' }
+  }
+
+  const chatWindow = new BrowserWindow({
+    width: 520,
+    height: 760,
+    minWidth: 420,
+    minHeight: 540,
+    backgroundColor: '#fffaf4',
+    autoHideMenuBar: true,
+    icon: windowIcon,
+    parent: editorWindow,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  aiChatWindows.set(editorWindow.id, chatWindow.id)
+  aiChatWindows.set(chatWindow.id, editorWindow.id)
+
+  chatWindow.on('closed', () => {
+    aiChatWindows.delete(chatWindow.id)
+    aiChatWindows.delete(editorWindow.id)
+  })
+
+  loadRendererWindow(chatWindow, 'chat.html')
+  focusWindow(chatWindow)
+  writeLog('INFO', 'ai-chat', 'BrowserWindow created', { editorWindowId: editorWindow.id, chatWindowId: chatWindow.id })
+
+  return { status: 'opened' }
 }
 
 function dispatchOpenFileToWindow(targetWindow, filePath) {
@@ -398,6 +469,12 @@ function createApplicationMenu() {
       label: 'View',
       submenu: [
         {
+          label: 'AI Chat',
+          accelerator: 'CmdOrCtrl+I',
+          click: () => openAiChatWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
+        },
+        { type: 'separator' },
+        {
           label: 'Editor',
           accelerator: 'CmdOrCtrl+1',
           click: () => sendMenuAction('show-editor'),
@@ -445,12 +522,12 @@ function createWindow(initialLaunchFilePath = null) {
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    loadRendererWindow(mainWindow, 'index.html')
     mainWindow.webContents.openDevTools({ mode: 'detach' })
     return mainWindow
   }
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+  loadRendererWindow(mainWindow, 'index.html')
   return mainWindow
 }
 
@@ -487,6 +564,11 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.handle('mdv:open-ai-chat', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  return openAiChatWindow(sourceWindow)
 })
 
 ipcMain.handle('mdv:open-external-link', async (event, href) => {
