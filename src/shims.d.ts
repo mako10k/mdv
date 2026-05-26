@@ -80,6 +80,31 @@ type MdvMenuAction =
   | 'show-editor'
   | 'show-preview'
 
+type MdvAiEditorRequest =
+  | {
+      requestId: string
+      type: 'get-context'
+    }
+  | {
+      requestId: string
+      type: 'read'
+      source: 'active:document'
+    }
+
+type MdvAiContextPayload = {
+  currentFilePath: string | null
+  title: string
+  activePanel: 'write' | 'preview'
+  textLength: number
+  selectionTextLength: number
+  isDirty: boolean
+}
+
+type MdvAiReadPayload = {
+  source: 'active:document'
+  text: string
+}
+
 interface Window {
   mdvDesktop?: {
     platform: string
@@ -87,6 +112,8 @@ interface Window {
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
+    getAiChatContext: () => Promise<MdvAiContextPayload | null>
+    readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
     onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
     sendServerCommandResult: (payload: {
@@ -97,6 +124,13 @@ interface Window {
     }) => void
     onOpenFileRequested: (callback: (filePath: string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
+    onAiEditorRequest: (callback: (request: MdvAiEditorRequest) => void | Promise<void>) => () => void
+    sendAiEditorResponse: (payload: {
+      requestId: string
+      ok: boolean
+      payload?: MdvAiContextPayload | MdvAiReadPayload | null
+      error?: string
+    }) => void
     log: (level: string, scope: string, message: string) => void
     getLogPath: () => Promise<string>
   }

@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
+const { randomUUID } = require('node:crypto')
 
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
@@ -23,7 +24,9 @@ let pendingLaunchFilePath = resolveLaunchFilePath(process.argv)
 let managedMainWindow = null
 let commandPollTimer = null
 const pendingServerRequests = new Map()
-const aiChatWindows = new Map()
+const editorToAiChatWindowId = new Map()
+const aiChatToEditorWindowId = new Map()
+const pendingAiEditorRequests = new Map()
 
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
@@ -72,16 +75,46 @@ function loadRendererWindow(window, htmlFileName) {
 
 function getEditorWindowForAiAction(candidateWindow) {
   if (!candidateWindow) {
-    const firstEditorWindow = BrowserWindow.getAllWindows().find((window) => !aiChatWindows.has(window.id))
+    const firstEditorWindow = BrowserWindow.getAllWindows().find((window) => !aiChatToEditorWindowId.has(window.id))
     return firstEditorWindow ?? null
   }
 
-  if (aiChatWindows.has(candidateWindow.id)) {
-    const ownerWindowId = aiChatWindows.get(candidateWindow.id)
+  if (aiChatToEditorWindowId.has(candidateWindow.id)) {
+    const ownerWindowId = aiChatToEditorWindowId.get(candidateWindow.id)
     return BrowserWindow.fromId(ownerWindowId) ?? null
   }
 
   return candidateWindow
+}
+
+function getAiChatWindowForEditorWindow(editorWindow) {
+  const chatWindowId = editorToAiChatWindowId.get(editorWindow.id)
+  return chatWindowId ? BrowserWindow.fromId(chatWindowId) : null
+}
+
+function requestEditorWindowData(editorWindow, request) {
+  if (!editorWindow || editorWindow.isDestroyed()) {
+    return Promise.reject(new Error('Editor window is unavailable'))
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = randomUUID()
+    const timeout = setTimeout(() => {
+      pendingAiEditorRequests.delete(requestId)
+      reject(new Error(`AI editor request timed out: ${request.type}`))
+    }, 5000)
+
+    pendingAiEditorRequests.set(requestId, {
+      resolve,
+      reject,
+      timeout,
+    })
+
+    editorWindow.webContents.send('mdv:ai-editor-request', {
+      requestId,
+      ...request,
+    })
+  })
 }
 
 function openAiChatWindow(targetWindow) {
@@ -92,8 +125,7 @@ function openAiChatWindow(targetWindow) {
     return { status: 'focused' }
   }
 
-  const existingChatWindowId = aiChatWindows.get(editorWindow.id)
-  const existingChatWindow = existingChatWindowId ? BrowserWindow.fromId(existingChatWindowId) : null
+  const existingChatWindow = getAiChatWindowForEditorWindow(editorWindow)
 
   if (existingChatWindow && !existingChatWindow.isDestroyed()) {
     focusWindow(existingChatWindow)
@@ -116,12 +148,12 @@ function openAiChatWindow(targetWindow) {
     },
   })
 
-  aiChatWindows.set(editorWindow.id, chatWindow.id)
-  aiChatWindows.set(chatWindow.id, editorWindow.id)
+  editorToAiChatWindowId.set(editorWindow.id, chatWindow.id)
+  aiChatToEditorWindowId.set(chatWindow.id, editorWindow.id)
 
   chatWindow.on('closed', () => {
-    aiChatWindows.delete(chatWindow.id)
-    aiChatWindows.delete(editorWindow.id)
+    aiChatToEditorWindowId.delete(chatWindow.id)
+    editorToAiChatWindowId.delete(editorWindow.id)
   })
 
   loadRendererWindow(chatWindow, 'chat.html')
@@ -571,6 +603,21 @@ ipcMain.handle('mdv:open-ai-chat', async (event) => {
   return openAiChatWindow(sourceWindow)
 })
 
+ipcMain.handle('mdv:ai-chat-get-context', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return requestEditorWindowData(editorWindow, { type: 'get-context' })
+})
+
+ipcMain.handle('mdv:ai-chat-read-active-document', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return requestEditorWindowData(editorWindow, {
+    type: 'read',
+    source: 'active:document',
+  })
+})
+
 ipcMain.handle('mdv:open-external-link', async (event, href) => {
   if (typeof href !== 'string' || href.length === 0) {
     writeLog('WARN', 'ipc', 'open-external-link received invalid URL', href)
@@ -619,6 +666,24 @@ ipcMain.on('mdv:log', (_event, payload) => {
   const scope = typeof payload?.scope === 'string' ? payload.scope : 'renderer'
   const message = payload?.message ?? ''
   writeLog(level.toUpperCase(), scope, message)
+})
+
+ipcMain.on('mdv:ai-editor-response', (_event, payload) => {
+  const pendingRequest = pendingAiEditorRequests.get(payload?.requestId)
+
+  if (!pendingRequest) {
+    return
+  }
+
+  clearTimeout(pendingRequest.timeout)
+  pendingAiEditorRequests.delete(payload.requestId)
+
+  if (payload?.ok === false) {
+    pendingRequest.reject(new Error(payload?.error || 'AI editor request failed'))
+    return
+  }
+
+  pendingRequest.resolve(payload?.payload ?? null)
 })
 
 ipcMain.on('mdv:server-command-result', (_event, payload) => {

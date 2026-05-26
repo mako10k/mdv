@@ -391,6 +391,7 @@ function App() {
   const [statusText, setStatusText] = useState('Ready')
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const editorRef = useRef<ToastUiEditor | null>(null)
+  const persistedMarkdownRef = useRef(initialDocument)
   const resolvedTheme = useMemo(
     () => (themeMode === 'system' ? systemTheme : resolveTheme(themeMode)),
     [systemTheme, themeMode],
@@ -444,6 +445,7 @@ function App() {
 
     setMarkdownText(payload.content)
     setCurrentFilePath(payload.path)
+    persistedMarkdownRef.current = payload.content
     editorRef.current?.setMarkdown(payload.content)
     setStatusText(`Opened ${basename(payload.path)}`)
   }
@@ -470,7 +472,54 @@ function App() {
     }
 
     setCurrentFilePath(result.path)
+    persistedMarkdownRef.current = markdownText
     setStatusText(`Saved ${basename(result.path)}`)
+  }
+
+  const respondToAiEditorRequest = (request: MdvAiEditorRequest) => {
+    try {
+      if (request.type === 'get-context') {
+        const selectedText = editorRef.current?.getSelectedText() ?? ''
+
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            currentFilePath,
+            title: basename(currentFilePath),
+            activePanel,
+            textLength: markdownText.length,
+            selectionTextLength: selectedText.length,
+            isDirty: markdownText !== persistedMarkdownRef.current,
+          },
+        })
+        return
+      }
+
+      if (request.type === 'read' && request.source === 'active:document') {
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            source: 'active:document',
+            text: markdownText,
+          },
+        })
+        return
+      }
+
+      window.mdvDesktop?.sendAiEditorResponse({
+        requestId: request.requestId,
+        ok: false,
+        error: `Unsupported AI editor request: ${request.type}`,
+      })
+    } catch (error) {
+      window.mdvDesktop?.sendAiEditorResponse({
+        requestId: request.requestId,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   const runDesktopAction = (action: MdvMenuAction) => {
@@ -576,6 +625,16 @@ function App() {
       unsubscribe?.()
     }
   }, [handleOpen, handleSave])
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onAiEditorRequest((request) => {
+      respondToAiEditorRequest(request)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [activePanel, currentFilePath, markdownText])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
