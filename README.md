@@ -1,4 +1,4 @@
-# MDV Editor
+# MarkDownViewer
 
 Windows で動作するシンプルな Markdown エディタです。Electron 上で動作し、WYSIWYG 編集、Markdown ソース編集、diff、patch、CodeBlock renderer 拡張を 1 つのアプリにまとめています。
 
@@ -51,7 +51,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w ./scripts/
 ```
 
 このスクリプトは UAC 昇格を要求します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
-また、実行用コピーを Windows ローカルパス `%LOCALAPPDATA%\MDV-Editor\latest` に配置します。`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
+また、実行用コピーを Windows ローカルパス `%LOCALAPPDATA%\MarkDownViewer\latest` に配置します。`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
 
 Portable build:
 
@@ -80,10 +80,10 @@ npm run dist:win:dir
 生成物:
 
 - portable: `release/*.exe`
-- unpacked: `release/win-unpacked/MDV-Editor.exe`
-- Windows host recovered build: `release/windows-host/win-unpacked/MDV-Editor.exe`
-- local runnable copy: `%LOCALAPPDATA%\MDV-Editor\latest\MDV-Editor.exe`
-- runtime log: `%APPDATA%\MDV Editor\logs\mdv.log`
+- unpacked: `release/win-unpacked/MarkDownViewer.exe`
+- Windows host recovered build: `release/windows-host/win-unpacked/MarkDownViewer.exe`
+- local runnable copy: `%LOCALAPPDATA%\MarkDownViewer\latest\MarkDownViewer.exe`
+- runtime log: `%APPDATA%\MarkDownViewer\logs\mdv.log`
 
 注意:
 
@@ -91,7 +91,7 @@ npm run dist:win:dir
 - その場合でも `win-unpacked` は生成されるため、standalone アプリとしては利用できます。
 - `\\wsl.localhost\...` の UNC パス上の exe は GPU subprocess 起動に失敗することがあるため、Windows ローカルへコピーされた exe を起動してください。
 - Windows の packaged binary は 2 回目以降の起動で既存 process を再利用しつつ、新しい editor window を追加で開きます。
-- 白画面や起動失敗のときは `%APPDATA%\MDV Editor\logs\mdv.log` を確認してください。
+- 白画面や起動失敗のときは `%APPDATA%\MarkDownViewer\logs\mdv.log` を確認してください。
 
 ## ファイル操作
 

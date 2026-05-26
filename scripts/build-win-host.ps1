@@ -45,7 +45,7 @@ $workRoot = Join-Path $tempRoot 'mdv-winbuild'
 $nodeZip = Join-Path $tempRoot "node-$NodeVersion-win-x64.zip"
 $nodeRoot = Join-Path $tempRoot "node-$NodeVersion-win-x64"
 $artifactDest = Join-Path $SourceRoot 'release\windows-host'
-$localRunDest = Join-Path $env:LOCALAPPDATA 'MDV-Editor\latest'
+$localRunDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest'
 
 function Prepare-ArtifactDestination {
   param(
@@ -73,7 +73,7 @@ function Remove-LocalRunDestination {
     [string]$TargetPath
   )
 
-  $runningProcesses = Get-Process 'MDV-Editor' -ErrorAction SilentlyContinue
+  $runningProcesses = Get-Process 'MarkDownViewer' -ErrorAction SilentlyContinue
   if ($runningProcesses) {
     $runningProcesses | Stop-Process -Force
     $runningProcesses | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
@@ -140,6 +140,30 @@ if ($LASTEXITCODE -ne 0) {
   throw "electron-builder --win --dir failed with code $LASTEXITCODE"
 }
 
+$builtExe = Join-Path $workRoot 'release\win-unpacked\MarkDownViewer.exe'
+$iconPath = Join-Path $workRoot 'build\icon.ico'
+$rceditScriptPath = Join-Path $workRoot 'apply-rcedit.mjs'
+@"
+import { rcedit } from 'rcedit'
+
+const [exePath, iconPath] = process.argv.slice(2)
+
+await rcedit(exePath, {
+  icon: iconPath,
+  'version-string': {
+    ProductName: 'MarkDownViewer',
+    FileDescription: 'MarkDownViewer',
+    InternalName: 'MarkDownViewer',
+    OriginalFilename: 'MarkDownViewer.exe',
+  },
+})
+"@ | Set-Content -Path $rceditScriptPath -Encoding UTF8
+
+& "$nodeRoot\node.exe" $rceditScriptPath $builtExe $iconPath
+if ($LASTEXITCODE -ne 0) {
+  throw "rcedit failed with code $LASTEXITCODE"
+}
+
 $artifactDest = Prepare-ArtifactDestination -PreferredPath $artifactDest
 
 robocopy (Join-Path $workRoot 'release') $artifactDest /E > $null
@@ -160,5 +184,5 @@ if ($LASTEXITCODE -gt 3) {
 
 Write-Host "Runnable local copy updated at $localRunDest"
 
-$localExe = Join-Path $localRunDest 'MDV-Editor.exe'
+$localExe = Join-Path $localRunDest 'MarkDownViewer.exe'
 Write-Host "Run the local Windows copy: $localExe"

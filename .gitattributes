@@ -1,2 +1,2 @@
-release/windows-host/win-unpacked/MDV-Editor.exe filter=lfs diff=lfs merge=lfs -text
+release/windows-host/win-unpacked/MarkDownViewer.exe filter=lfs diff=lfs merge=lfs -text
 release/windows-host/win-unpacked/resources/app.asar filter=lfs diff=lfs merge=lfs -text

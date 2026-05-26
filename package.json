@@ -10,6 +10,7 @@
     "dev:web": "vite",
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "server:start": "node ./server/mdv-server.cjs",
+    "build:icons": "node ./scripts/build-icons.mjs",
     "build": "tsc -b && vite build",
     "start": "electron .",
     "dist:win:host": "bash ./scripts/build-win-host.sh",
@@ -20,13 +21,13 @@
     "preview": "vite preview"
   },
   "build": {
-    "appId": "local.mdv.editor",
-    "productName": "MDV Editor",
+    "appId": "local.markdownviewer",
+    "productName": "MarkDownViewer",
     "asar": true,
     "directories": {
       "output": "release"
     },
-    "artifactName": "MDV-Editor-${version}-${os}.${ext}",
+    "artifactName": "MarkDownViewer-${version}-${os}.${ext}",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -34,7 +35,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "executableName": "MDV-Editor",
+      "executableName": "MarkDownViewer",
       "target": [
         "portable"
       ]
@@ -66,6 +67,9 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",

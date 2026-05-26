@@ -9,10 +9,12 @@ const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-ru
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
+const appDisplayName = 'MarkDownViewer'
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
+app.setName(appDisplayName)
 app.setAppLogsPath()
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')

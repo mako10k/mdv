@@ -33,7 +33,7 @@ type ResolvedTheme = 'light' | 'dark'
 
 const themeStorageKey = 'mdv-theme-mode'
 
-const initialDocument = `# MDV Editor
+const initialDocument = `# MarkDownViewer
 
 Windows 向けの Markdown ワークベンチです。
 
