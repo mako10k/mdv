@@ -15,6 +15,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import mermaid from 'mermaid'
+import { clearLegacyThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme, type ThemeMode } from './shared/useDesktopTheme'
 import './App.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
@@ -30,11 +31,6 @@ type CodeBlockRenderer = (props: CodeBlockProps) => ReactElement
 type MarkdownSegment =
   | { type: 'markdown'; value: string }
   | { type: 'code'; language: string; code: string }
-
-type ThemeMode = 'system' | 'light' | 'dark'
-type ResolvedTheme = 'light' | 'dark'
-
-const themeStorageKey = 'mdv-theme-mode'
 
 const initialDocument = `# MarkDownViewer
 
@@ -110,24 +106,6 @@ function DefaultCodeBlock({ code, language }: CodeBlockProps) {
       </pre>
     </div>
   )
-}
-
-function readStoredThemeMode(): ThemeMode {
-  const storedValue = window.localStorage.getItem(themeStorageKey)
-
-  if (storedValue === 'light' || storedValue === 'dark' || storedValue === 'system') {
-    return storedValue
-  }
-
-  return 'system'
-}
-
-function getSystemTheme(): ResolvedTheme {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-function resolveTheme(themeMode: ThemeMode): ResolvedTheme {
-  return themeMode === 'system' ? getSystemTheme() : themeMode
 }
 
 type EditorSurfaceProps = {
@@ -383,8 +361,7 @@ function SaveAsIcon() {
 }
 
 function App() {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readStoredThemeMode())
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme())
+  const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const [markdownText, setMarkdownText] = useState(initialDocument)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>('write')
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
@@ -392,31 +369,25 @@ function App() {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const persistedMarkdownRef = useRef(initialDocument)
-  const resolvedTheme = useMemo(
-    () => (themeMode === 'system' ? systemTheme : resolveTheme(themeMode)),
-    [systemTheme, themeMode],
-  )
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
 
   useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme
-    document.documentElement.dataset.themeMode = themeMode
-    window.localStorage.setItem(themeStorageKey, themeMode)
-  }, [resolvedTheme, themeMode])
+    const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
 
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => {
-      setSystemTheme(mediaQuery.matches ? 'dark' : 'light')
+    if (bootstrap?.hasPersistedSettings) {
+      return
     }
 
-    handleChange()
-    mediaQuery.addEventListener('change', handleChange)
+    const legacyTheme = readLegacyThemeMode()
 
-    return () => {
-      mediaQuery.removeEventListener('change', handleChange)
+    if (!legacyTheme || legacyTheme === 'system') {
+      return
     }
+
+    void window.mdvDesktop?.settings.migrateLegacyTheme(legacyTheme).then(() => {
+      clearLegacyThemeMode()
+    })
   }, [])
 
   useEffect(() => {
@@ -427,14 +398,12 @@ function App() {
     markdownText,
     currentFilePath,
     activePanel,
-    themeMode,
   })
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
     setMarkdownText(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     setActivePanel(snapshot.activePanel)
-    setThemeMode(snapshot.themeMode)
     editorRef.current?.setMarkdown(snapshot.markdownText)
   }
 
@@ -635,7 +604,7 @@ function App() {
     return () => {
       unsubscribe?.()
     }
-  }, [activePanel, currentFilePath, markdownText, themeMode])
+  }, [activePanel, currentFilePath, markdownText])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((filePath) => {
@@ -763,7 +732,9 @@ function App() {
               <select
                 className="theme-select"
                 value={themeMode}
-                onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
+                onChange={(event) => {
+                  void setThemeMode(event.target.value as ThemeMode)
+                }}
               >
                 <option value="system">System</option>
                 <option value="light">Light</option>

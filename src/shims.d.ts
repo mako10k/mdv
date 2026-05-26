@@ -61,7 +61,6 @@ type MdvClientSnapshot = {
   markdownText: string
   currentFilePath: string | null
   activePanel: 'write' | 'preview'
-  themeMode: 'system' | 'light' | 'dark'
 }
 
 type MdvServerCommand = {
@@ -102,6 +101,70 @@ type MdvAiEditorRequest =
       content: string
     }
 
+type MdvSettings = {
+  version: 1
+  general: {
+    themeMode: 'system' | 'light' | 'dark'
+    defaultStartPanel: 'write' | 'preview'
+    openLinksBehavior: 'confirm-if-untrusted' | 'block-untrusted'
+  }
+  editor: {
+    initialEditType: 'markdown' | 'wysiwyg'
+    showModeSwitch: boolean
+    previewStyle: 'tab' | 'vertical'
+  }
+  ai: {
+    defaultWriteMode: 'direct' | 'suggest'
+    toolPermissions: {
+      readActiveDocument: boolean
+      readActiveSelection: boolean
+      writeActiveDocument: boolean
+      writeActiveSelection: boolean
+      writeNewDocument: boolean
+      workspaceGrep: boolean
+      tavilyWebSearch: boolean
+    }
+    openai: {
+      enabled: boolean
+      baseUrl: string | null
+      model: string
+    }
+    tavily: {
+      enabled: boolean
+      defaultSearchDepth: 'basic' | 'advanced'
+      defaultMaxResults: number
+    }
+  }
+  safety: {
+    confirmBeforeFullDocumentOverwrite: boolean
+    confirmBeforeNewDocumentFromAi: boolean
+    confirmBeforeExternalUrlOpen: boolean
+  }
+}
+
+type MdvSettingsPatch = {
+  general?: Partial<MdvSettings['general']>
+  editor?: Partial<MdvSettings['editor']>
+  ai?: {
+    defaultWriteMode?: MdvSettings['ai']['defaultWriteMode']
+    toolPermissions?: Partial<MdvSettings['ai']['toolPermissions']>
+    openai?: Partial<MdvSettings['ai']['openai']>
+    tavily?: Partial<MdvSettings['ai']['tavily']>
+  }
+  safety?: Partial<MdvSettings['safety']>
+}
+
+type MdvProviderStatus = {
+  openaiConfigured: boolean
+  tavilyConfigured: boolean
+}
+
+type MdvSettingsBootstrap = {
+  settings: MdvSettings
+  hasPersistedSettings: boolean
+  hasReadableSettings: boolean
+}
+
 type MdvAiContextPayload = {
   currentFilePath: string | null
   title: string
@@ -128,10 +191,19 @@ interface Window {
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
+    openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
+    settings: {
+      getBootstrapSettings: () => MdvSettingsBootstrap
+      getSettings: () => Promise<MdvSettings>
+      migrateLegacyTheme: (themeMode: 'light' | 'dark') => Promise<MdvSettings>
+      updateSettings: (patch: MdvSettingsPatch) => Promise<MdvSettings>
+      getProviderStatus: () => Promise<MdvProviderStatus>
+      onSettingsChanged: (callback: (settings: MdvSettings) => void) => () => void
+    }
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
     onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
     sendServerCommandResult: (payload: {

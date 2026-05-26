@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useDesktopTheme } from '../shared/useDesktopTheme'
 
 type Message = {
   id: string
@@ -35,6 +36,7 @@ function formatContext(context: MdvAiContextPayload | null): string {
 }
 
 function ChatApp() {
+  useDesktopTheme()
   const [contextText, setContextText] = useState('Loading editor context...')
   const [documentPreview, setDocumentPreview] = useState('')
   const [selectionPreview, setSelectionPreview] = useState('')
@@ -110,7 +112,12 @@ function ChatApp() {
           <p className="ai-chat-eyebrow">MDV Assistant</p>
           <h1>AI Chat</h1>
         </div>
-        <span className="ai-chat-status">{statusText}</span>
+        <div className="ai-chat-header-actions">
+          <button type="button" className="ai-chat-secondary" onClick={() => void window.mdvDesktop?.openSettingsWindow()}>
+            Settings
+          </button>
+          <span className="ai-chat-status">{statusText}</span>
+        </div>
       </header>
 
       <section className="ai-chat-transcript" aria-label="AI chat transcript">

@@ -1,8 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../index.css'
-import './chat.css'
-import ChatApp from './ChatApp'
+import './settings.css'
+import SettingsApp from './SettingsApp'
 import { applyBootstrapTheme } from '../shared/useDesktopTheme'
 
 function logToDesktop(level: string, scope: string, message: unknown) {
@@ -12,24 +12,24 @@ function logToDesktop(level: string, scope: string, message: unknown) {
 window.addEventListener('error', (event) => {
   logToDesktop(
     'error',
-    'ai-chat-window',
+    'settings-window',
     `${event.message} @ ${event.filename}:${event.lineno}:${event.colno}`,
   )
 })
 
 window.addEventListener('unhandledrejection', (event) => {
   const reason = event.reason instanceof Error ? event.reason.stack ?? event.reason.message : String(event.reason)
-  logToDesktop('error', 'ai-chat-window', `unhandledrejection ${reason}`)
+  logToDesktop('error', 'settings-window', `unhandledrejection ${reason}`)
 })
 
-logToDesktop('info', 'ai-chat-window', 'AI chat renderer bootstrap start')
+logToDesktop('info', 'settings-window', 'Settings renderer bootstrap start')
 
 applyBootstrapTheme()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ChatApp />
+    <SettingsApp />
   </StrictMode>,
 )
 
-logToDesktop('info', 'ai-chat-window', 'AI chat React root rendered')
+logToDesktop('info', 'settings-window', 'Settings React root rendered')

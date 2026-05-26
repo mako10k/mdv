@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: new URL('./index.html', import.meta.url).pathname,
         chat: new URL('./chat.html', import.meta.url).pathname,
+        settings: new URL('./settings.html', import.meta.url).pathname,
       },
     },
   },

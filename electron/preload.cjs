@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 const pendingOpenFileRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
+const settingsChangedListeners = new Set()
+const settingsBootstrap = ipcRenderer.sendSync('mdv:settings-bootstrap')
 
 ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
   if (openFileRequestListeners.size === 0) {
@@ -21,16 +23,37 @@ ipcRenderer.on('mdv:ai-editor-request', (_event, request) => {
   }
 })
 
+ipcRenderer.on('mdv:settings-changed', (_event, settings) => {
+  for (const listener of settingsChangedListeners) {
+    listener(settings)
+  }
+})
+
 contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
+  openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
   readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),
   writeAiActiveDocument: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-active-document', payload),
+  settings: {
+    getBootstrapSettings: () => settingsBootstrap,
+    getSettings: () => ipcRenderer.invoke('mdv:settings-get'),
+    migrateLegacyTheme: (themeMode) => ipcRenderer.invoke('mdv:settings-migrate-legacy-theme', themeMode),
+    updateSettings: (patch) => ipcRenderer.invoke('mdv:settings-update', patch),
+    getProviderStatus: () => ipcRenderer.invoke('mdv:settings-provider-status'),
+    onSettingsChanged: (callback) => {
+      settingsChangedListeners.add(callback)
+
+      return () => {
+        settingsChangedListeners.delete(callback)
+      }
+    },
+  },
   openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
   onServerCommand: (callback) => {
     const wrappedListener = (_event, command) => {

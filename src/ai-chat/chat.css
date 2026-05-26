@@ -14,6 +14,12 @@
   gap: 12px;
 }
 
+.ai-chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .ai-chat-header h1 {
   margin: 4px 0 0;
   font-size: 1.8rem;
@@ -128,6 +134,16 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-panel-strong);
+  cursor: pointer;
+}
+
+.ai-chat-secondary {
+  min-width: 96px;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
   cursor: pointer;
 }
 

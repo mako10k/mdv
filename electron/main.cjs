@@ -7,6 +7,7 @@ const { randomUUID } = require('node:crypto')
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
+const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
@@ -27,6 +28,11 @@ const pendingServerRequests = new Map()
 const editorToAiChatWindowId = new Map()
 const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
+let settingsWindow = null
+let settingsWindowOwnerEditorId = null
+let settingsState = loadSettings()
+let hasPersistedSettings = fs.existsSync(settingsPath)
+let hasReadableSettings = loadSettings.didLoadPersisted === true
 
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
@@ -64,6 +70,203 @@ function focusWindow(window) {
   window.focus()
 }
 
+function createDefaultSettings() {
+  return {
+    version: 1,
+    general: {
+      themeMode: 'system',
+      defaultStartPanel: 'write',
+      openLinksBehavior: 'confirm-if-untrusted',
+    },
+    editor: {
+      initialEditType: 'markdown',
+      showModeSwitch: true,
+      previewStyle: 'tab',
+    },
+    ai: {
+      defaultWriteMode: 'direct',
+      toolPermissions: {
+        readActiveDocument: true,
+        readActiveSelection: true,
+        writeActiveDocument: true,
+        writeActiveSelection: true,
+        writeNewDocument: true,
+        workspaceGrep: true,
+        tavilyWebSearch: true,
+      },
+      openai: {
+        enabled: false,
+        baseUrl: null,
+        model: process.env.MDV_OPENAI_MODEL || 'gpt-5.4',
+      },
+      tavily: {
+        enabled: false,
+        defaultSearchDepth: 'basic',
+        defaultMaxResults: 5,
+      },
+    },
+    safety: {
+      confirmBeforeFullDocumentOverwrite: true,
+      confirmBeforeNewDocumentFromAi: true,
+      confirmBeforeExternalUrlOpen: true,
+    },
+  }
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function mergePlainObjects(base, patch) {
+  if (!isPlainObject(base) || !isPlainObject(patch)) {
+    return patch
+  }
+
+  const merged = { ...base }
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (isPlainObject(value) && isPlainObject(merged[key])) {
+      merged[key] = mergePlainObjects(merged[key], value)
+      continue
+    }
+
+    merged[key] = value
+  }
+
+  return merged
+}
+
+function normalizeThemeMode(value) {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+}
+
+function normalizeStartPanel(value) {
+  return value === 'preview' ? 'preview' : 'write'
+}
+
+function normalizeOpenLinksBehavior(value) {
+  return value === 'block-untrusted' ? 'block-untrusted' : 'confirm-if-untrusted'
+}
+
+function normalizeInitialEditType(value) {
+  return value === 'wysiwyg' ? 'wysiwyg' : 'markdown'
+}
+
+function normalizePreviewStyle(value) {
+  return value === 'vertical' ? 'vertical' : 'tab'
+}
+
+function normalizeWriteMode(value) {
+  return value === 'suggest' ? 'suggest' : 'direct'
+}
+
+function normalizeSearchDepth(value) {
+  return value === 'advanced' ? 'advanced' : 'basic'
+}
+
+function clampDefaultMaxResults(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return 5
+  }
+
+  return Math.min(20, Math.max(1, Math.round(numericValue)))
+}
+
+function sanitizeSettings(candidate) {
+  const defaults = createDefaultSettings()
+  const merged = isPlainObject(candidate) ? mergePlainObjects(defaults, candidate) : defaults
+
+  return {
+    version: 1,
+    general: {
+      themeMode: normalizeThemeMode(merged.general?.themeMode),
+      defaultStartPanel: normalizeStartPanel(merged.general?.defaultStartPanel),
+      openLinksBehavior: normalizeOpenLinksBehavior(merged.general?.openLinksBehavior),
+    },
+    editor: {
+      initialEditType: normalizeInitialEditType(merged.editor?.initialEditType),
+      showModeSwitch: merged.editor?.showModeSwitch !== false,
+      previewStyle: normalizePreviewStyle(merged.editor?.previewStyle),
+    },
+    ai: {
+      defaultWriteMode: normalizeWriteMode(merged.ai?.defaultWriteMode),
+      toolPermissions: {
+        readActiveDocument: merged.ai?.toolPermissions?.readActiveDocument !== false,
+        readActiveSelection: merged.ai?.toolPermissions?.readActiveSelection !== false,
+        writeActiveDocument: merged.ai?.toolPermissions?.writeActiveDocument !== false,
+        writeActiveSelection: merged.ai?.toolPermissions?.writeActiveSelection !== false,
+        writeNewDocument: merged.ai?.toolPermissions?.writeNewDocument !== false,
+        workspaceGrep: merged.ai?.toolPermissions?.workspaceGrep !== false,
+        tavilyWebSearch: merged.ai?.toolPermissions?.tavilyWebSearch !== false,
+      },
+      openai: {
+        enabled: merged.ai?.openai?.enabled === true,
+        baseUrl: typeof merged.ai?.openai?.baseUrl === 'string' && merged.ai.openai.baseUrl.trim().length > 0
+          ? merged.ai.openai.baseUrl.trim()
+          : null,
+        model: typeof merged.ai?.openai?.model === 'string' && merged.ai.openai.model.trim().length > 0
+          ? merged.ai.openai.model.trim()
+          : defaults.ai.openai.model,
+      },
+      tavily: {
+        enabled: merged.ai?.tavily?.enabled === true,
+        defaultSearchDepth: normalizeSearchDepth(merged.ai?.tavily?.defaultSearchDepth),
+        defaultMaxResults: clampDefaultMaxResults(merged.ai?.tavily?.defaultMaxResults),
+      },
+    },
+    safety: {
+      confirmBeforeFullDocumentOverwrite: merged.safety?.confirmBeforeFullDocumentOverwrite !== false,
+      confirmBeforeNewDocumentFromAi: merged.safety?.confirmBeforeNewDocumentFromAi !== false,
+      confirmBeforeExternalUrlOpen: merged.safety?.confirmBeforeExternalUrlOpen !== false,
+    },
+  }
+}
+
+function loadSettings() {
+  try {
+    if (!fs.existsSync(settingsPath)) {
+      loadSettings.didLoadPersisted = false
+      return createDefaultSettings()
+    }
+
+    const raw = fs.readFileSync(settingsPath, 'utf8')
+    loadSettings.didLoadPersisted = true
+    return sanitizeSettings(JSON.parse(raw))
+  } catch (error) {
+    loadSettings.didLoadPersisted = false
+    writeLog('WARN', 'settings', 'Falling back to default settings', error instanceof Error ? error.message : String(error))
+    return createDefaultSettings()
+  }
+}
+
+loadSettings.didLoadPersisted = false
+
+async function persistSettings() {
+  await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true })
+  await fsPromises.writeFile(settingsPath, `${JSON.stringify(settingsState, null, 2)}\n`, 'utf8')
+  hasPersistedSettings = true
+  hasReadableSettings = true
+}
+
+function getProviderStatus() {
+  return {
+    openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    tavilyConfigured: Boolean(process.env.TAVILY_API_KEY),
+  }
+}
+
+function broadcastSettingsChanged() {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue
+    }
+
+    window.webContents.send('mdv:settings-changed', settingsState)
+  }
+}
+
 function loadRendererWindow(window, htmlFileName) {
   if (isDev) {
     window.loadURL(`http://localhost:5173/${htmlFileName}`)
@@ -73,15 +276,41 @@ function loadRendererWindow(window, htmlFileName) {
   window.loadFile(path.join(__dirname, '..', 'dist', htmlFileName))
 }
 
+function isSettingsWindow(window) {
+  return Boolean(settingsWindow) && Boolean(window) && settingsWindow.id === window.id
+}
+
+function isAiChatWindow(window) {
+  return Boolean(window) && aiChatToEditorWindowId.has(window.id)
+}
+
+function isEditorWindow(window) {
+  return Boolean(window) && !isAiChatWindow(window) && !isSettingsWindow(window)
+}
+
+function getDefaultEditorWindow() {
+  return BrowserWindow.getAllWindows().find((window) => isEditorWindow(window)) ?? null
+}
+
 function getEditorWindowForAiAction(candidateWindow) {
   if (!candidateWindow) {
-    const firstEditorWindow = BrowserWindow.getAllWindows().find((window) => !aiChatToEditorWindowId.has(window.id))
-    return firstEditorWindow ?? null
+    return getDefaultEditorWindow()
   }
 
   if (aiChatToEditorWindowId.has(candidateWindow.id)) {
     const ownerWindowId = aiChatToEditorWindowId.get(candidateWindow.id)
     return BrowserWindow.fromId(ownerWindowId) ?? null
+  }
+
+  if (isSettingsWindow(candidateWindow)) {
+    if (settingsWindowOwnerEditorId) {
+      const ownerWindow = BrowserWindow.fromId(settingsWindowOwnerEditorId)
+      if (ownerWindow && !ownerWindow.isDestroyed()) {
+        return ownerWindow
+      }
+    }
+
+    return getDefaultEditorWindow()
   }
 
   return candidateWindow
@@ -163,6 +392,50 @@ function openAiChatWindow(targetWindow) {
   return { status: 'opened' }
 }
 
+function openSettingsWindow(targetWindow) {
+  const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
+
+  if (!ownerEditorWindow && (!settingsWindow || settingsWindow.isDestroyed())) {
+    writeLog('WARN', 'settings', 'No editor window available for settings owner')
+    return { status: 'focused' }
+  }
+
+  if (ownerEditorWindow && !ownerEditorWindow.isDestroyed()) {
+    settingsWindowOwnerEditorId = ownerEditorWindow.id
+  }
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    focusWindow(settingsWindow)
+    return { status: 'focused' }
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 960,
+    height: 720,
+    minWidth: 760,
+    minHeight: 560,
+    backgroundColor: '#fffaf4',
+    autoHideMenuBar: true,
+    icon: windowIcon,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null
+    settingsWindowOwnerEditorId = null
+  })
+
+  loadRendererWindow(settingsWindow, 'settings.html')
+  focusWindow(settingsWindow)
+  writeLog('INFO', 'settings', 'Settings window opened')
+
+  return { status: 'opened' }
+}
+
 function dispatchOpenFileToWindow(targetWindow, filePath) {
   if (!targetWindow || !filePath) {
     return
@@ -185,7 +458,7 @@ function queueOrDispatchOpenFile(filePath) {
     return
   }
 
-  const targetWindow = BrowserWindow.getAllWindows()[0]
+  const targetWindow = getDefaultEditorWindow()
 
   if (!targetWindow || targetWindow.webContents.isLoading()) {
     pendingLaunchFilePath = filePath
@@ -279,6 +552,11 @@ async function openExternalLink(parentWindow, href) {
     return { status: 'blocked' }
   }
 
+  if (settingsState.general.openLinksBehavior === 'block-untrusted' && !isUrlAllowed(targetUrl)) {
+    writeLog('INFO', 'link', 'Blocked by settings policy', targetUrl.href)
+    return { status: 'blocked' }
+  }
+
   if (!isUrlAllowed(targetUrl)) {
     const confirmed = await confirmExternalNavigation(parentWindow, targetUrl)
 
@@ -286,6 +564,12 @@ async function openExternalLink(parentWindow, href) {
       writeLog('INFO', 'link', 'Blocked by confirmation dialog', targetUrl.href)
       return { status: 'cancelled' }
     }
+  }
+
+  if (!settingsState.safety.confirmBeforeExternalUrlOpen) {
+    await shell.openExternal(targetUrl.href)
+    writeLog('INFO', 'link', 'Opened in default browser without trusted-link confirmation', targetUrl.href)
+    return { status: 'opened' }
   }
 
   await shell.openExternal(targetUrl.href)
@@ -459,7 +743,8 @@ function attachWindowLogging(mainWindow, initialLaunchFilePath = null) {
 }
 
 function sendMenuAction(action) {
-  const targetWindow = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const targetWindow = getEditorWindowForAiAction(BrowserWindow.getFocusedWindow())
+    ?? BrowserWindow.getAllWindows().find((window) => isEditorWindow(window))
 
   if (!targetWindow) {
     writeLog('WARN', 'menu', 'No window available for action', action)
@@ -492,6 +777,12 @@ function createApplicationMenu() {
           label: 'Save As',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => sendMenuAction('save-as'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Settings',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => openSettingsWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
         },
         { type: 'separator' },
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
@@ -544,6 +835,15 @@ function createWindow(initialLaunchFilePath = null) {
   })
 
   attachWindowLogging(mainWindow, initialLaunchFilePath)
+  mainWindow.on('closed', () => {
+    if (settingsWindowOwnerEditorId === mainWindow.id) {
+      settingsWindowOwnerEditorId = null
+    }
+
+    if (!getDefaultEditorWindow() && settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.close()
+    }
+  })
   managedMainWindow = mainWindow
   writeLog('INFO', 'main', 'BrowserWindow created')
 
@@ -602,6 +902,49 @@ ipcMain.handle('mdv:open-ai-chat', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   return openAiChatWindow(sourceWindow)
 })
+
+ipcMain.handle('mdv:open-settings-window', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  return openSettingsWindow(sourceWindow)
+})
+
+ipcMain.on('mdv:settings-bootstrap', (event) => {
+  event.returnValue = {
+    settings: settingsState,
+    hasPersistedSettings,
+    hasReadableSettings,
+  }
+})
+
+ipcMain.handle('mdv:settings-get', async () => settingsState)
+
+ipcMain.handle('mdv:settings-migrate-legacy-theme', async (_event, themeMode) => {
+  if (hasPersistedSettings || settingsState.general.themeMode !== 'system') {
+    return settingsState
+  }
+
+  if (themeMode !== 'light' && themeMode !== 'dark') {
+    return settingsState
+  }
+
+  settingsState = sanitizeSettings(mergePlainObjects(settingsState, {
+    general: {
+      themeMode,
+    },
+  }))
+  await persistSettings()
+  broadcastSettingsChanged()
+  return settingsState
+})
+
+ipcMain.handle('mdv:settings-update', async (_event, patch) => {
+  settingsState = sanitizeSettings(mergePlainObjects(settingsState, isPlainObject(patch) ? patch : {}))
+  await persistSettings()
+  broadcastSettingsChanged()
+  return settingsState
+})
+
+ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
 
 ipcMain.handle('mdv:ai-chat-get-context', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
@@ -757,7 +1100,7 @@ app.on('second-instance', (_event, argv) => {
     return
   }
 
-  const targetWindow = BrowserWindow.getAllWindows()[0]
+  const targetWindow = getDefaultEditorWindow()
 
   if (targetWindow) {
     focusWindow(targetWindow)
