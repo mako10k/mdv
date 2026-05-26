@@ -110,6 +110,11 @@ registry.set('mermaid', MermaidBlock)
 
 同じ仕組みで `sql`, `plantuml`, `chart` などを追加できます。
 
+## 設計メモ
+
+- [docs/ai-chat-design.md](docs/ai-chat-design.md): AI チャット window、tool bridge、OpenAI 連携の設計
+- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット実装タスクの分解と着手順
+
 ## 主要ファイル
 
 - [src/App.tsx](src/App.tsx): UI、本体ロジック、renderer registry
