@@ -2,11 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
 import ChatMarkdown from './ChatMarkdown'
 
-type Message = {
+type Message = MdvAiChatMessage & {
   id: string
-  role: 'tool' | 'assistant' | 'user'
-  content: string
-  title?: string
+  excludeFromModel?: boolean
 }
 
 type ExternalAnchor = {
@@ -23,9 +21,15 @@ const initialMessages: Message[] = [
   {
     id: 'assistant-placeholder',
     role: 'assistant',
-    content: 'OpenAI orchestration is still the next stage. For now, use the context buttons to pull the active editor state into this transcript.',
+    content: 'When OpenAI is enabled in settings and configured with an API key, messages sent from the bottom composer are routed through the main process. Attach explicit context with the buttons before asking for edits or analysis.',
   },
 ]
+
+function toModelMessages(messages: Message[]): MdvAiChatMessage[] {
+  return messages
+    .filter((message) => !message.excludeFromModel && message.id !== 'assistant-welcome' && message.id !== 'assistant-placeholder')
+    .map(({ role, content, title }) => ({ role, content, title }))
+}
 
 function resolveExternalAnchor(target: EventTarget | null): ExternalAnchor | null {
   if (!(target instanceof Element)) {
@@ -75,12 +79,17 @@ function formatContext(context: MdvAiContextPayload | null): string {
   ].join('\n')
 }
 
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function ChatApp() {
   const { resolvedTheme } = useDesktopTheme()
   const transcriptRef = useRef<HTMLElement | null>(null)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [composerText, setComposerText] = useState('')
   const [statusText, setStatusText] = useState('Scaffold + IPC')
+  const [isSending, setIsSending] = useState(false)
 
   const appendMessage = (message: Message) => {
     setMessages((currentMessages) => [...currentMessages, message])
@@ -142,7 +151,8 @@ function ChatApp() {
           id: crypto.randomUUID(),
           role: 'tool',
           title: 'get_context',
-          content: error instanceof Error ? error.message : String(error),
+          content: toErrorMessage(error),
+          excludeFromModel: true,
         })
       })
   }
@@ -164,7 +174,8 @@ function ChatApp() {
           id: crypto.randomUUID(),
           role: 'tool',
           title: 'read active:document',
-          content: error instanceof Error ? error.message : String(error),
+          content: toErrorMessage(error),
+          excludeFromModel: true,
         })
         setStatusText('Read failed')
       })
@@ -187,34 +198,68 @@ function ChatApp() {
           id: crypto.randomUUID(),
           role: 'tool',
           title: 'read active:selection',
-          content: error instanceof Error ? error.message : String(error),
+          content: toErrorMessage(error),
+          excludeFromModel: true,
         })
         setStatusText('Selection failed')
       })
   }
 
   const handleSendMessage = () => {
+    if (isSending) {
+      return
+    }
+
     const trimmedMessage = composerText.trim()
 
     if (!trimmedMessage) {
       return
     }
 
-    appendMessage({
+    const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content: trimmedMessage,
-    })
+    }
+    const nextMessages = [...messages, userMessage]
+
+    setMessages(nextMessages)
     setComposerText('')
-    setStatusText('Assistant runtime not connected yet')
-    appendMessage({
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: 'Message received. Model execution is not wired yet, so this window currently collects explicit context and will host normal assistant replies in the next stage.',
+    setIsSending(true)
+    setStatusText('Sending to OpenAI')
+
+    void window.mdvDesktop?.sendAiChatMessage({
+      messages: toModelMessages(nextMessages),
     })
+      .then((response) => {
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          title: response.model,
+          content: response.reply,
+        })
+        setStatusText(`Assistant replied with ${response.model}`)
+      })
+      .catch((error: unknown) => {
+        appendMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          title: 'openai error',
+          content: toErrorMessage(error),
+          excludeFromModel: true,
+        })
+        setStatusText('OpenAI request failed')
+      })
+      .finally(() => {
+        setIsSending(false)
+      })
   }
 
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSending) {
+      return
+    }
+
     if (event.nativeEvent.isComposing) {
       return
     }
@@ -277,12 +322,13 @@ function ChatApp() {
           value={composerText}
           onChange={(event) => setComposerText(event.target.value)}
           onKeyDown={handleComposerKeyDown}
+          disabled={isSending}
         />
         <div className="ai-chat-footer-row">
           <span>Shortcuts: Ctrl/Cmd+I opens chat, Ctrl/Cmd+, opens settings.</span>
           <div className="ai-chat-actions">
-            <button type="button" className="ai-chat-send" onClick={handleSendMessage}>
-              Send
+            <button type="button" className="ai-chat-send" onClick={handleSendMessage} disabled={isSending || composerText.trim().length === 0}>
+              {isSending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>

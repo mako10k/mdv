@@ -8,8 +8,8 @@
 
 注記:
 
-- 現在の実装は chat window / settings 導線 / explicit context 添付 UI までの scaffold 段階である
-- OpenAI 実行、write / grep / web_search / list_editors のモデル主導 tool orchestration は後続フェーズで追加する
+- 現在の実装は chat window / settings 導線 / explicit context 添付 UI と、OpenAI Responses API 経由の live reply までを含む scaffold 段階である
+- write / grep / web_search / list_editors のモデル主導 tool orchestration は後続フェーズで追加する
 
 ## Target Goals
 
@@ -27,6 +27,7 @@
 - Ctrl+I またはメニューから AI チャットウィンドウを開けること
 - chat window は上部に transcript、下部に固定入力欄を持つこと
 - Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
+- OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
 - AI 応答バブルは Markdown を描画できること
 

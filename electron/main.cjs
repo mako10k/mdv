@@ -3,6 +3,7 @@ const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
+const OpenAI = require('openai')
 
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
@@ -95,7 +96,7 @@ function createDefaultSettings() {
         tavilyWebSearch: true,
       },
       openai: {
-        enabled: false,
+        enabled: true,
         baseUrl: null,
         model: process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini',
       },
@@ -252,8 +253,113 @@ async function persistSettings() {
 
 function getProviderStatus() {
   return {
-    openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+    openaiConfigured: getOpenAiApiKey() !== null,
     tavilyConfigured: Boolean(process.env.TAVILY_API_KEY),
+  }
+}
+
+function isOpenAiEnabled() {
+  return settingsState.ai.openai.enabled === true
+}
+
+const openAiChatInstructions = [
+  'You are MDV Assistant inside MarkDownViewer, a Markdown editing application.',
+  'Respond in Markdown and keep answers focused on the user request.',
+  'Treat transcript entries labeled as tool context as trusted application-provided context.',
+  'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
+].join(' ')
+
+function getOpenAiApiKey() {
+  return typeof process.env.OPENAI_API_KEY === 'string' && process.env.OPENAI_API_KEY.trim().length > 0
+    ? process.env.OPENAI_API_KEY.trim()
+    : null
+}
+
+function getOpenAiBaseUrl() {
+  const configuredBaseUrl = settingsState.ai.openai.baseUrl || process.env.MDV_OPENAI_BASE_URL || 'https://api.openai.com/v1'
+  return configuredBaseUrl.endsWith('/') ? configuredBaseUrl : `${configuredBaseUrl}/`
+}
+
+function createOpenAiClient() {
+  if (!isOpenAiEnabled()) {
+    throw new Error('OpenAI is disabled in settings')
+  }
+
+  const apiKey = getOpenAiApiKey()
+
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured')
+  }
+
+  return new OpenAI({
+    apiKey,
+    baseURL: getOpenAiBaseUrl(),
+  })
+}
+
+function mapAiChatMessageToOpenAiInput(message) {
+  if (!message || typeof message.content !== 'string' || message.content.trim().length === 0) {
+    return null
+  }
+
+  if (message.role === 'assistant') {
+    return {
+      role: 'assistant',
+      content: message.content,
+    }
+  }
+
+  if (message.role === 'tool') {
+    return {
+      role: 'user',
+      content: `Tool context${message.title ? ` (${message.title})` : ''}:\n${message.content}`,
+    }
+  }
+
+  return {
+    role: 'user',
+    content: message.content,
+  }
+}
+
+async function requestOpenAiChatResponse(messages) {
+  const input = Array.isArray(messages)
+    ? messages
+      .map(mapAiChatMessageToOpenAiInput)
+      .filter(Boolean)
+    : []
+
+  if (input.length === 0) {
+    throw new Error('No chat context was provided to OpenAI')
+  }
+
+  const client = createOpenAiClient()
+
+  try {
+    const response = await client.responses.create({
+      model: settingsState.ai.openai.model,
+      instructions: openAiChatInstructions,
+      input,
+      store: false,
+    })
+
+    const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+
+    if (!reply) {
+      throw new Error('OpenAI SDK returned no output_text')
+    }
+
+    return {
+      reply,
+      model: typeof response.model === 'string' && response.model.length > 0 ? response.model : settingsState.ai.openai.model,
+      responseId: typeof response.id === 'string' ? response.id : null,
+    }
+  } catch (error) {
+    if (error instanceof OpenAI.APIError) {
+      throw new Error(`OpenAI request failed: ${error.message}`)
+    }
+
+    throw error
   }
 }
 
@@ -992,6 +1098,20 @@ ipcMain.handle('mdv:ai-chat-write-active-selection', async (event, payload) => {
     destination: 'active:selection',
     content: typeof payload?.content === 'string' ? payload.content : '',
   })
+})
+
+ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
+  writeLog('INFO', 'ai-chat', 'OpenAI chat request start', {
+    messageCount: Array.isArray(payload?.messages) ? payload.messages.length : 0,
+    model: settingsState.ai.openai.model,
+  })
+
+  const result = await requestOpenAiChatResponse(payload?.messages)
+  writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
+    responseId: result.responseId,
+    model: result.model,
+  })
+  return result
 })
 
 ipcMain.handle('mdv:open-external-link', async (event, href) => {

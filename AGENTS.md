@@ -26,6 +26,7 @@
 - Keep AI editor spans canonical in Markdown coordinates. When behavior depends on Toast UI mode conversion, follow the rules already recorded in [docs/ai-chat-feasibility.md](docs/ai-chat-feasibility.md).
 - Prefer `@toast-ui/editor` directly. Do not introduce `@toast-ui/react-editor` in this repo.
 - Follow the existing split between CommonJS in `electron/` and ESM/TypeScript in `src/`.
+- Treat type safety as a repo rule: do not paper over typing gaps with casual `any`, `as any`, or `as unknown as ...` casts. Fix the type boundary or model the shape explicitly instead.
 - Preserve existing packaging workarounds for WSL and Windows host builds; do not assume `electron-builder --win portable` is reliable on this Linux environment.
 
 ## Commit Workflow

@@ -191,6 +191,18 @@ type MdvAiWritePayload = {
   text: string
 }
 
+type MdvAiChatMessage = {
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  title?: string
+}
+
+type MdvAiChatResponse = {
+  reply: string
+  model: string
+  responseId: string | null
+}
+
 interface Window {
   mdvDesktop?: {
     platform: string
@@ -204,6 +216,7 @@ interface Window {
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
+    sendAiChatMessage: (payload: { messages: MdvAiChatMessage[] }) => Promise<MdvAiChatResponse>
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
       getSettings: () => Promise<MdvSettings>
