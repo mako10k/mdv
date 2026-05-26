@@ -24,6 +24,8 @@ declare module 'markdown-it'
 declare module 'markdown-it-container'
 declare module 'markdown-it-footnote'
 declare module 'markdown-it-task-lists'
+declare module 'markdown-it-texmath'
+declare module 'katex'
 
 type MdvFilePayload = {
   path: string

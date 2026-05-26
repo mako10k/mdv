@@ -12,9 +12,12 @@ import MarkdownIt from 'markdown-it'
 import markdownItContainer from 'markdown-it-container'
 import markdownItFootnote from 'markdown-it-footnote'
 import markdownItTaskLists from 'markdown-it-task-lists'
+import texmath from 'markdown-it-texmath'
+import katex from 'katex'
 import mermaid from 'mermaid'
 import './App.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
+import 'katex/dist/katex.min.css'
 
 type CodeBlockProps = {
   code: string
@@ -61,6 +64,10 @@ const markdownParser = new MarkdownIt({
   breaks: true,
   linkify: true,
 })
+  .use(texmath, {
+    engine: katex,
+    delimiters: 'dollars',
+  })
   .use(markdownItTaskLists, { enabled: true })
   .use(markdownItFootnote)
   .use(markdownItContainer, 'note')
