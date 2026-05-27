@@ -20,6 +20,7 @@ Status: Accepted
 - `EditorID` は editor window と session-scoped temp buffer の両方を参照できる
 - `SPAN` は selection、document、point、line、line-range、from-start、to-end、range を表せる union にする
 - `SPAN` の line-range は順不同入力を受けても start/end を正規化して扱う
+- `selection` は live editor window にだけ意味を持つ span とし、temp buffer では `document` に正規化する
 - 実行前にすべての SPAN を Markdown 座標ベースの normalized span へ解決する
 - read 系の返却では、継続 pagination 用の `target` と、そのページ自体を再利用するための `pageTarget` を分けて返す
 - write の `slice-ref` source は legacy な `editorId + span` と canonical な `target` の両方を受ける

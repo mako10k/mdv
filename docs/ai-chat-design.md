@@ -369,6 +369,7 @@ type ChatMessage = {
 - `read_target` の follow-up pagination では `target` と `nextCursor` をそのまま再利用する
 - 今回返したページそのものを次の input に使いたい場合は `pageTarget` を使う
 - `span` は表示・説明用の resolved metadata であり、次の tool input schema ではない
+- `selection` は live editor にしか意味を持たない。temp buffer では `document`、`pageTarget`、または明示 `range` を使う
 
 設計方針:
 
@@ -482,6 +483,7 @@ type WriteSource =
 
 - write は source を複数受けられるようにして、直値と EditorID+SPAN の混在を許す
 - 返却された `target` は destination だけでなく `slice-ref` source にもそのまま再利用できるようにする
+- temp buffer で `selection` が来た場合は live selection が存在しないため `document` として正規化する
 - 実行前に main process がすべての `slice-ref` を bounded に resolve し、必要なら追加 `read` を促す
 - source が大きすぎるときは失敗ではなく validation error として返し、model に再取得方針を促す
 

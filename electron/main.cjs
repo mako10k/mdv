@@ -944,6 +944,18 @@ function normalizeAiSliceRefSource(source) {
   throw new Error('Invalid AI slice-ref source target')
 }
 
+function normalizeSpanForResolvedTargetKind(targetKind, span) {
+  if (!span || typeof span !== 'object') {
+    throw new Error('AI target span is required')
+  }
+
+  if (targetKind === 'temp-buffer' && span.kind === 'selection') {
+    return { kind: 'document' }
+  }
+
+  return span
+}
+
 function getLineBoundaryOffsets(markdown, line) {
   const totalLines = getMarkdownLineStartOffsets(markdown).length
   const clampedLine = Math.min(Math.max(1, Math.trunc(Number(line) || 1)), totalLines)
@@ -1356,7 +1368,7 @@ function resolveTargetForSession(editorWindow, target) {
     return {
       kind: 'editor-window',
       editorId: runtimeState.editorId,
-      span: target.span,
+      span: normalizeSpanForResolvedTargetKind('editor-window', target.span),
     }
   }
 
@@ -1366,7 +1378,7 @@ function resolveTargetForSession(editorWindow, target) {
     return {
       kind: 'temp-buffer',
       editorId: bufferRecord.editorId,
-      span: target.span,
+      span: normalizeSpanForResolvedTargetKind('temp-buffer', target.span),
       bufferRecord,
     }
   }
@@ -1669,6 +1681,7 @@ const openAiChatInstructions = [
   'Prefer exact_search or semantic_search to narrow large documents before reading wide spans.',
   'For follow-up tool calls, prefer the returned target object exactly as-is; resolved span objects with start/end/isEmpty are output metadata, not SPAN input schema.',
   'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
+  'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
@@ -1683,6 +1696,7 @@ const aiSpanDescription = [
   '{"kind":"from-start","end":{"line":20,"column":1}},',
   '{"kind":"to-end","start":{"line":20,"column":1}},',
   '{"kind":"range","start":{"line":10,"column":1},"end":{"line":18,"column":1}}.',
+  'Selection is only meaningful for live editor targets; temp buffers should use document, pageTarget, or range.',
   'Use the returned target field for follow-up calls whenever available.',
 ].join(' ')
 
