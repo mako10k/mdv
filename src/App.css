@@ -57,6 +57,11 @@
   gap: 4px;
 }
 
+.action-strip {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .topbar button {
   border: 1px solid var(--border);
   background: var(--bg-panel);
@@ -119,6 +124,117 @@
 
 .theme-select:focus {
   outline: none;
+}
+
+.editor-search-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+
+.editor-search-mode,
+.editor-search-input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.editor-search-mode {
+  min-width: 78px;
+  font-size: 11px;
+}
+
+.editor-search-input {
+  min-width: 180px;
+  font-size: 12px;
+}
+
+.editor-search-mode:focus,
+.editor-search-input:focus {
+  outline: none;
+}
+
+.editor-search-count {
+  min-width: 40px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.editor-search-results {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+}
+
+.editor-search-result,
+.editor-search-error {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 6px 8px;
+  min-width: 180px;
+}
+
+.editor-search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.editor-search-result.active {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.editor-search-result-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.editor-search-result-preview {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.editor-search-error {
+  font-size: 11px;
+  color: #a13b2d;
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .action-strip {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .editor-search-shell {
+    flex: 1 1 100%;
+  }
+
+  .editor-search-input {
+    min-width: 0;
+    flex: 1;
+  }
 }
 
 .single-panel {

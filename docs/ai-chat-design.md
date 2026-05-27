@@ -6,10 +6,12 @@
 
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 
+以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
+
 注記:
 
-- 現在の実装は chat window / settings 導線 / explicit context 添付 UI と、OpenAI Responses API 経由の live reply までを含む scaffold 段階である
-- write / grep / web_search / list_editors のモデル主導 tool orchestration は後続フェーズで追加する
+- 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice のモデル主導 tool orchestration を含む
+- workspace_grep と Tavily web_search は後続フェーズで追加する
 
 ## Target Goals
 
@@ -28,6 +30,7 @@
 - chat window は上部に transcript、下部に固定入力欄を持つこと
 - Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
+- list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
 - AI 応答バブルは Markdown を描画できること
 
@@ -93,12 +96,17 @@ AI が使う操作面。
 
 最終的な tool surface:
 
+- get_context
 - read
 - write
-- grep
+- grep_slice
+- nl
+- cut
+- sort
+- stats
+- list_buffers
+- workspace_grep
 - web_search
-- list_editors
-- get_context
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 
@@ -119,7 +127,7 @@ AI が使う操作面。
 
 - Ctrl+I
 - メニューの AI Chat
-- Ctrl+, または各 window の Settings ボタンから settings window を開ける
+- Ctrl+, から settings window を開ける
 
 ### Window Behavior
 
@@ -131,8 +139,9 @@ AI が使う操作面。
 
 - 上部はスクロール可能なメッセージ一覧
 - 下部は固定の複数行入力欄
-- 入力欄の直上に explicit context attachment 用のボタンを置く
-- 初期 scaffold の explicit context は Current Editor / Whole Document / Selection の 3 ボタンに限定する
+- 入力欄の直上に explicit context attachment 用の小型ボタンを置く
+- explicit context は送信前 pending attachment として保持し、送信時にだけ model input へ反映する
+- attachment は bubble 上では compact badge 表示にとどめ、本文を常時 transcript へ垂れ流さない
 - Enter で送信、Shift+Enter で改行
 - 実行中は Stop か Cancel を表示
 
@@ -145,7 +154,36 @@ AI が使う操作面。
 
 ## Core Data Model
 
-### EditorTarget
+### EditorHandle
+
+`editorId` は model が参照する論理対象を表す。
+
+```ts
+type EditorId = string
+
+type EditorHandle = {
+  editorId: EditorId
+  kind: 'editor-window' | 'temp-buffer'
+  title: string
+  currentFilePath: string | null
+  isDirty: boolean
+  capabilities: {
+    read: boolean
+    write: boolean
+    sliceOps: boolean
+  }
+  createdAt: string
+  updatedAt: string
+}
+```
+
+設計方針:
+
+- editor window は main process が session 内で安定 ID を採番する
+- tool が生成した一時結果は `buffer:*` 形式の temp buffer として採番する
+- temp buffer は session 内だけ有効で、window が閉じるか session が破棄されたら無効化する
+
+### SpanRef
 
 文字列記法:
 
@@ -159,20 +197,78 @@ AI が使う操作面。
 ```ts
 type EditorTarget = {
   editorId: string
-  span: SpanTarget
+  span: SpanRef
 }
 
-type SpanTarget =
+type MarkdownPos = {
+  line: number
+  column: number
+}
+
+type SpanRef =
   | { kind: 'selection' }
   | { kind: 'document' }
+  | { kind: 'point'; at: MarkdownPos }
+  | { kind: 'line'; line: number }
+  | { kind: 'line-range'; startLine: number; endLine: number }
+  | { kind: 'from-start'; end: MarkdownPos }
+  | { kind: 'to-end'; start: MarkdownPos }
   | {
       kind: 'range'
-      startColumn: number
-      startLine: number
-      endColumn: number
-      endLine: number
+      start: MarkdownPos
+      end: MarkdownPos
     }
+
+type NormalizedSpan = {
+  start: MarkdownPos
+  end: MarkdownPos
+  isEmpty: boolean
+}
 ```
+
+方針:
+
+- SPAN は user 要件どおり、開始位置、終了位置、選択範囲、ファイル全体、ファイル開始位置、ファイル終了位置、行番号だけを表現できる union にする
+- `point` は insert 系 write の destination に使う
+- 実行時はすべて `NormalizedSpan` へ正規化してから renderer へ渡す
+- canonical 座標は Markdown 座標とし、WYSIWYG mode では renderer 側で current mode に変換する
+
+### AttachmentRef
+
+チャット UI の explicit context は直接 transcript 文字列へ展開せず、まず attachment reference として保持する。
+
+```ts
+type AttachmentRef = {
+  attachmentId: string
+  editorId: string
+  span: SpanRef
+  origin: 'editor-context' | 'document' | 'selection' | 'tool-result'
+  estimatedTokens: number
+  inlineEligible: boolean
+  previewLabel: string
+}
+```
+
+### Context Transport Policy
+
+小さい文脈と大きい文脈で model への渡し方を分ける。
+
+```ts
+type ContextTransportPolicy = {
+  inlineTokenBudget: number
+  readTokenBudget: number
+  hintPreviewChars: number
+}
+```
+
+既定方針:
+
+- inline できるのは model context window の約 5% まで
+- `read` 1 回で返す上限も inline と同程度にそろえる
+- 5% を超える attachment は本文を直貼りせず、`EditorID + SPAN + 概要` の hint だけを送る
+- hint を受けた model は必要箇所だけ `read` を繰り返して取得する
+
+model context window は model ごとの既知値を settings または model registry で管理し、未知モデルでは保守的な fallback を使う。
 
 ### Important API Adjustment
 
@@ -220,15 +316,20 @@ type ChatMessage = {
 
 用途:
 
-- 選択範囲の取得
-- 文書全文の取得
-- 将来の任意 range 取得
+- 任意 EditorID + SPAN の本文取得
+- 大きい範囲のページング取得
+- hint で渡された大きい attachment の実体取得
 
 入力:
 
 ```json
 {
-  "source": "active:selection"
+  "target": {
+    "editorId": "editor:active",
+    "span": { "kind": "selection" }
+  },
+  "maxTokens": 4000,
+  "cursor": null
 }
 ```
 
@@ -236,11 +337,27 @@ type ChatMessage = {
 
 ```json
 {
-  "editorId": "active",
-  "resolvedTarget": { "kind": "selection" },
-  "text": "..."
+  "editorId": "editor:active",
+  "resolvedSpan": {
+    "start": { "line": 12, "column": 1 },
+    "end": { "line": 38, "column": 1 },
+    "isEmpty": false
+  },
+  "text": "...",
+  "truncated": true,
+  "nextCursor": {
+    "after": { "line": 38, "column": 1 }
+  },
+  "estimatedTokens": 3820
 }
 ```
+
+設計方針:
+
+- `read` は常に bounded response にする
+- 返却上限は inline と同程度に抑える
+- 全量取得が必要でも `cursor` を進めて取り直せるようにする
+- `cursor` は `point` と同じ Markdown 座標で表現し、renderer に特殊オフセット型を漏らさない
 
 ### write
 
@@ -251,16 +368,26 @@ type ChatMessage = {
 
 用途:
 
-- 選択範囲の置換
-- 全文置換
-- 新規文書作成
+- 任意 EditorID + SPAN への書き込み
+- temp buffer や既存 editor slice の合成書き込み
+- 全文置換、新規文書作成、範囲置換、point insert
 
 入力:
 
 ```json
 {
-  "destination": "active:selection",
-  "content": "...",
+  "destination": {
+    "editorId": "editor:active",
+    "span": { "kind": "selection" }
+  },
+  "sources": [
+    { "type": "literal", "text": "# Summary\n" },
+    {
+      "type": "slice-ref",
+      "editorId": "buffer:grep-1",
+      "span": { "kind": "document" }
+    }
+  ],
   "mode": "replace"
 }
 ```
@@ -269,10 +396,33 @@ type ChatMessage = {
 
 ```json
 {
-  "destination": ":new",
-  "content": "...",
+  "destination": {
+    "editorId": ":new",
+    "span": { "kind": "document" }
+  },
+  "sources": [
+    { "type": "literal", "text": "..." }
+  ],
   "mode": "replace",
   "title": "Translated Draft"
+}
+```
+
+または insert:
+
+```json
+{
+  "destination": {
+    "editorId": "editor:active",
+    "span": {
+      "kind": "point",
+      "at": { "line": 40, "column": 1 }
+    }
+  },
+  "sources": [
+    { "type": "literal", "text": "Inserted block\n" }
+  ],
+  "mode": "insert"
 }
 ```
 
@@ -280,29 +430,56 @@ type ChatMessage = {
 
 ```json
 {
-  "editorId": "...",
-  "resolvedTarget": { "kind": "selection" },
-  "created": false
+  "editorId": "editor:active",
+  "resolvedSpan": {
+    "start": { "line": 12, "column": 1 },
+    "end": { "line": 18, "column": 1 },
+    "isEmpty": false
+  },
+  "created": false,
+  "bytesWritten": 120
 }
 ```
 
-### grep
+`sources` の型:
+
+```ts
+type WriteSource =
+  | { type: 'literal'; text: string }
+  | { type: 'slice-ref'; editorId: string; span: SpanRef }
+```
+
+設計方針:
+
+- write は source を複数受けられるようにして、直値と EditorID+SPAN の混在を許す
+- 実行前に main process がすべての `slice-ref` を bounded に resolve し、必要なら追加 `read` を促す
+- source が大きすぎるときは失敗ではなく validation error として返し、model に再取得方針を促す
+
+### grep_slice
 
 ステータス:
 
-- 後続フェーズ
+- 実装済み
 
 用途:
 
-- ワークスペース検索
-- 現在ファイル検索
+- EditorID + SPAN 内の検索
+- 行フィルタ、簡易統計、候補抽出
+
+補足:
+
+- 現行実装の tool 名は `exact_search` と `semantic_search` で、どちらも EditorID + SPAN を対象にする
+- workspace grep は別 permission / 別 tool として後続フェーズに残す
 
 入力:
 
 ```json
 {
+  "target": {
+    "editorId": "editor:active",
+    "span": { "kind": "line-range", "startLine": 1, "endLine": 300 }
+  },
   "query": "TODO|FIXME",
-  "scope": "workspace",
   "isRegexp": true,
   "caseSensitive": false,
   "maxResults": 20
@@ -315,15 +492,21 @@ type ChatMessage = {
 {
   "matches": [
     {
-      "path": "src/App.tsx",
+      "editorId": "editor:active",
       "line": 120,
       "preview": "const editorRef = ..."
     }
-  ]
+  ],
+  "bufferId": "buffer:grep-1"
 }
 ```
 
-### list_editors
+設計方針:
+
+- workspace 全体検索は別 tool に分けてもよいが、editor slice 検索と混ぜると token 制御しやすい
+- 結果全文が長い場合は `bufferId` を発行し、後続の `read` や `sort` に渡せるようにする
+
+### nl
 
 ステータス:
 
@@ -331,8 +514,48 @@ type ChatMessage = {
 
 用途:
 
-- active の解決
-- 将来の複数 editor 対応
+- 指定 SPAN に行番号を付与する
+- write 前の anchoring を安定させる
+
+入力:
+
+```json
+{
+  "target": {
+    "editorId": "editor:active",
+    "span": { "kind": "selection" }
+  },
+  "startLineNumber": 1
+}
+```
+
+### cut
+
+用途:
+
+- 指定列、区切り、行範囲で slice を簡易加工する
+- model が全文を再解釈せず必要列だけ抜く
+
+### sort
+
+用途:
+
+- 行単位で簡易ソート、unique、件数確認を行う
+- ログや箇条書きの重複整理に使う
+
+### stats
+
+用途:
+
+- 指定 SPAN の行数、文字数、空行数、最大行長、重複行数などを返す
+- model が全文を再読せずに規模感と偏りを把握する
+
+### list_buffers
+
+用途:
+
+- active editor と temp buffer の一覧取得
+- model が temp buffer を再利用できるようにする
 
 ### get_context
 
@@ -344,6 +567,7 @@ type ChatMessage = {
 
 - 現在の editor 状態を軽量に取得
 - ファイル名、path、selection 有無、text length、dirty 状態をモデルに伝える
+- inline する前に、attachment を直貼りすべきか hint にすべきか判断する材料を返す
 
 ### web_search
 
@@ -416,12 +640,13 @@ Settings 実装後の優先順位:
 ### System Prompt Policy
 
 - Markdown 編集支援アシスタントとして振る舞う
+- attachment hint が届いたら、必要な箇所だけ read を行う
 - 書き換え前に必要な read を行う
 - 変更は依頼に対応する最小差分を優先する
-- grep は必要最小限に使う
+- grep_slice、nl、cut、sort は必要最小限に使う
 - Web 情報が必要な場合だけ web_search を使う
 - web_search は検索結果だけを返し、URL fetch は行わない
-- 不明な対象は list_editors または get_context で確認する
+- 不明な対象は list_buffers または get_context で確認する
 
 ## IPC Design
 
@@ -473,6 +698,7 @@ editor renderer は AI 本体を持たず、ツール要求への応答だけを
 - selection text の取得
 - selection range の取得
 - selection または全文への書き込み
+- Markdown 座標と現在 mode の相互変換
 - destination=":new" 用の新規 window 生成連携
 
 ## Main Risks
@@ -500,13 +726,37 @@ chat session と editor window の 1 対 1 紐付けを main process 側で管�
 
 ### 3. Search Noise
 
-grep は release、dist、node_modules などを既定除外する必要がある。
+slice tool と workspace grep の境界を分けないと、広い検索がそのまま transcript を埋める。
+
+対策:
+
+- EditorID + SPAN 内加工を既定とする
+- workspace grep は別 tool とし、既定除外を強くかける
+- 長い結果は temp buffer に逃がす
 
 ### 4. Unsafe Writes
 
 将来の大規模書き換えには suggest mode を導入し、直書きだけに依存しない設計にする。
 
-### 5. Web Fetch Scope Creep
+加えて、`write.sources` に large slice をそのまま混ぜられると token と破壊範囲が読みにくくなる。
+
+対策:
+
+- source resolve 時にサイズ上限をかける
+- 大きすぎる場合は追加 read を促す
+- destination span は常に normalized して監査ログへ残す
+
+### 5. Token Budget Drift
+
+model の context window を実測なしで過信すると、小さいつもりの inline attachment が急に大きくなる。
+
+対策:
+
+- model ごとに conservative な token budget registry を持つ
+- tokenizer 不在時は char-based fallback でさらに安全側に倒す
+- inline と read の上限を同じオーダーにそろえる
+
+### 6. Web Fetch Scope Creep
 
 fetch を同時に入れると、レスポンスサイズ制御、本文抽出、allowlist、危険 URL 回避、リダイレクト制御など論点が急増する。
 
@@ -537,22 +787,29 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 ### Phase 2
 
 - get_context
-- read active:document
-- read active:selection
-- write active:document
-- write active:selection
+- EditorID 採番
+- pending attachment UI
+- inline vs hint の transport policy
 
 ### Phase 3
 
-- write destination=":new"
-- 新規 editor window 作成
+- read target
+- write target
+- temp buffer registry
 - basic tool log UI
 
 ### Phase 4
 
-- grep
+- grep_slice
+- nl / cut / sort
+- write destination=":new"
+- 新規 editor window 作成
+
+### Phase 5
+
+- workspace grep
 - Tavily web_search
-- list_editors
+- list_buffers
 - suggest mode の土台
 
 ## Recommended File Layout
@@ -573,6 +830,6 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - API キーが renderer に公開されない
 - chat window が独立して開ける
 - chat bubble が Markdown を描画できる
-- tool API が read/write/grep/new editor を自然に表現できる
-- tool API が read/write/grep/web_search/new editor を自然に表現できる
+- tool API が EditorID + SPAN で read/write/slice-ops/new editor を自然に表現できる
+- 小さい文脈は inline、大きい文脈は hint + read で運べる
 - initial implementation が段階的に進められる

@@ -6,6 +6,8 @@
 
 方針は、まず settings 基盤を main process 正本で固め、その上で最大の技術リスクである editor selection 操作を切り分け、chat window、OpenAI 接続、tool bridge を段階導入すること。
 
+現時点の contract 方針は、active:document のような固定ソース名だけに依存せず、EditorID + SPAN を canonical tool surface にし、small inline / large hint + read の二段 transport を採る。
+
 ## Track 0: Feasibility Checks
 
 ### T0-1 Toast UI selection read feasibility
@@ -64,10 +66,12 @@
 
 - sessionId と windowId の対応表を main process に持つ
 - target editor window を session に結びつける
+- session scoped temp buffer registry を持つ
 
 完了条件:
 
 - chat session と対象 editor の対応が追跡できる
+- temp buffer を session 破棄で一括無効化できる
 
 ## Track 2: Chat UI Foundation
 
@@ -95,10 +99,23 @@
 - 実行中表示を出す
 - tool-call と tool-result を別表示する
 - error bubble を出せるようにする
+- pending attachment badge を表示する
+- large context は compact hint として表示する
 
 完了条件:
 
 - チャット進行状態を UI で追える
+
+### T2-4 Context transport policy UI hook
+
+- explicit context button が attachment ref を pending 化する
+- send 時に inline / hint 判定だけ main process へ渡す
+- bubble では EditorID + SPAN の compact badge を表示する
+
+完了条件:
+
+- context が送信前に transcript へ垂れ流されない
+- 送信後に compact attachment 表示で追跡できる
 
 ## Track 3: OpenAI Integration
 
@@ -155,42 +172,70 @@
 - text length
 - dirty 状態
 - selection 有無
+- token estimate
+- active editor の stable editorId
 
 完了条件:
 
 - モデルが軽量な文脈確認をできる
+- inline/hint 判定に必要な情報が取れる
 
-### T4-3 read active:document
+### T4-3 Span normalization
 
-- editor 全文を取得する
-
-完了条件:
-
-- tool read source="active:document" が動作する
-
-### T4-4 read active:selection
-
-- 現在 selection を取得する
+- selection、document、point、line、line-range、from-start、to-end、range を canonical Markdown span に正規化する
+- WYSIWYG mode との差を renderer 側で吸収する
 
 完了条件:
 
-- tool read source="active:selection" が動作する
+- EditorID + SPAN を renderer へ安全に渡せる
 
-### T4-5 write active:document
+### T4-4 read tool
 
-- editor 全文を書き換える
-
-完了条件:
-
-- tool write destination="active:document" が動作する
-
-### T4-6 write active:selection
-
-- selection を置換する
+- bounded read を実装する
+- target は EditorID + SPAN とする
+- `cursor` を返して再取得できるようにする
 
 完了条件:
 
-- tool write destination="active:selection" が動作する
+- tool read target={editorId, span} が動作する
+- 1 回の結果が inline budget を超えない
+
+### T4-5 write tool
+
+- destination は EditorID + SPAN とする
+- source は literal と slice-ref の複数指定を受ける
+- replace と insert を扱えるようにする
+
+完了条件:
+
+- tool write destination={editorId, span} が動作する
+- source oversize 時に追加 read を促す validation が返せる
+
+### T4-6 Temp buffer materialization
+
+- read / grep / transform 結果を temp buffer として保持できるようにする
+- temp buffer を後続 tool の editorId に使えるようにする
+
+完了条件:
+
+- session 内で temp buffer を再利用できる
+
+### T4-7 list_buffers tool
+
+- active editor と temp buffer の一覧を返せるようにする
+- title、capabilities、createdAt、updatedAt を返す
+
+完了条件:
+
+- model が再利用可能な buffer を列挙できる
+
+### T4-8 Active document compatibility aliases
+
+- scaffold 互換の `active:document`、`active:selection` を canonical target へ変換する
+
+完了条件:
+
+- 既存 UI からの呼び出しが新 contract 上でも壊れない
 
 備考:
 
@@ -209,7 +254,7 @@
 ### T5-2 write destination=":new"
 
 - 新規 window に content を流し込む
-- title や status を初期化する
+- title は `destination.editorId = ":new"` のときだけ初期表示へ反映する
 
 完了条件:
 
@@ -217,7 +262,32 @@
 
 ## Track 6: Search Tool
 
-### T6-1 Workspace grep wrapper
+実装状況:
+
+- T6-1 は `exact_search` と `semantic_search` として実装済み
+- T6-2 は `stats_slice` のみ実装済みで、`nl` / `cut` / `sort` は未実装
+- T6-3 の workspace grep は未実装
+
+### T6-1 Slice grep wrapper
+
+- main process で EditorID + SPAN 内 grep 相当を実行する
+- maxResults と buffer 化を扱う
+- permission は slice search 用に独立管理する
+
+完了条件:
+
+- slice 内検索結果を bounded に返せる
+
+### T6-2 nl / cut / sort / stats wrapper
+
+- EditorID + SPAN に対する簡易加工を行う
+- 行番号付与、列抽出、行ソート、unique、基本統計を扱う
+
+完了条件:
+
+- model が大きい本文を全文再読せずに局所加工できる
+
+### T6-3 Workspace grep wrapper
 
 - main process で grep 相当を実行する
 - dist、release、node_modules を既定除外する
@@ -226,24 +296,17 @@
 
 - workspace 検索結果を配列で返せる
 
-### T6-2 Active-file search
-
-- 現在ファイル限定検索を追加する
-
-完了条件:
-
-- grep scope="active-file" を扱える
-
-### T6-3 Search result UX
+### T6-4 Search result UX
 
 - 検索結果を tool-result bubble に出す
 - 長い結果は maxResults で打ち切る
+- 必要なら temp buffer ID を返す
 
 完了条件:
 
 - 検索結果が会話を壊さず読める
 
-### T6-4 Tavily web search wrapper
+### T6-5 Tavily web search wrapper
 
 - main process で Tavily API を呼び出す
 - query、maxResults、searchDepth を受け取る
@@ -253,7 +316,7 @@
 
 - web_search tool が外部検索結果を返せる
 
-### T6-5 Tavily result UX
+### T6-6 Tavily result UX
 
 - Web 検索結果を tool-result bubble に出す
 - URL と snippet を読みやすく整形する
@@ -262,7 +325,7 @@
 
 - Web 検索結果が grep 結果と区別して読める
 
-### T6-6 Fetch defer guardrail
+### T6-7 Fetch defer guardrail
 
 - Web fetch は初期スコープ外であることを docs と実装境界で明示する
 - HTML 本文取得や危険 URL 対策は別トラックへ分離する

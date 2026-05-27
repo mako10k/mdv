@@ -60,6 +60,7 @@ type MdvExternalLinkResult = {
 type MdvClientSnapshot = {
   markdownText: string
   currentFilePath: string | null
+  displayTitle: string
   activePanel: 'write' | 'preview'
 }
 
@@ -80,32 +81,88 @@ type MdvMenuAction =
   | 'show-editor'
   | 'show-preview'
 
+type MdvAiEditorId = string
+
+type MdvAiMarkdownPos = {
+  line: number
+  column: number
+}
+
+type MdvAiSpanRef =
+  | { kind: 'selection' }
+  | { kind: 'document' }
+  | { kind: 'point'; at: MdvAiMarkdownPos }
+  | { kind: 'line'; line: number }
+  | { kind: 'line-range'; startLine: number; endLine: number }
+  | { kind: 'from-start'; end: MdvAiMarkdownPos }
+  | { kind: 'to-end'; start: MdvAiMarkdownPos }
+  | { kind: 'range'; start: MdvAiMarkdownPos; end: MdvAiMarkdownPos }
+
+type MdvAiNormalizedSpan = {
+  start: MdvAiMarkdownPos
+  end: MdvAiMarkdownPos
+  isEmpty: boolean
+}
+
+type MdvAiCursor = {
+  after: MdvAiMarkdownPos
+}
+
+type MdvAiEditorTarget = {
+  editorId: MdvAiEditorId
+  span: MdvAiSpanRef
+}
+
+type MdvAiWriteSource =
+  | {
+      type: 'literal'
+      text: string
+    }
+  | {
+      type: 'slice-ref'
+      editorId: MdvAiEditorId
+      span: MdvAiSpanRef
+    }
+
+type MdvAiBufferSummary = {
+  editorId: MdvAiEditorId
+  kind: 'editor-window' | 'temp-buffer'
+  title: string
+  currentFilePath: string | null
+  isDirty: boolean
+  capabilities: {
+    read: boolean
+    write: boolean
+    sliceOps: boolean
+  }
+  createdAt: string
+  updatedAt: string
+}
+
 type MdvAiEditorRequest =
   | {
       requestId: string
       type: 'get-context'
+      editorId: MdvAiEditorId
     }
   | {
       requestId: string
       type: 'read'
-      source: 'active:document'
-    }
-  | {
-      requestId: string
-      type: 'read'
-      source: 'active:selection'
-    }
-  | {
-      requestId: string
-      type: 'write'
-      destination: 'active:document'
-      content: string
+      target: MdvAiEditorTarget
+      cursor?: MdvAiCursor | null
+      maxTokens?: number
     }
   | {
       requestId: string
       type: 'write'
-      destination: 'active:selection'
-      content: string
+      destination: MdvAiEditorTarget
+      sources: MdvAiWriteSource[]
+      mode: 'replace' | 'insert'
+      title?: string
+    }
+  | {
+      requestId: string
+      type: 'list-buffers'
     }
 
 type MdvSettings = {
@@ -128,6 +185,7 @@ type MdvSettings = {
       writeActiveDocument: boolean
       writeActiveSelection: boolean
       writeNewDocument: boolean
+      sliceSearch: boolean
       workspaceGrep: boolean
       tavilyWebSearch: boolean
     }
@@ -173,22 +231,88 @@ type MdvSettingsBootstrap = {
 }
 
 type MdvAiContextPayload = {
+  editorId: MdvAiEditorId
   currentFilePath: string | null
   title: string
   activePanel: 'write' | 'preview'
   textLength: number
   selectionTextLength: number
+  tokenEstimate: number
   isDirty: boolean
 }
 
 type MdvAiReadPayload = {
-  source: 'active:document' | 'active:selection'
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
   text: string
+  estimatedTokens: number
+  truncated: boolean
+  nextCursor?: MdvAiCursor | null
 }
 
 type MdvAiWritePayload = {
-  destination: 'active:document' | 'active:selection'
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
   text: string
+  mode: 'replace' | 'insert'
+  bytesWritten: number
+  created?: boolean
+}
+
+type MdvAiListBuffersPayload = {
+  buffers: MdvAiBufferSummary[]
+}
+
+type MdvAiSliceMatch = {
+  line: number
+  column: number
+  preview: string
+  span: MdvAiNormalizedSpan
+}
+
+type MdvAiGrepSlicePayload = {
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
+  query: string
+  isRegexp: boolean
+  caseSensitive: boolean
+  matches: MdvAiSliceMatch[]
+  truncated: boolean
+  bufferId?: MdvAiEditorId | null
+}
+
+type MdvAiStatsPayload = {
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
+  characters: number
+  lines: number
+  emptyLines: number
+  nonEmptyLines: number
+  maxLineLength: number
+  uniqueLines: number
+  estimatedTokens: number
+}
+
+type MdvAiSemanticSearchResult = {
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
+  layer: string
+  score: number
+  preview: string
+}
+
+type MdvAiSemanticSearchPayload = {
+  editorId: MdvAiEditorId
+  span: MdvAiNormalizedSpan
+  query: string
+  results: MdvAiSemanticSearchResult[]
+  bufferId?: MdvAiEditorId | null
+  indexBuiltAt: string
+}
+
+type MdvAiToolEvent = {
+  title: string
+  content: string
 }
 
 type MdvAiChatMessage = {
@@ -201,6 +325,7 @@ type MdvAiChatResponse = {
   reply: string
   model: string
   responseId: string | null
+  toolEvents?: MdvAiToolEvent[]
 }
 
 interface Window {
@@ -214,8 +339,14 @@ interface Window {
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
+    readAiTarget: (payload: { target: MdvAiEditorTarget; cursor?: MdvAiCursor | null; maxTokens?: number }) => Promise<MdvAiReadPayload | null>
+    grepAiSlice: (payload: { target: MdvAiEditorTarget; query: string; isRegexp?: boolean; caseSensitive?: boolean; maxResults?: number; persistBuffer?: boolean }) => Promise<MdvAiGrepSlicePayload | null>
+    statsAiSlice: (payload: { target: MdvAiEditorTarget }) => Promise<MdvAiStatsPayload | null>
+    semanticSearchAiSlice: (payload: { target: MdvAiEditorTarget; query: string; maxResults?: number; persistBuffer?: boolean }) => Promise<MdvAiSemanticSearchPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
+    writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert'; title?: string }) => Promise<MdvAiWritePayload | null>
+    listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
     sendAiChatMessage: (payload: { messages: MdvAiChatMessage[] }) => Promise<MdvAiChatResponse>
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
@@ -241,7 +372,7 @@ interface Window {
     sendAiEditorResponse: (payload: {
       requestId: string
       ok: boolean
-      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | null
+      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | MdvAiListBuffersPayload | MdvAiGrepSlicePayload | MdvAiStatsPayload | null
       error?: string
     }) => void
     log: (level: string, scope: string, message: string) => void

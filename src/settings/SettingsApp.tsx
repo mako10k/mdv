@@ -11,6 +11,24 @@ type OpenAiDraft = {
   baseUrl: string
 }
 
+function updateSettingsWithStatus(
+  patch: MdvSettingsPatch,
+  statusMessage: string,
+  setStatusText: (value: string) => void,
+  setSettings: (value: MdvSettings) => void,
+) {
+  setStatusText(statusMessage)
+
+  void window.mdvDesktop?.settings.updateSettings(patch)
+    .then((updatedSettings) => {
+      setSettings(updatedSettings)
+      setStatusText('Settings saved')
+    })
+    .catch((error: unknown) => {
+      setStatusText(error instanceof Error ? error.message : String(error))
+    })
+}
+
 function SettingsApp() {
   const { themeMode, setThemeMode } = useDesktopTheme()
   const [activeSection, setActiveSection] = useState<SectionName>('General')
@@ -154,6 +172,24 @@ function SettingsApp() {
       .finally(() => {
         setIsSavingOpenAiApiKey(false)
       })
+  }
+
+  const handleToolPermissionChange = (key: keyof MdvSettings['ai']['toolPermissions'], value: boolean) => {
+    updateSettingsWithStatus({
+      ai: {
+        toolPermissions: {
+          [key]: value,
+        },
+      },
+    }, 'Saving AI permission', setStatusText, setSettings)
+  }
+
+  const handleSafetyChange = (key: keyof MdvSettings['safety'], value: boolean) => {
+    updateSettingsWithStatus({
+      safety: {
+        [key]: value,
+      },
+    }, 'Saving safety setting', setStatusText, setSettings)
   }
 
   return (
@@ -303,13 +339,63 @@ function SettingsApp() {
           {activeSection === 'Safety' ? (
             <section className="settings-card">
               <h2>Safety</h2>
+              <div className="settings-subsection">
+                <h3>AI Tool Permissions</h3>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.readActiveDocument ?? true} onChange={(event) => handleToolPermissionChange('readActiveDocument', event.target.checked)} />
+                  <span>Read active document</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.readActiveSelection ?? true} onChange={(event) => handleToolPermissionChange('readActiveSelection', event.target.checked)} />
+                  <span>Read active selection</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.writeActiveDocument ?? true} onChange={(event) => handleToolPermissionChange('writeActiveDocument', event.target.checked)} />
+                  <span>Write active document</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.writeActiveSelection ?? true} onChange={(event) => handleToolPermissionChange('writeActiveSelection', event.target.checked)} />
+                  <span>Write active selection</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.writeNewDocument ?? true} onChange={(event) => handleToolPermissionChange('writeNewDocument', event.target.checked)} />
+                  <span>Create new document</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.sliceSearch ?? true} onChange={(event) => handleToolPermissionChange('sliceSearch', event.target.checked)} />
+                  <span>AI exact / semantic / stats slice tools</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.workspaceGrep ?? true} onChange={(event) => handleToolPermissionChange('workspaceGrep', event.target.checked)} />
+                  <span>AI workspace grep</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.tavilyWebSearch ?? true} onChange={(event) => handleToolPermissionChange('tavilyWebSearch', event.target.checked)} />
+                  <span>Tavily web search</span>
+                </label>
+              </div>
+              <div className="settings-subsection">
+                <h3>Confirmations</h3>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.safety.confirmBeforeFullDocumentOverwrite ?? true} onChange={(event) => handleSafetyChange('confirmBeforeFullDocumentOverwrite', event.target.checked)} />
+                  <span>Confirm full document overwrite</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.safety.confirmBeforeNewDocumentFromAi ?? true} onChange={(event) => handleSafetyChange('confirmBeforeNewDocumentFromAi', event.target.checked)} />
+                  <span>Confirm new AI document creation</span>
+                </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.safety.confirmBeforeExternalUrlOpen ?? true} onChange={(event) => handleSafetyChange('confirmBeforeExternalUrlOpen', event.target.checked)} />
+                  <span>Confirm external URL open</span>
+                </label>
+              </div>
               <dl className="settings-facts">
                 <div>
                   <dt>External URL confirm</dt>
                   <dd>{settings?.safety.confirmBeforeExternalUrlOpen ? 'enabled' : 'disabled'}</dd>
                 </div>
               </dl>
-              <p className="settings-note">External link allow rules remain read-only in the existing file for now. AI write confirmations stay scaffold-only until the write flow is wired to these settings.</p>
+              <p className="settings-note">AI exact / semantic slice search is enforced independently from future workspace grep. AI full-document overwrite and new-document creation confirmations are enforced from the main process.</p>
             </section>
           ) : null}
 

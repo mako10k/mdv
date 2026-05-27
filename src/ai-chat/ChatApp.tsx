@@ -2,8 +2,34 @@ import { useEffect, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
 import ChatMarkdown from './ChatMarkdown'
 
+type ContextAttachmentKind = 'editor' | 'document' | 'selection'
+
+const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
+const MODEL_CONTEXT_WINDOW_BY_NAME: Record<string, number> = {
+  'gpt-5.4-mini': 128000,
+}
+const ATTACHMENT_PREVIEW_LIMIT = 220
+
+type AttachmentTransport = 'inline' | 'hint'
+
+type ContextAttachment = {
+  id: string
+  kind: ContextAttachmentKind
+  label: string
+  compactLabel: string
+  detail: string
+  editorId: string
+  span: MdvAiNormalizedSpan | null
+  estimatedTokens: number
+  truncated: boolean
+  transport: AttachmentTransport
+  inlineText: string | null
+  previewText: string
+}
+
 type Message = MdvAiChatMessage & {
   id: string
+  contextAttachments?: ContextAttachment[]
   excludeFromModel?: boolean
 }
 
@@ -16,19 +42,53 @@ const initialMessages: Message[] = [
   {
     id: 'assistant-welcome',
     role: 'assistant',
-    content: 'AI chat window scaffold is ready. Explicit context should be attached with the buttons below, not typed manually.',
-  },
-  {
-    id: 'assistant-placeholder',
-    role: 'assistant',
-    content: 'When OpenAI is enabled in settings and configured with an API key, messages sent from the bottom composer are routed through the main process. Attach explicit context with the buttons before asking for edits or analysis.',
+    content: 'Attach explicit context with the buttons below, then send your request from the bottom composer.',
   },
 ]
 
+function buildMessageContent(message: Message): string {
+  if (!message.contextAttachments?.length) {
+    return message.content
+  }
+
+  const attachments = message.contextAttachments.map((attachment) => {
+    if (attachment.transport === 'inline' && attachment.inlineText) {
+      return [
+        `Attached context: ${attachment.label}`,
+        `EditorID: ${attachment.editorId}`,
+        `SPAN: ${formatSpanLabel(attachment.span)}`,
+        `Estimated tokens: ${attachment.estimatedTokens}`,
+        attachment.inlineText,
+      ].join('\n')
+    }
+
+    const hintLines = [
+      `Attached context hint: ${attachment.label}`,
+      `EditorID: ${attachment.editorId}`,
+      `SPAN: ${formatSpanLabel(attachment.span)}`,
+      `Estimated tokens: ${attachment.estimatedTokens}`,
+      `Preview: ${attachment.previewText || '(empty)'}`,
+      'Use read_target when more detail is needed.',
+    ]
+
+    if (attachment.truncated) {
+      hintLines.splice(4, 0, 'Attachment was truncated before queueing.')
+    }
+
+    return hintLines.join('\n')
+  })
+
+  return [...attachments, message.content].join('\n\n')
+}
+
 function toModelMessages(messages: Message[]): MdvAiChatMessage[] {
   return messages
-    .filter((message) => !message.excludeFromModel && message.id !== 'assistant-welcome' && message.id !== 'assistant-placeholder')
-    .map(({ role, content, title }) => ({ role, content, title }))
+    .filter((message) => !message.excludeFromModel && message.id !== 'assistant-welcome')
+    .map((message) => ({
+      role: message.role,
+      content: buildMessageContent(message),
+      title: message.title,
+    }))
 }
 
 function resolveExternalAnchor(target: EventTarget | null): ExternalAnchor | null {
@@ -83,16 +143,129 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function countLines(text: string): number {
+  if (!text) {
+    return 0
+  }
+
+  return text.split(/\r?\n/).length
+}
+
+function estimateTokens(text: string): number {
+  return text.length === 0 ? 0 : Math.ceil(text.length / 4)
+}
+
+function getModelContextWindow(model: string | null | undefined): number {
+  return MODEL_CONTEXT_WINDOW_BY_NAME[typeof model === 'string' ? model : ''] || DEFAULT_MODEL_CONTEXT_WINDOW
+}
+
+function getInlineAttachmentTokenBudget(model: string | null | undefined): number {
+  return Math.max(512, Math.floor(getModelContextWindow(model) * 0.05))
+}
+
+function formatLineBadge(text: string, span: MdvAiNormalizedSpan | null): string {
+  if (span) {
+    return `${Math.max(1, span.end.line - span.start.line + 1)}L`
+  }
+
+  return `${countLines(text)}L`
+}
+
+function formatSpanLabel(span: MdvAiNormalizedSpan | null): string {
+  if (!span) {
+    return 'metadata'
+  }
+
+  return `${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}`
+}
+
+function createPreviewText(text: string): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  if (collapsed.length <= ATTACHMENT_PREVIEW_LIMIT) {
+    return collapsed
+  }
+
+  return `${collapsed.slice(0, ATTACHMENT_PREVIEW_LIMIT)}...`
+}
+
+function createContextAttachment(kind: ContextAttachmentKind, payload: {
+  detail: string
+  editorId: string
+  span?: MdvAiNormalizedSpan | null
+  estimatedTokens?: number
+  truncated?: boolean
+}, inlineAttachmentTokenBudget: number): ContextAttachment {
+  const compactPrefix = kind === 'editor' ? 'ED' : kind === 'document' ? 'DOC' : 'SEL'
+  const estimatedTokens = typeof payload.estimatedTokens === 'number' ? payload.estimatedTokens : estimateTokens(payload.detail)
+  const truncated = payload.truncated === true
+  const transport: AttachmentTransport = !truncated && estimatedTokens <= inlineAttachmentTokenBudget ? 'inline' : 'hint'
+
+  return {
+    id: crypto.randomUUID(),
+    kind,
+    label: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
+    compactLabel: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
+    detail: payload.detail,
+    editorId: payload.editorId,
+    span: payload.span ?? null,
+    estimatedTokens,
+    truncated,
+    transport,
+    inlineText: transport === 'inline' ? payload.detail : null,
+    previewText: createPreviewText(payload.detail),
+  }
+}
+
 function ChatApp() {
   const { resolvedTheme } = useDesktopTheme()
   const transcriptRef = useRef<HTMLElement | null>(null)
+  const shouldStickToBottomRef = useRef(true)
+  const forceScrollOnNextRenderRef = useRef(false)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
   const [statusText, setStatusText] = useState('Scaffold + IPC')
   const [isSending, setIsSending] = useState(false)
+  const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
 
-  const appendMessage = (message: Message) => {
+  useEffect(() => {
+    let active = true
+    const applyBudgetFromSettings = (nextSettings: MdvSettings) => {
+      setInlineAttachmentTokenBudget(getInlineAttachmentTokenBudget(nextSettings.ai.openai.model))
+    }
+    const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
+      if (!active) {
+        return
+      }
+
+      applyBudgetFromSettings(nextSettings)
+    })
+
+    void window.mdvDesktop?.settings.getSettings().then((nextSettings) => {
+      if (!active || !nextSettings) {
+        return
+      }
+
+      applyBudgetFromSettings(nextSettings)
+    })
+
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
+  }, [])
+
+  const appendMessage = (message: Message, options?: { forceScroll?: boolean }) => {
+    forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
     setMessages((currentMessages) => [...currentMessages, message])
+  }
+
+  const queueContextAttachment = (attachment: ContextAttachment) => {
+    setPendingContexts((currentContexts) => {
+      const nextContexts = currentContexts.filter((item) => item.kind !== attachment.kind)
+      return [...nextContexts, attachment]
+    })
+    setStatusText(`Context queued: ${attachment.label}`)
   }
 
   useEffect(() => {
@@ -127,23 +300,53 @@ function ChatApp() {
   }, [])
 
   useEffect(() => {
-    transcriptRef.current?.scrollTo({
-      top: transcriptRef.current.scrollHeight,
+    const transcript = transcriptRef.current
+
+    if (!transcript) {
+      return
+    }
+
+    if (!forceScrollOnNextRenderRef.current && !shouldStickToBottomRef.current) {
+      return
+    }
+
+    transcript.scrollTo({
+      top: transcript.scrollHeight,
       behavior: 'smooth',
     })
+    forceScrollOnNextRenderRef.current = false
   }, [messages])
 
+  useEffect(() => {
+    const transcript = transcriptRef.current
+
+    if (!transcript) {
+      return
+    }
+
+    const handleScroll = () => {
+      const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight
+      shouldStickToBottomRef.current = distanceFromBottom < 24
+    }
+
+    handleScroll()
+    transcript.addEventListener('scroll', handleScroll)
+
+    return () => {
+      transcript.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
   const handleRefreshContext = () => {
-    setStatusText('Refreshing context')
+    setStatusText('Reading editor context')
     void window.mdvDesktop?.getAiChatContext()
       .then((context) => {
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'tool',
-          title: 'get_context',
-          content: formatContext(context ?? null),
-        })
-        setStatusText('Context refreshed')
+        queueContextAttachment(createContextAttachment('editor', {
+          detail: formatContext(context ?? null),
+          editorId: context?.editorId ?? 'editor:active',
+          span: null,
+          estimatedTokens: context?.tokenEstimate ?? estimateTokens(formatContext(context ?? null)),
+        }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
         setStatusText('Context failed')
@@ -161,13 +364,13 @@ function ChatApp() {
     setStatusText('Reading active document')
     void window.mdvDesktop?.readAiActiveDocument()
       .then((payload) => {
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'tool',
-          title: 'read active:document',
-          content: payload?.text ?? '',
-        })
-        setStatusText('Document loaded')
+        queueContextAttachment(createContextAttachment('document', {
+          detail: payload?.text ?? '',
+          editorId: payload?.editorId ?? 'editor:active',
+          span: payload?.span ?? null,
+          estimatedTokens: payload?.estimatedTokens,
+          truncated: payload?.truncated,
+        }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
         appendMessage({
@@ -185,13 +388,13 @@ function ChatApp() {
     setStatusText('Reading selection')
     void window.mdvDesktop?.readAiActiveSelection()
       .then((payload) => {
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'tool',
-          title: 'read active:selection',
-          content: payload?.text ?? '',
-        })
-        setStatusText('Selection loaded')
+        queueContextAttachment(createContextAttachment('selection', {
+          detail: payload?.text ?? '',
+          editorId: payload?.editorId ?? 'editor:active',
+          span: payload?.span ?? null,
+          estimatedTokens: payload?.estimatedTokens,
+          truncated: payload?.truncated,
+        }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
         appendMessage({
@@ -220,11 +423,14 @@ function ChatApp() {
       id: crypto.randomUUID(),
       role: 'user',
       content: trimmedMessage,
+      contextAttachments: pendingContexts,
     }
     const nextMessages = [...messages, userMessage]
 
+    forceScrollOnNextRenderRef.current = true
     setMessages(nextMessages)
     setComposerText('')
+    setPendingContexts([])
     setIsSending(true)
     setStatusText('Sending to OpenAI')
 
@@ -232,6 +438,14 @@ function ChatApp() {
       messages: toModelMessages(nextMessages),
     })
       .then((response) => {
+        response.toolEvents?.forEach((toolEvent) => {
+          appendMessage({
+            id: crypto.randomUUID(),
+            role: 'tool',
+            title: toolEvent.title,
+            content: toolEvent.content,
+          })
+        })
         appendMessage({
           id: crypto.randomUUID(),
           role: 'assistant',
@@ -278,12 +492,9 @@ function ChatApp() {
         <div>
           <p className="ai-chat-eyebrow">MDV Assistant</p>
           <h1>AI Chat</h1>
-          <p className="ai-chat-subtitle">Explicit context comes from buttons. Settings are available from this window and Ctrl/Cmd+,.</p>
+          <p className="ai-chat-subtitle">Attach explicit context, keep typing at the bottom, and let the transcript scroll independently above.</p>
         </div>
         <div className="ai-chat-header-actions">
-          <button type="button" className="ai-chat-secondary" onClick={() => void window.mdvDesktop?.openSettingsWindow()}>
-            Settings
-          </button>
           <span className="ai-chat-status">{statusText}</span>
         </div>
       </header>
@@ -295,6 +506,15 @@ function ChatApp() {
             className={`chat-bubble ${message.role}`}
           >
             {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
+            {message.contextAttachments?.length ? (
+              <div className="chat-context-badges" aria-label="Attached context">
+                {message.contextAttachments.map((attachment) => (
+                  <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
+                    {attachment.compactLabel}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
           </article>
         ))}
@@ -304,28 +524,37 @@ function ChatApp() {
         <div className="ai-chat-context-row">
           <span className="ai-chat-composer-label">Context</span>
           <div className="ai-chat-actions">
-            <button type="button" className="ai-chat-chip" onClick={handleRefreshContext}>
-              Current Editor
+            <button type="button" className="ai-chat-icon-button" onClick={handleRefreshContext} title="Queue current editor context" aria-label="Queue current editor context">
+              <span aria-hidden="true">◫</span>
             </button>
-            <button type="button" className="ai-chat-chip" onClick={handleReadDocument}>
-              Whole Document
+            <button type="button" className="ai-chat-icon-button" onClick={handleReadDocument} title="Queue whole document" aria-label="Queue whole document">
+              <span aria-hidden="true">▤</span>
             </button>
-            <button type="button" className="ai-chat-chip" onClick={handleReadSelection}>
-              Selection
+            <button type="button" className="ai-chat-icon-button" onClick={handleReadSelection} title="Queue selection" aria-label="Queue selection">
+              <span aria-hidden="true">✂</span>
             </button>
           </div>
         </div>
+        {pendingContexts.length ? (
+          <div className="chat-context-badges ai-chat-pending-contexts" aria-label="Pending context">
+            {pendingContexts.map((attachment) => (
+              <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
+                {attachment.compactLabel}
+              </span>
+            ))}
+          </div>
+        ) : null}
         <textarea
           id="ai-chat-input"
           className="ai-chat-composer"
-          placeholder="Send a message to the assistant. Shift+Enter inserts a newline."
+          placeholder="Message the assistant"
           value={composerText}
           onChange={(event) => setComposerText(event.target.value)}
           onKeyDown={handleComposerKeyDown}
           disabled={isSending}
         />
         <div className="ai-chat-footer-row">
-          <span>Shortcuts: Ctrl/Cmd+I opens chat, Ctrl/Cmd+, opens settings.</span>
+          <span>Enter sends. Shift+Enter inserts a newline.</span>
           <div className="ai-chat-actions">
             <button type="button" className="ai-chat-send" onClick={handleSendMessage} disabled={isSending || composerText.trim().length === 0}>
               {isSending ? 'Sending…' : 'Send'}

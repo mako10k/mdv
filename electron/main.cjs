@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
-const { randomUUID } = require('node:crypto')
+const { createHash, randomUUID } = require('node:crypto')
 const OpenAI = require('openai')
 
 const isDev = !app.isPackaged
@@ -10,6 +10,7 @@ const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 const secretsPath = path.join(app.getPath('userData'), 'secrets.json')
+const semanticCachePath = path.join(app.getPath('userData'), 'semantic-cache-v1.json')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
@@ -31,6 +32,8 @@ const pendingServerRequests = new Map()
 const editorToAiChatWindowId = new Map()
 const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
+const editorRuntimeStateByWindowId = new Map()
+const aiSessionBuffersByEditorWindowId = new Map()
 let settingsWindow = null
 let settingsWindowOwnerEditorId = null
 let settingsState = loadSettings()
@@ -38,8 +41,1189 @@ let secretsState = loadSecrets()
 let hasPersistedSettings = fs.existsSync(settingsPath)
 let hasReadableSettings = loadSettings.didLoadPersisted === true
 
+const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
+const MODEL_CONTEXT_WINDOW_BY_NAME = {
+  'gpt-5.4-mini': 128000,
+}
+const DEFAULT_TOKEN_TO_CHAR_RATIO = 4
+const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
+const MAX_SEMANTIC_INDEX_BYTES = 1024 * 1024
+const MAX_EMBEDDING_CACHE_BYTES = 256 * 1024 * 1024
+const EMBEDDING_CACHE_TOUCH_INTERVAL_MS = 15_000
+const EMBEDDING_CACHE_GC_IDLE_DELAY_MS = 120_000
+const EMBEDDING_CACHE_GC_PRESSURE_DELAY_MS = 250
+const MAX_SEMANTIC_RUNTIME_COUNT = 24
+const MAX_SEMANTIC_RUNTIME_AGE_MS = 15 * 60_000
+const SEMANTIC_RUNTIME_TOUCH_INTERVAL_MS = 15_000
+const SEMANTIC_LAYERS = [
+  { name: 'fine', maxChars: 900, overlapChars: 180, weight: 1 },
+  { name: 'medium', maxChars: 2800, overlapChars: 560, weight: 0.97 },
+  { name: 'coarse', maxChars: 7200, overlapChars: 1200, weight: 0.94 },
+]
+
+let semanticCacheDidLoad = false
+let semanticCacheDirty = false
+let semanticCacheSaveTimer = null
+const embeddingCacheByKey = new Map()
+const semanticRuntimeBySourceKey = new Map()
+let embeddingCacheTotalBytes = 0
+let embeddingUsageCountsNeedRepair = false
+let embeddingCacheGcTimer = null
+let embeddingCacheGcScheduledForAt = 0
+
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
+}
+
+function estimateTokenCount(text) {
+  return typeof text === 'string' && text.length > 0 ? Math.ceil(text.length / DEFAULT_TOKEN_TO_CHAR_RATIO) : 0
+}
+
+function getModelContextWindow(model) {
+  return MODEL_CONTEXT_WINDOW_BY_NAME[model] || DEFAULT_MODEL_CONTEXT_WINDOW
+}
+
+function getInlineTokenBudget() {
+  return Math.max(512, Math.floor(getModelContextWindow(settingsState.ai.openai.model) * 0.05))
+}
+
+function resolveReadTokenBudget(maxTokens) {
+  const configuredBudget = getInlineTokenBudget()
+  const numericValue = Number(maxTokens)
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return configuredBudget
+  }
+
+  return Math.min(configuredBudget, Math.round(numericValue))
+}
+
+function hashText(text) {
+  return createHash('sha256').update(text || '').digest('hex')
+}
+
+function buildEmbeddingCacheKey(model, text) {
+  return `${model}:${hashText(text)}`
+}
+
+function estimateEmbeddingCacheEntryBytes(key, model, text, embedding) {
+  const keyBytes = Buffer.byteLength(typeof key === 'string' ? key : '', 'utf8')
+  const modelBytes = Buffer.byteLength(typeof model === 'string' ? model : '', 'utf8')
+  const textBytes = Buffer.byteLength(typeof text === 'string' ? text : '', 'utf8')
+  const embeddingBytes = Array.isArray(embedding) ? embedding.length * 4 : 0
+  return keyBytes + modelBytes + textBytes + embeddingBytes + 128
+}
+
+function buildEmbeddingCacheEntry(key, model, text, embedding, createdAt = new Date().toISOString(), lastUsedAt = createdAt) {
+  return {
+    key,
+    model,
+    text,
+    embedding,
+    textLength: typeof text === 'string' ? text.length : 0,
+    createdAt,
+    lastUsedAt,
+    usingCount: 0,
+    byteSize: estimateEmbeddingCacheEntryBytes(key, model, text, embedding),
+  }
+}
+
+function upsertEmbeddingCacheEntry(entry) {
+  const existingEntry = embeddingCacheByKey.get(entry.key)
+
+  if (existingEntry) {
+    embeddingCacheTotalBytes -= existingEntry.byteSize || 0
+    if (!Number.isFinite(entry.usingCount)) {
+      entry.usingCount = existingEntry.usingCount || 0
+    }
+  }
+
+  embeddingCacheByKey.set(entry.key, entry)
+  embeddingCacheTotalBytes += entry.byteSize || 0
+}
+
+function removeEmbeddingCacheEntry(key) {
+  const existingEntry = embeddingCacheByKey.get(key)
+
+  if (!existingEntry) {
+    return false
+  }
+
+  embeddingCacheTotalBytes -= existingEntry.byteSize || 0
+  embeddingCacheByKey.delete(key)
+  return true
+}
+
+function isEmbeddingCacheOverLimit() {
+  return embeddingCacheTotalBytes > MAX_EMBEDDING_CACHE_BYTES
+}
+
+function touchEmbeddingCacheEntry(key, textOverride = undefined) {
+  const existingEntry = embeddingCacheByKey.get(key)
+
+  if (!existingEntry) {
+    return null
+  }
+
+  const nextText = typeof textOverride === 'string' ? textOverride : existingEntry.text
+  const nextLastUsedAt = new Date().toISOString()
+  const shouldRefreshUsageTime = Date.parse(nextLastUsedAt) - Date.parse(existingEntry.lastUsedAt) >= EMBEDDING_CACHE_TOUCH_INTERVAL_MS
+  const didTextChange = nextText !== existingEntry.text
+
+  if (!shouldRefreshUsageTime && !didTextChange) {
+    return existingEntry
+  }
+
+  const nextEntry = {
+    ...existingEntry,
+    text: nextText,
+    textLength: typeof nextText === 'string' ? nextText.length : 0,
+    lastUsedAt: shouldRefreshUsageTime ? nextLastUsedAt : existingEntry.lastUsedAt,
+    byteSize: estimateEmbeddingCacheEntryBytes(key, existingEntry.model, nextText, existingEntry.embedding),
+  }
+
+  upsertEmbeddingCacheEntry(nextEntry)
+
+  if (didTextChange) {
+    scheduleSemanticCachePersist()
+  }
+
+  return nextEntry
+}
+
+function markEmbeddingUsageCountsDirty() {
+  embeddingUsageCountsNeedRepair = true
+}
+
+function repairEmbeddingUsageCounts() {
+  if (!embeddingUsageCountsNeedRepair) {
+    return false
+  }
+
+  const desiredUsingCountByKey = new Map()
+
+  for (const runtime of semanticRuntimeBySourceKey.values()) {
+    if (!Array.isArray(runtime.cacheKeys)) {
+      continue
+    }
+
+    for (const cacheKey of runtime.cacheKeys) {
+      desiredUsingCountByKey.set(cacheKey, (desiredUsingCountByKey.get(cacheKey) || 0) + 1)
+    }
+  }
+
+  let didRepair = false
+
+  for (const entry of embeddingCacheByKey.values()) {
+    const desiredUsingCount = desiredUsingCountByKey.get(entry.key) || 0
+
+    if ((entry.usingCount || 0) === desiredUsingCount) {
+      continue
+    }
+
+    upsertEmbeddingCacheEntry({
+      ...entry,
+      usingCount: desiredUsingCount,
+    })
+    didRepair = true
+  }
+
+  embeddingUsageCountsNeedRepair = false
+  return didRepair
+}
+
+function deleteSemanticRuntimeBySourceKey(sourceKey) {
+  const runtime = semanticRuntimeBySourceKey.get(sourceKey)
+
+  if (!runtime) {
+    return null
+  }
+
+  semanticRuntimeBySourceKey.delete(sourceKey)
+  return runtime
+}
+
+function getSemanticRuntimeLastUsedTime(runtime) {
+  if (!runtime) {
+    return 0
+  }
+
+  const timestamp = runtime.lastUsedAt || runtime.builtAt
+  return Date.parse(timestamp)
+}
+
+function pruneSemanticRuntimes(now = Date.now()) {
+  const removableSourceKeys = []
+
+  for (const [sourceKey, runtime] of semanticRuntimeBySourceKey.entries()) {
+    const lastUsedAt = getSemanticRuntimeLastUsedTime(runtime)
+
+    if (Number.isFinite(lastUsedAt) && now - lastUsedAt > MAX_SEMANTIC_RUNTIME_AGE_MS) {
+      removableSourceKeys.push(sourceKey)
+    }
+  }
+
+  if (semanticRuntimeBySourceKey.size - removableSourceKeys.length > MAX_SEMANTIC_RUNTIME_COUNT) {
+    const overflow = semanticRuntimeBySourceKey.size - removableSourceKeys.length - MAX_SEMANTIC_RUNTIME_COUNT
+    const protectedSourceKeys = new Set(removableSourceKeys)
+    const oldestRuntimes = Array.from(semanticRuntimeBySourceKey.entries())
+      .filter(([sourceKey]) => !protectedSourceKeys.has(sourceKey))
+      .sort((left, right) => getSemanticRuntimeLastUsedTime(left[1]) - getSemanticRuntimeLastUsedTime(right[1]))
+      .slice(0, overflow)
+
+    for (const [sourceKey] of oldestRuntimes) {
+      removableSourceKeys.push(sourceKey)
+    }
+  }
+
+  if (removableSourceKeys.length === 0) {
+    return false
+  }
+
+  let didRemove = false
+
+  for (const sourceKey of removableSourceKeys) {
+    const removedRuntime = deleteSemanticRuntimeBySourceKey(sourceKey)
+    if (removedRuntime) {
+      didRemove = true
+    }
+  }
+
+  if (didRemove) {
+    markEmbeddingUsageCountsDirty()
+  }
+
+  return didRemove
+}
+
+function scheduleEmbeddingCacheGc(options = {}) {
+  const pressure = options.pressure === true || isEmbeddingCacheOverLimit()
+  const delayMs = pressure ? EMBEDDING_CACHE_GC_PRESSURE_DELAY_MS : EMBEDDING_CACHE_GC_IDLE_DELAY_MS
+  const nextRunAt = Date.now() + delayMs
+
+  if (embeddingCacheGcTimer && embeddingCacheGcScheduledForAt <= nextRunAt) {
+    return
+  }
+
+  if (embeddingCacheGcTimer) {
+    clearTimeout(embeddingCacheGcTimer)
+  }
+
+  embeddingCacheGcScheduledForAt = nextRunAt
+  embeddingCacheGcTimer = setTimeout(() => {
+    embeddingCacheGcTimer = null
+    embeddingCacheGcScheduledForAt = 0
+    runEmbeddingCacheGc()
+  }, delayMs)
+}
+
+function runEmbeddingCacheGc() {
+  pruneSemanticRuntimes()
+  repairEmbeddingUsageCounts()
+  evictEmbeddingCacheEntriesIfNeeded()
+}
+
+function evictEmbeddingCacheEntriesIfNeeded() {
+  if (embeddingCacheTotalBytes <= MAX_EMBEDDING_CACHE_BYTES) {
+    return
+  }
+
+  const evictionCandidates = Array.from(embeddingCacheByKey.values())
+    .filter((entry) => (entry.usingCount || 0) === 0)
+    .sort((left, right) => Date.parse(left.lastUsedAt) - Date.parse(right.lastUsedAt))
+
+  let evictedCount = 0
+
+  for (const entry of evictionCandidates) {
+    if (embeddingCacheTotalBytes <= MAX_EMBEDDING_CACHE_BYTES) {
+      break
+    }
+
+    if (removeEmbeddingCacheEntry(entry.key)) {
+      evictedCount += 1
+    }
+  }
+
+  if (evictedCount > 0) {
+    scheduleSemanticCachePersist()
+  }
+
+  if (embeddingCacheTotalBytes > MAX_EMBEDDING_CACHE_BYTES) {
+    writeLog('INFO', 'semantic-search', 'Embedding cache remains above limit because all remaining entries are in use', {
+      embeddingCacheTotalBytes,
+      maxBytes: MAX_EMBEDDING_CACHE_BYTES,
+    })
+  }
+}
+
+function releaseSemanticRuntime(runtime) {
+  if (!runtime) {
+    return
+  }
+
+  markEmbeddingUsageCountsDirty()
+  scheduleEmbeddingCacheGc()
+}
+
+function clearSemanticRuntimeBySourceKey(sourceKey) {
+  const runtime = deleteSemanticRuntimeBySourceKey(sourceKey)
+
+  if (!runtime) {
+    return false
+  }
+
+  releaseSemanticRuntime(runtime)
+  return true
+}
+
+function clearSemanticRuntimesForEditorId(editorId) {
+  for (const [sourceKey, runtime] of semanticRuntimeBySourceKey.entries()) {
+    if (runtime.editorId === editorId) {
+      clearSemanticRuntimeBySourceKey(sourceKey)
+    }
+  }
+}
+
+function clearSemanticRuntimesForTarget(editorId, span, exceptSourceKey = null) {
+  for (const [sourceKey, runtime] of semanticRuntimeBySourceKey.entries()) {
+    if (sourceKey === exceptSourceKey) {
+      continue
+    }
+
+    if (runtime.editorId !== editorId) {
+      continue
+    }
+
+    if (runtime.span.start.line !== span.start.line || runtime.span.start.column !== span.start.column) {
+      continue
+    }
+
+    if (runtime.span.end.line !== span.end.line || runtime.span.end.column !== span.end.column) {
+      continue
+    }
+
+    clearSemanticRuntimeBySourceKey(sourceKey)
+  }
+}
+
+function touchSemanticRuntime(runtime) {
+  if (!runtime || !Array.isArray(runtime.cacheKeys)) {
+    return runtime
+  }
+
+  const nowIsoString = new Date().toISOString()
+  const shouldRefreshRuntimeTime = Date.parse(nowIsoString) - getSemanticRuntimeLastUsedTime(runtime) >= SEMANTIC_RUNTIME_TOUCH_INTERVAL_MS
+
+  for (const cacheKey of runtime.cacheKeys) {
+    touchEmbeddingCacheEntry(cacheKey)
+  }
+
+  if (shouldRefreshRuntimeTime) {
+    runtime.lastUsedAt = nowIsoString
+  }
+
+  return runtime
+}
+
+function loadSemanticCacheIfNeeded() {
+  if (semanticCacheDidLoad) {
+    return
+  }
+
+  semanticCacheDidLoad = true
+
+  try {
+    if (!fs.existsSync(semanticCachePath)) {
+      return
+    }
+
+    const raw = fs.readFileSync(semanticCachePath, 'utf8')
+    const parsed = JSON.parse(raw)
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : []
+
+    for (const entry of entries) {
+      if (typeof entry?.key !== 'string' || !Array.isArray(entry?.embedding) || typeof entry?.text !== 'string') {
+        continue
+      }
+
+      upsertEmbeddingCacheEntry(buildEmbeddingCacheEntry(
+        entry.key,
+        typeof entry.model === 'string' ? entry.model : DEFAULT_EMBEDDING_MODEL,
+        entry.text,
+        entry.embedding,
+        typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
+        typeof entry.lastUsedAt === 'string' ? entry.lastUsedAt : (typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString()),
+      ))
+    }
+
+    runEmbeddingCacheGc()
+  } catch (error) {
+    writeLog('WARN', 'semantic-search', 'Failed to load semantic cache', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function scheduleSemanticCachePersist() {
+  semanticCacheDirty = true
+
+  if (semanticCacheSaveTimer) {
+    return
+  }
+
+  semanticCacheSaveTimer = setTimeout(() => {
+    semanticCacheSaveTimer = null
+    if (!semanticCacheDirty) {
+      return
+    }
+
+    semanticCacheDirty = false
+
+    try {
+      fs.mkdirSync(path.dirname(semanticCachePath), { recursive: true })
+      const entries = Array.from(embeddingCacheByKey.values())
+        .sort((left, right) => Date.parse(right.lastUsedAt) - Date.parse(left.lastUsedAt))
+        .map((value) => ({
+        key: value.key,
+        model: value.model,
+        text: value.text,
+        embedding: value.embedding,
+        textLength: value.textLength,
+        createdAt: value.createdAt,
+        lastUsedAt: value.lastUsedAt,
+      }))
+      fs.writeFileSync(semanticCachePath, `${JSON.stringify({ version: 1, entries }, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      writeLog('WARN', 'semantic-search', 'Failed to persist semantic cache', error instanceof Error ? error.message : String(error))
+    }
+  }, 1000)
+}
+
+function getSemanticSourceKey(targetText) {
+  return [
+    targetText.editorId,
+    targetText.span.start.line,
+    targetText.span.start.column,
+    targetText.span.end.line,
+    targetText.span.end.column,
+    hashText(targetText.text),
+  ].join(':')
+}
+
+function adjustChunkBoundary(text, offset, direction) {
+  const clampedOffset = Math.min(Math.max(0, offset), text.length)
+
+  if (clampedOffset <= 0 || clampedOffset >= text.length) {
+    return clampedOffset
+  }
+
+  if (direction === 'end') {
+    const newlineOffset = text.indexOf('\n', clampedOffset)
+    return newlineOffset === -1 ? text.length : newlineOffset + 1
+  }
+
+  const newlineOffset = text.lastIndexOf('\n', clampedOffset - 1)
+  return newlineOffset === -1 ? 0 : newlineOffset + 1
+}
+
+function localOffsetToAbsolutePos(baseStart, text, offset) {
+  let line = baseStart.line
+  let column = baseStart.column
+
+  for (let index = 0; index < offset; index += 1) {
+    if (text[index] === '\n') {
+      line += 1
+      column = 1
+    } else {
+      column += 1
+    }
+  }
+
+  return { line, column }
+}
+
+function buildSemanticChunksForTarget(targetText) {
+  const chunks = []
+
+  for (const layer of SEMANTIC_LAYERS) {
+    let startOffset = 0
+
+    while (startOffset < targetText.text.length) {
+      let endOffset = Math.min(targetText.text.length, startOffset + layer.maxChars)
+      endOffset = adjustChunkBoundary(targetText.text, endOffset, 'end')
+
+      if (endOffset <= startOffset) {
+        endOffset = Math.min(targetText.text.length, startOffset + layer.maxChars)
+      }
+
+      const sliceText = targetText.text.slice(startOffset, endOffset)
+
+      if (sliceText.trim().length > 0) {
+        chunks.push({
+          id: `${layer.name}:${startOffset}:${endOffset}`,
+          layer: layer.name,
+          weight: layer.weight,
+          startOffset,
+          endOffset,
+          text: sliceText,
+          cacheKey: buildEmbeddingCacheKey(DEFAULT_EMBEDDING_MODEL, sliceText),
+          span: {
+            start: localOffsetToAbsolutePos(targetText.span.start, targetText.text, startOffset),
+            end: localOffsetToAbsolutePos(targetText.span.start, targetText.text, endOffset),
+            isEmpty: sliceText.length === 0,
+          },
+        })
+      }
+
+      if (endOffset >= targetText.text.length) {
+        break
+      }
+
+      startOffset = Math.max(startOffset + 1, endOffset - layer.overlapChars)
+      startOffset = adjustChunkBoundary(targetText.text, startOffset, 'start')
+    }
+  }
+
+  return chunks
+}
+
+async function ensureEmbeddingCacheEntries(texts, model = DEFAULT_EMBEDDING_MODEL) {
+  loadSemanticCacheIfNeeded()
+
+  const uniqueTexts = Array.from(new Set(texts.filter((text) => typeof text === 'string' && text.trim().length > 0)))
+  const missingTexts = uniqueTexts.filter((text) => {
+    const cacheKey = buildEmbeddingCacheKey(model, text)
+    const existingEntry = embeddingCacheByKey.get(cacheKey)
+
+    if (!existingEntry) {
+      return true
+    }
+
+    touchEmbeddingCacheEntry(cacheKey, text)
+    return false
+  })
+
+  if (missingTexts.length === 0) {
+    if (isEmbeddingCacheOverLimit()) {
+      scheduleEmbeddingCacheGc({ pressure: true })
+    }
+    return
+  }
+
+  const client = createOpenAiClient()
+
+  for (let index = 0; index < missingTexts.length; index += 32) {
+    const batch = missingTexts.slice(index, index + 32)
+    const response = await client.embeddings.create({
+      model,
+      input: batch,
+    })
+
+    response.data.forEach((entry, entryIndex) => {
+      const text = batch[entryIndex]
+      const key = buildEmbeddingCacheKey(model, text)
+      upsertEmbeddingCacheEntry(buildEmbeddingCacheEntry(key, model, text, entry.embedding))
+    })
+  }
+
+  scheduleEmbeddingCacheGc({ pressure: true })
+  scheduleSemanticCachePersist()
+}
+
+function cosineSimilarity(left, right) {
+  let dot = 0
+  let leftNorm = 0
+  let rightNorm = 0
+
+  const length = Math.min(left.length, right.length)
+
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = left[index]
+    const rightValue = right[index]
+    dot += leftValue * rightValue
+    leftNorm += leftValue * leftValue
+    rightNorm += rightValue * rightValue
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) {
+    return 0
+  }
+
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
+}
+
+function createEditorRuntimeState() {
+  const timestamp = new Date().toISOString()
+
+  return {
+    editorId: `editor:${randomUUID()}`,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+}
+
+function ensureEditorRuntimeState(editorWindow) {
+  const existingState = editorRuntimeStateByWindowId.get(editorWindow.id)
+
+  if (existingState) {
+    return existingState
+  }
+
+  const nextState = createEditorRuntimeState()
+  editorRuntimeStateByWindowId.set(editorWindow.id, nextState)
+  return nextState
+}
+
+function touchEditorRuntimeState(editorWindow) {
+  const state = ensureEditorRuntimeState(editorWindow)
+  state.updatedAt = new Date().toISOString()
+  return state
+}
+
+function clearEditorRuntimeState(windowId) {
+  const runtimeState = editorRuntimeStateByWindowId.get(windowId)
+
+  if (runtimeState?.editorId) {
+    clearSemanticRuntimesForEditorId(runtimeState.editorId)
+  }
+
+  editorRuntimeStateByWindowId.delete(windowId)
+  clearSessionBuffersForWindow(windowId)
+}
+
+function getSessionBufferRegistry(editorWindow) {
+  const existingRegistry = aiSessionBuffersByEditorWindowId.get(editorWindow.id)
+
+  if (existingRegistry) {
+    return existingRegistry
+  }
+
+  const nextRegistry = new Map()
+  aiSessionBuffersByEditorWindowId.set(editorWindow.id, nextRegistry)
+  return nextRegistry
+}
+
+function createSessionBuffer(editorWindow, payload) {
+  const registry = getSessionBufferRegistry(editorWindow)
+  const timestamp = new Date().toISOString()
+  const editorId = payload?.editorId || `buffer:${randomUUID()}`
+  const bufferRecord = {
+    editorId,
+    kind: 'temp-buffer',
+    title: typeof payload?.title === 'string' && payload.title.length > 0 ? payload.title : editorId,
+    currentFilePath: null,
+    isDirty: false,
+    capabilities: {
+      read: true,
+      write: true,
+      sliceOps: true,
+    },
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    text: typeof payload?.text === 'string' ? payload.text : '',
+  }
+
+  registry.set(editorId, bufferRecord)
+  return bufferRecord
+}
+
+function getSessionBuffer(editorWindow, editorId) {
+  return getSessionBufferRegistry(editorWindow).get(editorId) || null
+}
+
+function clearSessionBuffersForWindow(windowId) {
+  const registry = aiSessionBuffersByEditorWindowId.get(windowId)
+
+  if (!registry) {
+    return
+  }
+
+  for (const bufferRecord of registry.values()) {
+    clearSemanticRuntimesForEditorId(bufferRecord.editorId)
+  }
+
+  aiSessionBuffersByEditorWindowId.delete(windowId)
+}
+
+function isActiveEditorAlias(editorId) {
+  return editorId === 'active' || editorId === 'editor:active'
+}
+
+function getMarkdownLineStartOffsets(markdown) {
+  const offsets = [0]
+
+  for (let index = 0; index < markdown.length; index += 1) {
+    if (markdown[index] === '\n') {
+      offsets.push(index + 1)
+    }
+  }
+
+  return offsets
+}
+
+function clampMarkdownPos(markdown, position) {
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+  const rawLine = Number(position?.line)
+  const rawColumn = Number(position?.column)
+  const line = Number.isFinite(rawLine) ? Math.trunc(rawLine) : 1
+  const column = Number.isFinite(rawColumn) ? Math.trunc(rawColumn) : 1
+  const clampedLine = Math.min(Math.max(1, line), lineStartOffsets.length)
+  const lineStartOffset = lineStartOffsets[clampedLine - 1]
+  const nextLineStartOffset = clampedLine < lineStartOffsets.length ? lineStartOffsets[clampedLine] : markdown.length
+  const lineEndOffset = nextLineStartOffset > lineStartOffset && markdown[nextLineStartOffset - 1] === '\n'
+    ? nextLineStartOffset - 1
+    : nextLineStartOffset
+  const lineLength = lineEndOffset - lineStartOffset
+
+  return {
+    line: clampedLine,
+    column: Math.min(Math.max(1, column), lineLength + 1),
+  }
+}
+
+function markdownPosToOffset(markdown, position) {
+  const clampedPosition = clampMarkdownPos(markdown, position)
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+  return lineStartOffsets[clampedPosition.line - 1] + clampedPosition.column - 1
+}
+
+function offsetToMarkdownPos(markdown, offset) {
+  const normalizedOffset = Math.min(Math.max(0, Math.trunc(offset)), markdown.length)
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+  let line = 1
+
+  while (line < lineStartOffsets.length && lineStartOffsets[line] <= normalizedOffset) {
+    line += 1
+  }
+
+  return {
+    line,
+    column: normalizedOffset - lineStartOffsets[line - 1] + 1,
+  }
+}
+
+function normalizeOffsetsToSpan(markdown, startOffset, endOffset) {
+  const normalizedStartOffset = Math.min(Math.max(0, startOffset), markdown.length)
+  const normalizedEndOffset = Math.min(Math.max(normalizedStartOffset, endOffset), markdown.length)
+
+  return {
+    start: offsetToMarkdownPos(markdown, normalizedStartOffset),
+    end: offsetToMarkdownPos(markdown, normalizedEndOffset),
+    isEmpty: normalizedStartOffset === normalizedEndOffset,
+  }
+}
+
+function getLineBoundaryOffsets(markdown, line) {
+  const totalLines = getMarkdownLineStartOffsets(markdown).length
+  const clampedLine = Math.min(Math.max(1, Math.trunc(Number(line) || 1)), totalLines)
+  const startOffset = markdownPosToOffset(markdown, { line: clampedLine, column: 1 })
+  const endOffset = clampedLine < totalLines
+    ? markdownPosToOffset(markdown, { line: clampedLine + 1, column: 1 })
+    : markdown.length
+
+  return { startOffset, endOffset }
+}
+
+function resolveSpanToOffsets(markdown, span) {
+  if (!span || typeof span !== 'object') {
+    throw new Error('AI target span is required')
+  }
+
+  if (span.kind === 'document') {
+    return { startOffset: 0, endOffset: markdown.length }
+  }
+
+  if (span.kind === 'point') {
+    const offset = markdownPosToOffset(markdown, span.at)
+    return { startOffset: offset, endOffset: offset }
+  }
+
+  if (span.kind === 'line') {
+    return getLineBoundaryOffsets(markdown, span.line)
+  }
+
+  if (span.kind === 'line-range') {
+    const startOffsets = getLineBoundaryOffsets(markdown, span.startLine)
+    const endOffsets = getLineBoundaryOffsets(markdown, span.endLine)
+    return {
+      startOffset: startOffsets.startOffset,
+      endOffset: Math.max(startOffsets.startOffset, endOffsets.endOffset),
+    }
+  }
+
+  if (span.kind === 'from-start') {
+    return { startOffset: 0, endOffset: markdownPosToOffset(markdown, span.end) }
+  }
+
+  if (span.kind === 'to-end') {
+    return { startOffset: markdownPosToOffset(markdown, span.start), endOffset: markdown.length }
+  }
+
+  if (span.kind === 'range') {
+    const startOffset = markdownPosToOffset(markdown, span.start)
+    const endOffset = markdownPosToOffset(markdown, span.end)
+    return {
+      startOffset: Math.min(startOffset, endOffset),
+      endOffset: Math.max(startOffset, endOffset),
+    }
+  }
+
+  throw new Error(`Unsupported non-editor span kind: ${span.kind}`)
+}
+
+function applyCursorToOffsets(markdown, offsets, cursor) {
+  if (!cursor || typeof cursor !== 'object') {
+    return offsets
+  }
+
+  const cursorOffset = markdownPosToOffset(markdown, cursor.after)
+  return {
+    startOffset: Math.min(offsets.endOffset, Math.max(offsets.startOffset, cursorOffset)),
+    endOffset: offsets.endOffset,
+  }
+}
+
+function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens) {
+  const resolvedOffsets = applyCursorToOffsets(markdown, resolveSpanToOffsets(markdown, span), cursor)
+  const maxChars = resolveReadTokenBudget(maxTokens) * DEFAULT_TOKEN_TO_CHAR_RATIO
+  const availableText = markdown.slice(resolvedOffsets.startOffset, resolvedOffsets.endOffset)
+  const text = availableText.slice(0, maxChars)
+  const finalEndOffset = resolvedOffsets.startOffset + text.length
+  const truncated = availableText.length > text.length
+
+  return {
+    editorId,
+    span: normalizeOffsetsToSpan(markdown, resolvedOffsets.startOffset, finalEndOffset),
+    text,
+    estimatedTokens: estimateTokenCount(text),
+    truncated,
+    nextCursor: truncated ? { after: offsetToMarkdownPos(markdown, finalEndOffset) } : null,
+  }
+}
+
+async function readFullTargetTextForWindow(editorWindow, payload) {
+  let cursor = payload?.cursor ?? null
+  let text = ''
+  let pageCount = 0
+  let firstPage = null
+  let lastPage = null
+  const seenCursors = new Set()
+
+  do {
+    const page = await readAiTargetForWindow(editorWindow, {
+      target: payload?.target,
+      cursor,
+      maxTokens: getInlineTokenBudget(),
+    })
+
+    if (!page) {
+      break
+    }
+
+    if (!firstPage) {
+      firstPage = page
+    }
+
+    lastPage = page
+    text += page.text || ''
+    cursor = page.nextCursor || null
+    pageCount += 1
+
+    if (!cursor) {
+      break
+    }
+
+    const cursorKey = JSON.stringify(cursor)
+
+    if (seenCursors.has(cursorKey)) {
+      throw new Error('AI read cursor repeated while materializing full target text')
+    }
+
+    seenCursors.add(cursorKey)
+
+    if (pageCount > 256) {
+      throw new Error('AI read pagination exceeded safety limit')
+    }
+  } while (cursor)
+
+  if (!firstPage || !lastPage) {
+    const resolvedTarget = resolveTargetForSession(editorWindow, payload?.target)
+    return {
+      editorId: resolvedTarget.editorId,
+      span: {
+        start: { line: 1, column: 1 },
+        end: { line: 1, column: 1 },
+        isEmpty: true,
+      },
+      text: '',
+    }
+  }
+
+  return {
+    editorId: firstPage.editorId,
+    span: {
+      start: firstPage.span.start,
+      end: lastPage.span.end,
+      isEmpty: text.length === 0,
+    },
+    text,
+  }
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function createSliceBufferTitle(prefix, query) {
+  const trimmedQuery = typeof query === 'string' ? query.trim() : ''
+  if (trimmedQuery.length === 0) {
+    return prefix
+  }
+
+  return `${prefix}: ${trimmedQuery.slice(0, 48)}`
+}
+
+function createPreviewText(text, limit = 220) {
+  const collapsed = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : ''
+  if (collapsed.length <= limit) {
+    return collapsed
+  }
+
+  return `${collapsed.slice(0, limit)}...`
+}
+
+function createMatchSpan(line, column, matchText) {
+  return {
+    start: { line, column },
+    end: { line, column: column + (typeof matchText === 'string' ? matchText.length : 0) },
+    isEmpty: !matchText,
+  }
+}
+
+async function grepAiSliceForWindow(editorWindow, payload) {
+  const query = typeof payload?.query === 'string' ? payload.query : ''
+
+  if (query.length === 0) {
+    throw new Error('Slice grep query is required')
+  }
+
+  const maxResults = Math.min(200, Math.max(1, Math.round(Number(payload?.maxResults) || 20)))
+  const isRegexp = payload?.isRegexp === true
+  const caseSensitive = payload?.caseSensitive === true
+  const targetText = await readFullTargetTextForWindow(editorWindow, { target: payload?.target })
+  const flags = caseSensitive ? 'g' : 'gi'
+  const regexp = new RegExp(isRegexp ? query : escapeRegExp(query), flags)
+  const lines = targetText.text.split(/\r?\n/)
+  const matches = []
+  const bufferLines = []
+  let truncated = false
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const lineText = lines[lineIndex]
+    regexp.lastIndex = 0
+    const absoluteLine = targetText.span.start.line + lineIndex
+
+    while (true) {
+      const match = regexp.exec(lineText)
+
+      if (!match) {
+        break
+      }
+
+      const columnOffset = lineIndex === 0 ? Math.max(0, targetText.span.start.column - 1) : 0
+      const absoluteColumn = columnOffset + (match.index || 0) + 1
+
+      const result = {
+        line: absoluteLine,
+        column: absoluteColumn,
+        preview: lineText,
+        span: createMatchSpan(absoluteLine, absoluteColumn, match[0] || ''),
+      }
+
+      if (matches.length >= maxResults) {
+        truncated = true
+        break
+      }
+
+      matches.push(result)
+      bufferLines.push(`${result.line}:${result.column}\t${result.preview}`)
+
+      if (match[0] === '') {
+        regexp.lastIndex += 1
+      }
+    }
+
+    if (truncated) {
+      break
+    }
+  }
+
+  const bufferRecord = payload?.persistBuffer === false
+    ? null
+    : createSessionBuffer(editorWindow, {
+        title: createSliceBufferTitle('grep_slice', query),
+        text: bufferLines.join('\n'),
+      })
+
+  return {
+    editorId: targetText.editorId,
+    span: targetText.span,
+    query,
+    isRegexp,
+    caseSensitive,
+    matches,
+    truncated,
+    bufferId: bufferRecord?.editorId || null,
+  }
+}
+
+async function statsAiSliceForWindow(editorWindow, payload) {
+  if (!settingsState.ai.toolPermissions.sliceSearch) {
+    throw new Error('Slice stats are disabled in settings')
+  }
+
+  const targetText = await readFullTargetTextForWindow(editorWindow, { target: payload?.target })
+  const lines = targetText.text.length === 0 ? [] : targetText.text.split(/\r?\n/)
+  const emptyLines = lines.filter((lineText) => lineText.length === 0).length
+  const maxLineLength = lines.reduce((currentMax, lineText) => Math.max(currentMax, lineText.length), 0)
+  const uniqueLines = new Set(lines).size
+
+  return {
+    editorId: targetText.editorId,
+    span: targetText.span,
+    characters: targetText.text.length,
+    lines: lines.length,
+    emptyLines,
+    nonEmptyLines: Math.max(0, lines.length - emptyLines),
+    maxLineLength,
+    uniqueLines,
+    estimatedTokens: estimateTokenCount(targetText.text),
+  }
+}
+
+async function exactSearchForWindow(editorWindow, payload) {
+  if (!settingsState.ai.toolPermissions.sliceSearch) {
+    throw new Error('Exact search is disabled in settings')
+  }
+
+  return grepAiSliceForWindow(editorWindow, payload)
+}
+
+async function ensureSemanticRuntimeForTarget(editorWindow, payload) {
+  if (!settingsState.ai.toolPermissions.sliceSearch) {
+    throw new Error('Semantic search is disabled in settings')
+  }
+
+  const targetText = await readFullTargetTextForWindow(editorWindow, { target: payload?.target })
+  const targetBytes = Buffer.byteLength(targetText.text, 'utf8')
+
+  if (targetBytes > MAX_SEMANTIC_INDEX_BYTES) {
+    throw new Error(`Semantic search skips targets larger than ${MAX_SEMANTIC_INDEX_BYTES} bytes`)
+  }
+
+  const sourceKey = getSemanticSourceKey(targetText)
+  const cachedRuntime = semanticRuntimeBySourceKey.get(sourceKey)
+
+  if (cachedRuntime) {
+    return touchSemanticRuntime(cachedRuntime)
+  }
+
+  const chunks = buildSemanticChunksForTarget(targetText)
+  await ensureEmbeddingCacheEntries(chunks.map((chunk) => chunk.text))
+  clearSemanticRuntimesForTarget(targetText.editorId, targetText.span, sourceKey)
+
+  const cacheKeys = Array.from(new Set(chunks.map((chunk) => chunk.cacheKey)))
+
+  const runtime = {
+    editorId: targetText.editorId,
+    span: targetText.span,
+    text: targetText.text,
+    sourceKey,
+    builtAt: new Date().toISOString(),
+    lastUsedAt: new Date().toISOString(),
+    cacheKeys,
+    chunks: chunks.map((chunk) => ({
+      ...chunk,
+      embedding: embeddingCacheByKey.get(chunk.cacheKey)?.embedding || null,
+    })).filter((chunk) => Array.isArray(chunk.embedding)),
+  }
+
+  semanticRuntimeBySourceKey.set(sourceKey, runtime)
+  markEmbeddingUsageCountsDirty()
+  pruneSemanticRuntimes()
+  scheduleEmbeddingCacheGc({ pressure: isEmbeddingCacheOverLimit() })
+  return runtime
+}
+
+async function semanticSearchForWindow(editorWindow, payload) {
+  const query = typeof payload?.query === 'string' ? payload.query.trim() : ''
+
+  if (query.length === 0) {
+    throw new Error('Semantic search query is required')
+  }
+
+  const maxResults = Math.min(20, Math.max(1, Math.round(Number(payload?.maxResults) || 8)))
+  const runtime = await ensureSemanticRuntimeForTarget(editorWindow, payload)
+  await ensureEmbeddingCacheEntries([query])
+  const queryEmbedding = embeddingCacheByKey.get(buildEmbeddingCacheKey(DEFAULT_EMBEDDING_MODEL, query))?.embedding
+
+  if (!queryEmbedding) {
+    throw new Error('Semantic query embedding could not be resolved')
+  }
+
+  const results = runtime.chunks
+    .map((chunk) => ({
+      editorId: runtime.editorId,
+      span: chunk.span,
+      layer: chunk.layer,
+      score: cosineSimilarity(queryEmbedding, chunk.embedding) * chunk.weight,
+      preview: createPreviewText(chunk.text),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, maxResults)
+
+  const bufferRecord = payload?.persistBuffer === false
+    ? null
+    : createSessionBuffer(editorWindow, {
+        title: createSliceBufferTitle('semantic_search', query),
+        text: results.map((result) => `${result.layer}\t${result.score.toFixed(4)}\t${result.span.start.line}:${result.span.start.column}-${result.span.end.line}:${result.span.end.column}\t${result.preview}`).join('\n'),
+      })
+
+  return {
+    editorId: runtime.editorId,
+    span: runtime.span,
+    query,
+    results,
+    bufferId: bufferRecord?.editorId || null,
+    indexBuiltAt: runtime.builtAt,
+  }
+}
+
+function resolveTargetForSession(editorWindow, target) {
+  if (!target || typeof target !== 'object') {
+    throw new Error('AI target is required')
+  }
+
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+
+  if (isActiveEditorAlias(target.editorId) || target.editorId === runtimeState.editorId) {
+    return {
+      kind: 'editor-window',
+      editorId: runtimeState.editorId,
+      span: target.span,
+    }
+  }
+
+  const bufferRecord = getSessionBuffer(editorWindow, target.editorId)
+
+  if (bufferRecord) {
+    return {
+      kind: 'temp-buffer',
+      editorId: bufferRecord.editorId,
+      span: target.span,
+      bufferRecord,
+    }
+  }
+
+  throw new Error(`Unknown editor target: ${target.editorId}`)
 }
 
 function getFileArgumentStartIndex() {
@@ -74,6 +1258,21 @@ function focusWindow(window) {
   window.focus()
 }
 
+async function confirmAiWriteAction(parentWindow, options) {
+  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+    type: 'warning',
+    buttons: ['Continue', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: options.title,
+    message: options.message,
+    detail: options.detail,
+    noLink: true,
+  })
+
+  return response.response === 0
+}
+
 function createDefaultSettings() {
   return {
     version: 1,
@@ -95,6 +1294,7 @@ function createDefaultSettings() {
         writeActiveDocument: true,
         writeActiveSelection: true,
         writeNewDocument: true,
+        sliceSearch: true,
         workspaceGrep: true,
         tavilyWebSearch: true,
       },
@@ -199,6 +1399,11 @@ function clampDefaultMaxResults(value) {
 function sanitizeSettings(candidate) {
   const defaults = createDefaultSettings()
   const merged = isPlainObject(candidate) ? mergePlainObjects(defaults, candidate) : defaults
+  const toolPermissions = merged.ai?.toolPermissions
+  const hasExplicitSliceSearch = isPlainObject(toolPermissions) && Object.prototype.hasOwnProperty.call(toolPermissions, 'sliceSearch')
+  const normalizedSliceSearch = hasExplicitSliceSearch
+    ? toolPermissions.sliceSearch !== false
+    : true
 
   return {
     version: 1,
@@ -215,13 +1420,14 @@ function sanitizeSettings(candidate) {
     ai: {
       defaultWriteMode: normalizeWriteMode(merged.ai?.defaultWriteMode),
       toolPermissions: {
-        readActiveDocument: merged.ai?.toolPermissions?.readActiveDocument !== false,
-        readActiveSelection: merged.ai?.toolPermissions?.readActiveSelection !== false,
-        writeActiveDocument: merged.ai?.toolPermissions?.writeActiveDocument !== false,
-        writeActiveSelection: merged.ai?.toolPermissions?.writeActiveSelection !== false,
-        writeNewDocument: merged.ai?.toolPermissions?.writeNewDocument !== false,
-        workspaceGrep: merged.ai?.toolPermissions?.workspaceGrep !== false,
-        tavilyWebSearch: merged.ai?.toolPermissions?.tavilyWebSearch !== false,
+        readActiveDocument: toolPermissions?.readActiveDocument !== false,
+        readActiveSelection: toolPermissions?.readActiveSelection !== false,
+        writeActiveDocument: toolPermissions?.writeActiveDocument !== false,
+        writeActiveSelection: toolPermissions?.writeActiveSelection !== false,
+        writeNewDocument: toolPermissions?.writeNewDocument !== false,
+        sliceSearch: normalizedSliceSearch,
+        workspaceGrep: toolPermissions?.workspaceGrep !== false,
+        tavilyWebSearch: toolPermissions?.tavilyWebSearch !== false,
       },
       openai: {
         enabled: merged.ai?.openai?.enabled === true,
@@ -311,8 +1517,112 @@ const openAiChatInstructions = [
   'You are MDV Assistant inside MarkDownViewer, a Markdown editing application.',
   'Respond in Markdown and keep answers focused on the user request.',
   'Treat transcript entries labeled as tool context as trusted application-provided context.',
+  'Large context hints that include EditorID and SPAN are references, not full text; call read_target when you need the actual text.',
+  'Prefer exact_search or semantic_search to narrow large documents before reading wide spans.',
+  'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
+
+const aiToolDefinitions = [
+  {
+    type: 'function',
+    name: 'get_context',
+    description: 'Get lightweight metadata about the active editor or a known buffer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'list_buffers',
+    description: 'List the active editor and session temp buffers available to tools.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'read_target',
+    description: 'Read bounded text from an EditorID + SPAN target. Use nextCursor for continuation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'object', description: 'Target object with editorId and span.' },
+        cursor: { type: 'object', description: 'Optional cursor returned by a previous read_target call.' },
+        maxTokens: { type: 'number', description: 'Optional bounded token target.' },
+      },
+      required: ['target'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'write_target',
+    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window.',
+    parameters: {
+      type: 'object',
+      properties: {
+        destination: { type: 'object', description: 'Destination object with editorId and span.' },
+        sources: { type: 'array', description: 'Array of literal or slice-ref sources.' },
+        mode: { type: 'string', enum: ['replace', 'insert'] },
+        title: { type: 'string' },
+      },
+      required: ['destination', 'sources'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'exact_search',
+    description: 'Run an exact search inside an EditorID + SPAN target and return matching lines.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'object', description: 'Target object with editorId and span.' },
+        query: { type: 'string' },
+        isRegexp: { type: 'boolean' },
+        caseSensitive: { type: 'boolean' },
+        maxResults: { type: 'number' },
+      },
+      required: ['target', 'query'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'stats_slice',
+    description: 'Return statistics for an EditorID + SPAN target.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'object', description: 'Target object with editorId and span.' },
+      },
+      required: ['target'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'semantic_search',
+    description: 'Run multi-layer semantic search over an EditorID + SPAN target using cached embeddings.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'object', description: 'Target object with editorId and span.' },
+        query: { type: 'string' },
+        maxResults: { type: 'number' },
+      },
+      required: ['target', 'query'],
+      additionalProperties: false,
+    },
+  },
+]
 
 function getOpenAiApiKey() {
   return secretsState.openaiApiKey
@@ -350,6 +1660,103 @@ function createOpenAiClient() {
   })
 }
 
+function formatToolEventContent(payload) {
+  try {
+    const content = JSON.stringify(payload, null, 2)
+    return content.length <= 12000 ? content : `${content.slice(0, 12000)}\n...`
+  } catch {
+    return String(payload)
+  }
+}
+
+function normalizeToolTarget(args) {
+  const target = args?.target && typeof args.target === 'object' ? args.target : null
+
+  return {
+    editorId: typeof target?.editorId === 'string' && target.editorId.length > 0 ? target.editorId : 'editor:active',
+    span: target?.span && typeof target.span === 'object' ? target.span : { kind: 'document' },
+  }
+}
+
+async function executeAiToolCall(editorWindow, toolName, args) {
+  if (toolName === 'get_context') {
+    const requestedEditorId = typeof args?.editorId === 'string' && args.editorId.length > 0 ? args.editorId : null
+
+    if (!requestedEditorId || isActiveEditorAlias(requestedEditorId) || requestedEditorId === ensureEditorRuntimeState(editorWindow).editorId) {
+      return requestEditorContext(editorWindow)
+    }
+
+    const bufferRecord = getSessionBuffer(editorWindow, requestedEditorId)
+
+    if (!bufferRecord) {
+      throw new Error(`Unknown buffer for get_context: ${requestedEditorId}`)
+    }
+
+    return {
+      editorId: bufferRecord.editorId,
+      currentFilePath: null,
+      title: bufferRecord.title,
+      activePanel: 'write',
+      textLength: bufferRecord.text.length,
+      selectionTextLength: 0,
+      tokenEstimate: estimateTokenCount(bufferRecord.text),
+      isDirty: false,
+    }
+  }
+
+  if (toolName === 'list_buffers') {
+    return listAiBuffersForWindow(editorWindow)
+  }
+
+  if (toolName === 'read_target') {
+    return readAiTargetForWindow(editorWindow, {
+      target: normalizeToolTarget(args),
+      cursor: args?.cursor ?? null,
+      maxTokens: args?.maxTokens,
+    })
+  }
+
+  if (toolName === 'write_target') {
+    return writeAiTargetForWindow(editorWindow, {
+      destination: args?.destination && typeof args.destination === 'object'
+        ? {
+            editorId: typeof args.destination.editorId === 'string' && args.destination.editorId.length > 0 ? args.destination.editorId : 'editor:active',
+            span: args.destination.span && typeof args.destination.span === 'object' ? args.destination.span : { kind: 'document' },
+          }
+        : { editorId: 'editor:active', span: { kind: 'document' } },
+      sources: Array.isArray(args?.sources) ? args.sources : [],
+      mode: args?.mode === 'insert' ? 'insert' : 'replace',
+      title: typeof args?.title === 'string' ? args.title : undefined,
+    })
+  }
+
+  if (toolName === 'exact_search') {
+    return exactSearchForWindow(editorWindow, {
+      target: normalizeToolTarget(args),
+      query: args?.query,
+      isRegexp: args?.isRegexp === true,
+      caseSensitive: args?.caseSensitive === true,
+      maxResults: args?.maxResults,
+    })
+  }
+
+  if (toolName === 'stats_slice') {
+    return statsAiSliceForWindow(editorWindow, {
+      target: normalizeToolTarget(args),
+    })
+  }
+
+  if (toolName === 'semantic_search') {
+    return semanticSearchForWindow(editorWindow, {
+      target: normalizeToolTarget(args),
+      query: args?.query,
+      maxResults: args?.maxResults,
+    })
+  }
+
+  throw new Error(`Unsupported AI tool: ${toolName}`)
+}
+
 function mapAiChatMessageToOpenAiInput(message) {
   if (!message || typeof message.content !== 'string' || message.content.trim().length === 0) {
     return null
@@ -375,7 +1782,7 @@ function mapAiChatMessageToOpenAiInput(message) {
   }
 }
 
-async function requestOpenAiChatResponse(messages) {
+async function requestOpenAiChatResponse(editorWindow, messages) {
   const input = Array.isArray(messages)
     ? messages
       .map(mapAiChatMessageToOpenAiInput)
@@ -387,26 +1794,69 @@ async function requestOpenAiChatResponse(messages) {
   }
 
   const client = createOpenAiClient()
+  const toolEvents = []
+  let nextInput = input
+  let previousResponseId = null
 
   try {
-    const response = await client.responses.create({
-      model: settingsState.ai.openai.model,
-      instructions: openAiChatInstructions,
-      input,
-      store: false,
-    })
+    for (let iteration = 0; iteration < 12; iteration += 1) {
+      const response = await client.responses.create({
+        model: settingsState.ai.openai.model,
+        instructions: openAiChatInstructions,
+        input: nextInput,
+        previous_response_id: previousResponseId || undefined,
+        tools: aiToolDefinitions,
+        store: false,
+      })
 
-    const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+      previousResponseId = typeof response.id === 'string' ? response.id : null
 
-    if (!reply) {
-      throw new Error('OpenAI SDK returned no output_text')
+      const outputItems = Array.isArray(response.output) ? response.output : []
+      const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
+
+      if (functionCalls.length === 0) {
+        const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+
+        if (!reply) {
+          throw new Error('OpenAI SDK returned no output_text')
+        }
+
+        return {
+          reply,
+          model: typeof response.model === 'string' && response.model.length > 0 ? response.model : settingsState.ai.openai.model,
+          responseId: previousResponseId,
+          toolEvents,
+        }
+      }
+
+      nextInput = []
+
+      for (const functionCall of functionCalls) {
+        const args = typeof functionCall.arguments === 'string' && functionCall.arguments.length > 0
+          ? JSON.parse(functionCall.arguments)
+          : {}
+
+        toolEvents.push({
+          title: `${functionCall.name} call`,
+          content: formatToolEventContent(args),
+        })
+
+        const result = await executeAiToolCall(editorWindow, functionCall.name, args)
+
+        toolEvents.push({
+          title: `${functionCall.name} result`,
+          content: formatToolEventContent(result),
+        })
+
+        nextInput.push({
+          type: 'function_call_output',
+          call_id: functionCall.call_id,
+          output: JSON.stringify(result),
+        })
+      }
     }
 
-    return {
-      reply,
-      model: typeof response.model === 'string' && response.model.length > 0 ? response.model : settingsState.ai.openai.model,
-      responseId: typeof response.id === 'string' ? response.id : null,
-    }
+    throw new Error('OpenAI tool orchestration exceeded the safety iteration limit')
   } catch (error) {
     if (error instanceof OpenAI.APIError) {
       throw new Error(`OpenAI request failed: ${error.message}`)
@@ -505,6 +1955,288 @@ function requestEditorWindowData(editorWindow, request) {
   })
 }
 
+async function requestEditorContext(editorWindow) {
+  const runtimeState = touchEditorRuntimeState(editorWindow)
+  const context = await requestEditorWindowData(editorWindow, {
+    type: 'get-context',
+    editorId: runtimeState.editorId,
+  })
+
+  return {
+    ...context,
+    editorId: runtimeState.editorId,
+  }
+}
+
+async function readAiTargetForWindow(editorWindow, payload) {
+  const runtimeState = touchEditorRuntimeState(editorWindow)
+  const resolvedTarget = resolveTargetForSession(editorWindow, payload?.target)
+
+  if (resolvedTarget.kind === 'temp-buffer') {
+    return buildBoundedReadPayload(
+      resolvedTarget.editorId,
+      resolvedTarget.bufferRecord.text,
+      resolvedTarget.span,
+      payload?.cursor,
+      payload?.maxTokens,
+    )
+  }
+
+  if (resolvedTarget.span?.kind === 'selection') {
+    if (!settingsState.ai.toolPermissions.readActiveSelection) {
+      throw new Error('Active selection read is disabled in settings')
+    }
+  } else if (!settingsState.ai.toolPermissions.readActiveDocument) {
+    throw new Error('Active document read is disabled in settings')
+  }
+
+  return requestEditorWindowData(editorWindow, {
+    type: 'read',
+    target: {
+      editorId: runtimeState.editorId,
+      span: resolvedTarget.span,
+    },
+    cursor: payload?.cursor ?? null,
+    maxTokens: resolveReadTokenBudget(payload?.maxTokens),
+  })
+}
+
+async function materializeWriteSources(editorWindow, sources) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return ''
+  }
+
+  let output = ''
+
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') {
+      throw new Error('Invalid AI write source')
+    }
+
+    if (source.type === 'literal') {
+      output += typeof source.text === 'string' ? source.text : ''
+      continue
+    }
+
+    if (source.type !== 'slice-ref') {
+      throw new Error(`Unsupported AI write source type: ${source.type}`)
+    }
+
+    const readPayload = await readAiTargetForWindow(editorWindow, {
+      target: {
+        editorId: source.editorId,
+        span: source.span,
+      },
+      cursor: null,
+      maxTokens: getInlineTokenBudget(),
+    })
+
+    if (readPayload?.truncated) {
+      throw new Error(`Write source ${source.editorId} exceeded bounded read budget; narrow the span first`)
+    }
+
+    output += readPayload?.text || ''
+  }
+
+  return output
+}
+
+function waitForWindowDidFinishLoad(targetWindow) {
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return Promise.reject(new Error('Target window is unavailable'))
+  }
+
+  if (!targetWindow.webContents.isLoading()) {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve, reject) => {
+    const handleFinish = () => {
+      cleanup()
+      resolve()
+    }
+
+    const handleFail = (_event, errorCode, errorDescription) => {
+      cleanup()
+      reject(new Error(`Window failed to load: ${errorCode} ${errorDescription}`))
+    }
+
+    const cleanup = () => {
+      targetWindow.webContents.removeListener('did-finish-load', handleFinish)
+      targetWindow.webContents.removeListener('did-fail-load', handleFail)
+    }
+
+    targetWindow.webContents.on('did-finish-load', handleFinish)
+    targetWindow.webContents.on('did-fail-load', handleFail)
+  })
+}
+
+async function createNewEditorWindowFromContent(content, title) {
+  const nextWindow = createWindow()
+  await waitForWindowDidFinishLoad(nextWindow)
+  const context = await requestEditorContext(nextWindow)
+  const writeResult = await requestEditorWindowData(nextWindow, {
+    type: 'write',
+    destination: {
+      editorId: context.editorId,
+      span: { kind: 'document' },
+    },
+    sources: [
+      {
+        type: 'literal',
+        text: content,
+      },
+    ],
+    mode: 'replace',
+    title: typeof title === 'string' ? title : undefined,
+  })
+
+  focusWindow(nextWindow)
+  return writeResult
+}
+
+async function writeAiTargetForWindow(editorWindow, payload) {
+  const runtimeState = touchEditorRuntimeState(editorWindow)
+  const destination = payload?.destination
+
+  if (!destination || typeof destination !== 'object') {
+    throw new Error('AI write destination is required')
+  }
+
+  const content = await materializeWriteSources(editorWindow, payload?.sources)
+
+  if (destination.editorId === ':new') {
+    if (!settingsState.ai.toolPermissions.writeNewDocument) {
+      throw new Error('New document write is disabled in settings')
+    }
+
+    if (isManagedClient()) {
+      throw new Error('AI new document creation is unavailable in managed-client mode')
+    }
+
+    if (settingsState.safety.confirmBeforeNewDocumentFromAi) {
+      const confirmed = await confirmAiWriteAction(editorWindow, {
+        title: 'Create AI document?',
+        message: 'AI is about to create a new document window.',
+        detail: `Title: ${typeof payload?.title === 'string' && payload.title.trim().length > 0 ? payload.title.trim() : 'Untitled.md'}\nBytes: ${Buffer.byteLength(content, 'utf8')}`,
+      })
+
+      if (!confirmed) {
+        throw new Error('AI new document creation was cancelled')
+      }
+    }
+
+    const writeResult = await createNewEditorWindowFromContent(content, payload?.title)
+    return {
+      ...writeResult,
+      created: true,
+    }
+  }
+
+  const resolvedTarget = resolveTargetForSession(editorWindow, destination)
+
+  if (resolvedTarget.kind === 'temp-buffer') {
+    const nextMode = payload?.mode === 'insert' ? 'insert' : 'replace'
+    const currentText = resolvedTarget.bufferRecord.text
+    const resolvedOffsets = resolveSpanToOffsets(currentText, resolvedTarget.span)
+    const startOffset = resolvedOffsets.startOffset
+    const endOffset = nextMode === 'insert' ? startOffset : resolvedOffsets.endOffset
+    const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
+    resolvedTarget.bufferRecord.text = nextText
+    resolvedTarget.bufferRecord.updatedAt = new Date().toISOString()
+
+    return {
+      editorId: resolvedTarget.editorId,
+      span: normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length),
+      text: content,
+      mode: nextMode,
+      bytesWritten: Buffer.byteLength(content, 'utf8'),
+      created: false,
+    }
+  }
+
+  if (resolvedTarget.span?.kind === 'selection') {
+    if (!settingsState.ai.toolPermissions.writeActiveSelection) {
+      throw new Error('Active selection write is disabled in settings')
+    }
+  } else if (!settingsState.ai.toolPermissions.writeActiveDocument) {
+    throw new Error('Active document write is disabled in settings')
+  }
+
+  if (payload?.mode !== 'insert' && settingsState.safety.confirmBeforeFullDocumentOverwrite) {
+    const fullDocumentTarget = await readFullTargetTextForWindow(editorWindow, {
+      target: {
+        editorId: resolvedTarget.editorId,
+        span: { kind: 'document' },
+      },
+    })
+    const overwriteOffsets = resolveSpanToOffsets(fullDocumentTarget.text, resolvedTarget.span)
+    const isWholeDocumentOverwrite = overwriteOffsets.startOffset === 0 && overwriteOffsets.endOffset === fullDocumentTarget.text.length
+
+    if (isWholeDocumentOverwrite) {
+      const confirmed = await confirmAiWriteAction(editorWindow, {
+        title: 'Overwrite document with AI output?',
+        message: 'AI is about to replace the full document contents.',
+        detail: `Bytes: ${Buffer.byteLength(content, 'utf8')}`,
+      })
+
+      if (!confirmed) {
+        throw new Error('AI full document overwrite was cancelled')
+      }
+    }
+  }
+
+  return requestEditorWindowData(editorWindow, {
+    type: 'write',
+    destination: {
+      editorId: runtimeState.editorId,
+      span: resolvedTarget.span,
+    },
+    sources: [
+      {
+        type: 'literal',
+        text: content,
+      },
+    ],
+    mode: payload?.mode === 'insert' ? 'insert' : 'replace',
+    title: resolvedTarget.editorId === ':new' && typeof payload?.title === 'string' ? payload.title : undefined,
+  })
+}
+
+async function listAiBuffersForWindow(editorWindow) {
+  const runtimeState = touchEditorRuntimeState(editorWindow)
+  const context = await requestEditorContext(editorWindow)
+  const bufferRegistry = getSessionBufferRegistry(editorWindow)
+  const buffers = [
+    {
+      editorId: runtimeState.editorId,
+      kind: 'editor-window',
+      title: context?.title || 'Untitled',
+      currentFilePath: context?.currentFilePath || null,
+      isDirty: context?.isDirty === true,
+      capabilities: {
+        read: true,
+        write: true,
+        sliceOps: true,
+      },
+      createdAt: runtimeState.createdAt,
+      updatedAt: runtimeState.updatedAt,
+    },
+    ...Array.from(bufferRegistry.values()).map((bufferRecord) => ({
+      editorId: bufferRecord.editorId,
+      kind: bufferRecord.kind,
+      title: bufferRecord.title,
+      currentFilePath: bufferRecord.currentFilePath,
+      isDirty: bufferRecord.isDirty,
+      capabilities: bufferRecord.capabilities,
+      createdAt: bufferRecord.createdAt,
+      updatedAt: bufferRecord.updatedAt,
+    })),
+  ]
+
+  return { buffers }
+}
+
 function openAiChatWindow(targetWindow) {
   const editorWindow = getEditorWindowForAiAction(targetWindow)
 
@@ -542,6 +2274,7 @@ function openAiChatWindow(targetWindow) {
   chatWindow.on('closed', () => {
     aiChatToEditorWindowId.delete(chatWindow.id)
     editorToAiChatWindowId.delete(editorWindow.id)
+    clearSessionBuffersForWindow(editorWindow.id)
   })
 
   loadRendererWindow(chatWindow, 'chat.html')
@@ -999,6 +2732,8 @@ function createWindow(initialLaunchFilePath = null) {
       settingsWindowOwnerEditorId = null
     }
 
+    clearEditorRuntimeState(mainWindow.id)
+
     if (!getDefaultEditorWindow() && settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.close()
     }
@@ -1115,6 +2850,7 @@ ipcMain.handle('mdv:settings-save-openai-api-key', async (_event, apiKey) => {
     openaiApiKey: normalizedApiKey,
   })
   await persistSecrets()
+  broadcastSettingsChanged()
   return getProviderStatus()
 })
 
@@ -1124,6 +2860,7 @@ ipcMain.handle('mdv:settings-clear-openai-api-key', async () => {
     openaiApiKey: null,
   })
   await persistSecrets()
+  broadcastSettingsChanged()
   return getProviderStatus()
 })
 
@@ -1132,58 +2869,118 @@ ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
 ipcMain.handle('mdv:ai-chat-get-context', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
-  return requestEditorWindowData(editorWindow, { type: 'get-context' })
+  return requestEditorContext(editorWindow)
 })
 
 ipcMain.handle('mdv:ai-chat-read-active-document', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
-  return requestEditorWindowData(editorWindow, {
-    type: 'read',
-    source: 'active:document',
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+  return readAiTargetForWindow(editorWindow, {
+    target: {
+      editorId: runtimeState.editorId,
+      span: { kind: 'document' },
+    },
+    cursor: null,
   })
 })
 
 ipcMain.handle('mdv:ai-chat-read-active-selection', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
-  return requestEditorWindowData(editorWindow, {
-    type: 'read',
-    source: 'active:selection',
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+  return readAiTargetForWindow(editorWindow, {
+    target: {
+      editorId: runtimeState.editorId,
+      span: { kind: 'selection' },
+    },
+    cursor: null,
   })
+})
+
+ipcMain.handle('mdv:ai-chat-read-target', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return readAiTargetForWindow(editorWindow, payload)
+})
+
+ipcMain.handle('mdv:ai-chat-grep-slice', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return exactSearchForWindow(editorWindow, payload)
+})
+
+ipcMain.handle('mdv:ai-chat-stats-slice', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return statsAiSliceForWindow(editorWindow, payload)
+})
+
+ipcMain.handle('mdv:ai-chat-semantic-search', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return semanticSearchForWindow(editorWindow, payload)
 })
 
 ipcMain.handle('mdv:ai-chat-write-active-document', async (event, payload) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
-  return requestEditorWindowData(editorWindow, {
-    type: 'write',
-    destination: 'active:document',
-    content: typeof payload?.content === 'string' ? payload.content : '',
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+  return writeAiTargetForWindow(editorWindow, {
+    destination: {
+      editorId: runtimeState.editorId,
+      span: { kind: 'document' },
+    },
+    sources: [
+      {
+        type: 'literal',
+        text: typeof payload?.content === 'string' ? payload.content : '',
+      },
+    ],
+    mode: 'replace',
   })
 })
 
 ipcMain.handle('mdv:ai-chat-write-active-selection', async (event, payload) => {
-  if (!settingsState.ai.toolPermissions.writeActiveSelection) {
-    throw new Error('Active selection write is disabled in settings')
-  }
-
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
-  return requestEditorWindowData(editorWindow, {
-    type: 'write',
-    destination: 'active:selection',
-    content: typeof payload?.content === 'string' ? payload.content : '',
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+  return writeAiTargetForWindow(editorWindow, {
+    destination: {
+      editorId: runtimeState.editorId,
+      span: { kind: 'selection' },
+    },
+    sources: [
+      {
+        type: 'literal',
+        text: typeof payload?.content === 'string' ? payload.content : '',
+      },
+    ],
+    mode: 'replace',
   })
 })
 
+ipcMain.handle('mdv:ai-chat-write-target', async (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return writeAiTargetForWindow(editorWindow, payload)
+})
+
+ipcMain.handle('mdv:ai-chat-list-buffers', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  return listAiBuffersForWindow(editorWindow)
+})
+
 ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(_event.sender)
+  const editorWindow = getEditorWindowForAiAction(sourceWindow)
   writeLog('INFO', 'ai-chat', 'OpenAI chat request start', {
     messageCount: Array.isArray(payload?.messages) ? payload.messages.length : 0,
     model: settingsState.ai.openai.model,
   })
 
-  const result = await requestOpenAiChatResponse(payload?.messages)
+  const result = await requestOpenAiChatResponse(editorWindow, payload?.messages)
   writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
     responseId: result.responseId,
     model: result.model,

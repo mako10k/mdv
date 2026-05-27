@@ -97,6 +97,207 @@ function splitMarkdownSegments(markdown: string): MarkdownSegment[] {
   return segments
 }
 
+function estimateTokenCount(text: string): number {
+  return text.length === 0 ? 0 : Math.ceil(text.length / 4)
+}
+
+function getMarkdownLineStartOffsets(markdown: string): number[] {
+  const offsets = [0]
+
+  for (let index = 0; index < markdown.length; index += 1) {
+    if (markdown[index] === '\n') {
+      offsets.push(index + 1)
+    }
+  }
+
+  return offsets
+}
+
+function getLineCount(markdown: string): number {
+  return getMarkdownLineStartOffsets(markdown).length
+}
+
+function clampMarkdownPos(markdown: string, position: MdvAiMarkdownPos): MdvAiMarkdownPos {
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+  const clampedLine = Math.min(Math.max(1, Math.trunc(position.line)), lineStartOffsets.length)
+  const lineStartOffset = lineStartOffsets[clampedLine - 1]
+  const nextLineStartOffset = clampedLine < lineStartOffsets.length ? lineStartOffsets[clampedLine] : markdown.length
+  const lineEndOffset = nextLineStartOffset > lineStartOffset && markdown[nextLineStartOffset - 1] === '\n'
+    ? nextLineStartOffset - 1
+    : nextLineStartOffset
+  const lineLength = lineEndOffset - lineStartOffset
+  const clampedColumn = Math.min(Math.max(1, Math.trunc(position.column)), lineLength + 1)
+
+  return {
+    line: clampedLine,
+    column: clampedColumn,
+  }
+}
+
+function markdownPosToOffset(markdown: string, position: MdvAiMarkdownPos): number {
+  const clampedPosition = clampMarkdownPos(markdown, position)
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+
+  return lineStartOffsets[clampedPosition.line - 1] + clampedPosition.column - 1
+}
+
+function offsetToMarkdownPos(markdown: string, offset: number): MdvAiMarkdownPos {
+  const normalizedOffset = Math.min(Math.max(0, Math.trunc(offset)), markdown.length)
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+  let line = 1
+
+  while (line < lineStartOffsets.length && lineStartOffsets[line] <= normalizedOffset) {
+    line += 1
+  }
+
+  return {
+    line,
+    column: normalizedOffset - lineStartOffsets[line - 1] + 1,
+  }
+}
+
+function toMarkdownPos(position: MdvAiMarkdownPos | [number, number]): MdvAiMarkdownPos {
+  if (Array.isArray(position)) {
+    return {
+      line: Math.trunc(position[0] || 1),
+      column: Math.trunc(position[1] || 1),
+    }
+  }
+
+  return position
+}
+
+function normalizeSelectionToMarkdownSpan(editor: ToastUiEditor, markdown: string): MdvAiNormalizedSpan {
+  const selection = editor.getSelection()
+  let start: MdvAiMarkdownPos
+  let end: MdvAiMarkdownPos
+
+  if (Array.isArray(selection[0])) {
+    const [markdownStart, markdownEnd] = selection as [[number, number], [number, number]]
+    start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
+    end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
+  } else {
+    const [markdownStart, markdownEnd] = editor.convertPosToMatchEditorMode(selection[0], selection[1], 'markdown') as [[number, number], [number, number]]
+    start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
+    end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
+  }
+
+  const startOffset = markdownPosToOffset(markdown, start)
+  const endOffset = markdownPosToOffset(markdown, end)
+
+  return normalizeOffsetsToSpan(markdown, startOffset, endOffset)
+}
+
+function normalizeOffsetsToSpan(markdown: string, startOffset: number, endOffset: number): MdvAiNormalizedSpan {
+  const normalizedStartOffset = Math.min(Math.max(0, startOffset), markdown.length)
+  const normalizedEndOffset = Math.min(Math.max(normalizedStartOffset, endOffset), markdown.length)
+
+  return {
+    start: offsetToMarkdownPos(markdown, normalizedStartOffset),
+    end: offsetToMarkdownPos(markdown, normalizedEndOffset),
+    isEmpty: normalizedStartOffset === normalizedEndOffset,
+  }
+}
+
+function getLineBoundaryOffsets(markdown: string, line: number): { startOffset: number; endOffset: number } {
+  const totalLines = getLineCount(markdown)
+  const clampedLine = Math.min(Math.max(1, Math.trunc(line)), totalLines)
+  const startOffset = markdownPosToOffset(markdown, { line: clampedLine, column: 1 })
+  const endOffset = clampedLine < totalLines
+    ? markdownPosToOffset(markdown, { line: clampedLine + 1, column: 1 })
+    : markdown.length
+
+  return { startOffset, endOffset }
+}
+
+function resolveSpanToOffsets(markdown: string, editor: ToastUiEditor | null, span: MdvAiSpanRef): { startOffset: number; endOffset: number } {
+  if (span.kind === 'selection') {
+    if (!editor) {
+      throw new Error('Editor is unavailable')
+    }
+
+    const normalizedSpan = normalizeSelectionToMarkdownSpan(editor, markdown)
+    return {
+      startOffset: markdownPosToOffset(markdown, normalizedSpan.start),
+      endOffset: markdownPosToOffset(markdown, normalizedSpan.end),
+    }
+  }
+
+  if (span.kind === 'document') {
+    return {
+      startOffset: 0,
+      endOffset: markdown.length,
+    }
+  }
+
+  if (span.kind === 'point') {
+    const offset = markdownPosToOffset(markdown, span.at)
+    return {
+      startOffset: offset,
+      endOffset: offset,
+    }
+  }
+
+  if (span.kind === 'line') {
+    return getLineBoundaryOffsets(markdown, span.line)
+  }
+
+  if (span.kind === 'line-range') {
+    const startLineOffsets = getLineBoundaryOffsets(markdown, span.startLine)
+    const endLineOffsets = getLineBoundaryOffsets(markdown, span.endLine)
+
+    return {
+      startOffset: startLineOffsets.startOffset,
+      endOffset: Math.max(startLineOffsets.startOffset, endLineOffsets.endOffset),
+    }
+  }
+
+  if (span.kind === 'from-start') {
+    return {
+      startOffset: 0,
+      endOffset: markdownPosToOffset(markdown, span.end),
+    }
+  }
+
+  if (span.kind === 'to-end') {
+    return {
+      startOffset: markdownPosToOffset(markdown, span.start),
+      endOffset: markdown.length,
+    }
+  }
+
+  const startOffset = markdownPosToOffset(markdown, span.start)
+  const endOffset = markdownPosToOffset(markdown, span.end)
+
+  return {
+    startOffset: Math.min(startOffset, endOffset),
+    endOffset: Math.max(startOffset, endOffset),
+  }
+}
+
+function applyCursorToOffsets(markdown: string, offsets: { startOffset: number; endOffset: number }, cursor?: MdvAiCursor | null) {
+  if (!cursor) {
+    return offsets
+  }
+
+  const cursorOffset = markdownPosToOffset(markdown, cursor.after)
+
+  return {
+    startOffset: Math.min(offsets.endOffset, Math.max(offsets.startOffset, cursorOffset)),
+    endOffset: offsets.endOffset,
+  }
+}
+
+function materializeWriteSources(sources: MdvAiWriteSource[]): string {
+  return sources.map((source) => {
+    if (source.type !== 'literal') {
+      throw new Error('Renderer write request must be resolved to literal sources')
+    }
+
+    return source.text
+  }).join('')
+}
+
 function DefaultCodeBlock({ code, language }: CodeBlockProps) {
   return (
     <div className="code-block-shell">
@@ -112,15 +313,21 @@ type EditorSurfaceProps = {
   value: string
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
+  onReady?: (editor: ToastUiEditor) => void
 }
 
-function EditorSurface({ value, onChange, editorRef }: EditorSurfaceProps) {
+function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfaceProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
+  const onReadyRef = useRef(onReady)
 
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  useEffect(() => {
+    onReadyRef.current = onReady
+  }, [onReady])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -143,6 +350,7 @@ function EditorSurface({ value, onChange, editorRef }: EditorSurfaceProps) {
     })
 
     editorRef.current = instance
+    onReadyRef.current?.(instance)
 
     return () => {
       editorRef.current = null
@@ -304,6 +512,15 @@ type ToolbarButtonProps = {
   children: ReactElement
 }
 
+type EditorSearchMode = 'exact' | 'semantic'
+
+type EditorSearchResult = {
+  id: string
+  span: MdvAiNormalizedSpan
+  preview: string
+  meta: string
+}
+
 function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
@@ -316,6 +533,20 @@ function ToolbarButton({ label, active = false, onClick, children }: ToolbarButt
       {children}
     </button>
   )
+}
+
+function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
+  return [position.line, position.column]
+}
+
+function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
+  const markdownStart = toToastMarkdownPos(span.start)
+  const markdownEnd = toToastMarkdownPos(span.end)
+  const [selectionStart, selectionEnd] = editor.isMarkdownMode()
+    ? [markdownStart, markdownEnd]
+    : editor.convertPosToMatchEditorMode(markdownStart, markdownEnd, 'wysiwyg')
+
+  editor.setSelection(selectionStart, selectionEnd)
 }
 
 function EditorIcon() {
@@ -378,9 +609,20 @@ function App() {
   const [markdownText, setMarkdownText] = useState(initialDocument)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>('write')
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
+  const [displayTitle, setDisplayTitle] = useState('Untitled.md')
   const [statusText, setStatusText] = useState('Ready')
   const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
+  const [editorSearchQuery, setEditorSearchQuery] = useState('')
+  const [editorSearchResults, setEditorSearchResults] = useState<EditorSearchResult[]>([])
+  const [selectedSearchResultIndex, setSelectedSearchResultIndex] = useState(-1)
+  const [pendingSearchJump, setPendingSearchJump] = useState<MdvAiNormalizedSpan | null>(null)
+  const [isRunningEditorSearch, setIsRunningEditorSearch] = useState(false)
+  const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
+  const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
+  const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const editorRef = useRef<ToastUiEditor | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const persistedMarkdownRef = useRef(initialDocument)
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
@@ -404,18 +646,77 @@ function App() {
   }, [])
 
   useEffect(() => {
-    document.title = `${basename(currentFilePath)} - MDV`
-  }, [currentFilePath])
+    document.title = `${displayTitle} - MDV`
+  }, [displayTitle])
+
+  useEffect(() => {
+    let active = true
+    const refreshSemanticAvailability = async (nextSettings?: MdvSettings | null) => {
+      const [resolvedSettings, providerStatus] = await Promise.all([
+        nextSettings ? Promise.resolve(nextSettings) : window.mdvDesktop?.settings.getSettings(),
+        window.mdvDesktop?.settings.getProviderStatus(),
+      ])
+
+      if (!active) {
+        return
+      }
+
+      const sliceSearchEnabled = resolvedSettings?.ai.toolPermissions.sliceSearch !== false
+      setIsSliceSearchEnabled(sliceSearchEnabled)
+      setIsSemanticSearchAvailable(Boolean(sliceSearchEnabled && resolvedSettings?.ai.openai.enabled && providerStatus?.openaiConfigured))
+    }
+
+    const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
+      void refreshSemanticAvailability(nextSettings)
+    })
+
+    void refreshSemanticAvailability().catch(() => {
+      if (active) {
+        setIsSliceSearchEnabled(false)
+        setIsSemanticSearchAvailable(false)
+      }
+    })
+
+    return () => {
+      active = false
+      unsubscribe?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activePanel !== 'write' || !pendingSearchJump) {
+      return
+    }
+
+    const editor = editorRef.current
+
+    if (!editor) {
+      return
+    }
+
+    selectSpanInEditor(editor, pendingSearchJump)
+    setPendingSearchJump(null)
+  }, [activePanel, pendingSearchJump])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
     currentFilePath,
+    displayTitle,
     activePanel,
   })
 
+  const invalidateEditorSearch = () => {
+    setEditorSearchResults([])
+    setSelectedSearchResultIndex(-1)
+    setPendingSearchJump(null)
+    setEditorSearchError(null)
+  }
+
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
+    invalidateEditorSearch()
     setMarkdownText(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
+    setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath))
     setActivePanel(snapshot.activePanel)
     editorRef.current?.setMarkdown(snapshot.markdownText)
   }
@@ -425,8 +726,10 @@ function App() {
       return
     }
 
+    invalidateEditorSearch()
     setMarkdownText(payload.content)
     setCurrentFilePath(payload.path)
+    setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     editorRef.current?.setMarkdown(payload.content)
     setStatusText(`Opened ${basename(payload.path)}`)
@@ -454,100 +757,230 @@ function App() {
     }
 
     setCurrentFilePath(result.path)
+    setDisplayTitle(basename(result.path))
     persistedMarkdownRef.current = markdownText
     setStatusText(`Saved ${basename(result.path)}`)
   }
 
   const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
+    invalidateEditorSearch()
     setMarkdownText(nextMarkdown)
     editorRef.current?.setMarkdown(nextMarkdown)
     setStatusText(statusMessage)
+  }
+
+  const focusEditorSearch = () => {
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+    setStatusText('Focused editor search')
+  }
+
+  const jumpToEditorSearchResult = (result: EditorSearchResult, index: number) => {
+    setSelectedSearchResultIndex(index)
+    setPendingSearchJump(result.span)
+    setActivePanel('write')
+    setStatusText(`Jumped to search result ${index + 1}/${Math.max(editorSearchResults.length, index + 1)}`)
+  }
+
+  const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
+  const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? isSliceSearchEnabled : isSemanticSearchAvailable
+
+  const handleRunEditorSearch = async () => {
+    const query = editorSearchQuery.trim()
+
+    if (query.length === 0) {
+      setEditorSearchResults([])
+      setSelectedSearchResultIndex(-1)
+      setEditorSearchError(null)
+      setStatusText('Cleared editor search')
+      return
+    }
+
+    setIsRunningEditorSearch(true)
+    setEditorSearchError(null)
+
+    try {
+      if (resolvedEditorSearchMode === 'exact') {
+        if (!isSliceSearchEnabled) {
+          throw new Error('Slice search is disabled in settings')
+        }
+
+        const payload = await window.mdvDesktop?.grepAiSlice({
+          target: {
+            editorId: 'editor:active',
+            span: { kind: 'document' },
+          },
+          query,
+          maxResults: 40,
+          persistBuffer: false,
+        })
+
+        const results = payload?.matches.map((match, index) => ({
+          id: `exact:${match.line}:${match.column}:${index}`,
+          span: match.span,
+          preview: match.preview,
+          meta: `${match.line}:${match.column}`,
+        })) ?? []
+
+        setEditorSearchResults(results)
+        setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
+
+        if (results.length > 0) {
+          jumpToEditorSearchResult(results[0], 0)
+        } else {
+          setStatusText(`No exact matches for "${query}"`)
+        }
+
+        return
+      }
+
+      if (!isSemanticSearchAvailable) {
+        throw new Error('Semantic search requires OpenAI to be enabled and configured')
+      }
+
+      const payload = await window.mdvDesktop?.semanticSearchAiSlice({
+        target: {
+          editorId: 'editor:active',
+          span: { kind: 'document' },
+        },
+        query,
+        maxResults: 12,
+        persistBuffer: false,
+      })
+
+      const results = payload?.results.map((result, index) => ({
+        id: `semantic:${result.layer}:${result.span.start.line}:${result.span.start.column}:${index}`,
+        span: result.span,
+        preview: result.preview,
+        meta: `${result.layer} ${(result.score * 100).toFixed(1)}%`,
+      })) ?? []
+
+      setEditorSearchResults(results)
+      setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
+
+      if (results.length > 0) {
+        jumpToEditorSearchResult(results[0], 0)
+      } else {
+        setStatusText(`No semantic matches for "${query}"`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setEditorSearchError(message)
+      setEditorSearchResults([])
+      setSelectedSearchResultIndex(-1)
+      setStatusText(`Search failed: ${message}`)
+    } finally {
+      setIsRunningEditorSearch(false)
+    }
+  }
+
+  const moveEditorSearchSelection = (delta: number) => {
+    if (editorSearchResults.length === 0) {
+      return
+    }
+
+    const baseIndex = selectedSearchResultIndex >= 0 ? selectedSearchResultIndex : 0
+    const nextIndex = (baseIndex + delta + editorSearchResults.length) % editorSearchResults.length
+    jumpToEditorSearchResult(editorSearchResults[nextIndex], nextIndex)
   }
 
   const respondToAiEditorRequest = (request: MdvAiEditorRequest) => {
     try {
       if (request.type === 'get-context') {
         const selectedText = editorRef.current?.getSelectedText() ?? ''
+        const contextSummary = [
+          `Title: ${displayTitle}`,
+          `Path: ${currentFilePath ?? '(untitled)'}`,
+          `Panel: ${activePanel}`,
+          `Text length: ${markdownText.length}`,
+          `Selection length: ${selectedText.length}`,
+          `Dirty: ${markdownText !== persistedMarkdownRef.current ? 'yes' : 'no'}`,
+        ].join('\n')
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,
           ok: true,
           payload: {
+            editorId: request.editorId,
             currentFilePath,
-            title: basename(currentFilePath),
+            title: displayTitle,
             activePanel,
             textLength: markdownText.length,
             selectionTextLength: selectedText.length,
+            tokenEstimate: estimateTokenCount(contextSummary),
             isDirty: markdownText !== persistedMarkdownRef.current,
           },
         })
         return
       }
 
-      if (request.type === 'read' && request.source === 'active:document') {
-        window.mdvDesktop?.sendAiEditorResponse({
-          requestId: request.requestId,
-          ok: true,
-          payload: {
-            source: 'active:document',
-            text: markdownText,
-          },
-        })
-        return
-      }
-
-      if (request.type === 'read' && request.source === 'active:selection') {
-        window.mdvDesktop?.sendAiEditorResponse({
-          requestId: request.requestId,
-          ok: true,
-          payload: {
-            source: 'active:selection',
-            text: editorRef.current?.getSelectedText() ?? '',
-          },
-        })
-        return
-      }
-
-      if (request.type === 'write' && request.destination === 'active:document') {
-        applyMarkdownContent(request.content, 'AI updated document')
-        window.mdvDesktop?.sendAiEditorResponse({
-          requestId: request.requestId,
-          ok: true,
-          payload: {
-            destination: 'active:document',
-            text: request.content,
-          },
-        })
-        return
-      }
-
-      if (request.type === 'write' && request.destination === 'active:selection') {
+      if (request.type === 'read') {
         const editor = editorRef.current
-
-        if (!editor) {
-          throw new Error('Editor is unavailable')
-        }
-
-        const selectedText = editor.getSelectedText()
-
-        if (!selectedText) {
-          throw new Error('No active selection to replace')
-        }
-
-        editor.replaceSelection(request.content)
-        const nextMarkdown = editor.getMarkdown()
-        setMarkdownText(nextMarkdown)
-        setStatusText('AI updated selection')
+        const resolvedOffsets = applyCursorToOffsets(
+          markdownText,
+          resolveSpanToOffsets(markdownText, editor, request.target.span),
+          request.cursor,
+        )
+        const maxTokens = typeof request.maxTokens === 'number' && Number.isFinite(request.maxTokens)
+          ? Math.max(1, Math.round(request.maxTokens))
+          : 1600
+        const maxChars = maxTokens * 4
+        const availableText = markdownText.slice(resolvedOffsets.startOffset, resolvedOffsets.endOffset)
+        const nextText = availableText.slice(0, maxChars)
+        const finalEndOffset = resolvedOffsets.startOffset + nextText.length
+        const truncated = availableText.length > nextText.length
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,
           ok: true,
           payload: {
-            destination: 'active:selection',
-            text: request.content,
+            editorId: request.target.editorId,
+            span: normalizeOffsetsToSpan(markdownText, resolvedOffsets.startOffset, finalEndOffset),
+            text: nextText,
+            estimatedTokens: estimateTokenCount(nextText),
+            truncated,
+            nextCursor: truncated
+              ? { after: offsetToMarkdownPos(markdownText, finalEndOffset) }
+              : null,
           },
         })
         return
+      }
+
+      if (request.type === 'write') {
+        const nextText = materializeWriteSources(request.sources)
+        const resolvedOffsets = resolveSpanToOffsets(markdownText, editorRef.current, request.destination.span)
+        const insertionOffsets = request.mode === 'insert'
+          ? {
+              startOffset: resolvedOffsets.startOffset,
+              endOffset: resolvedOffsets.startOffset,
+            }
+          : resolvedOffsets
+        const updatedMarkdown = `${markdownText.slice(0, insertionOffsets.startOffset)}${nextText}${markdownText.slice(insertionOffsets.endOffset)}`
+
+        if (typeof request.title === 'string' && request.title.trim().length > 0) {
+          setDisplayTitle(request.title.trim())
+        }
+
+        applyMarkdownContent(updatedMarkdown, request.mode === 'insert' ? 'AI inserted content' : 'AI updated document')
+
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            editorId: request.destination.editorId,
+            span: normalizeOffsetsToSpan(updatedMarkdown, insertionOffsets.startOffset, insertionOffsets.startOffset + nextText.length),
+            text: nextText,
+            mode: request.mode,
+            bytesWritten: new TextEncoder().encode(nextText).length,
+            created: false,
+          },
+        })
+        return
+      }
+
+      if (request.type === 'list-buffers') {
+        throw new Error('Renderer does not handle list-buffers requests')
       }
 
       throw new Error('Unsupported AI editor request')
@@ -602,6 +1035,12 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        focusEditorSearch()
+        return
+      }
+
       const action = getActionForShortcut(event)
 
       if (!action) {
@@ -758,7 +1197,7 @@ function App() {
       >
         <header className="topbar">
           <div className="title-strip">
-            <h1>{basename(currentFilePath)}</h1>
+            <h1>{displayTitle}</h1>
             <span>{statusText}</span>
           </div>
 
@@ -772,6 +1211,69 @@ function App() {
           </div>
 
           <div className="action-strip">
+            <div className="editor-search-shell" role="search">
+              <select
+                className="editor-search-mode"
+                aria-label="Search mode"
+                value={resolvedEditorSearchMode}
+                onChange={(event) => {
+                  const nextMode = event.target.value as EditorSearchMode
+
+                  if (nextMode === 'semantic' && !isSemanticSearchAvailable) {
+                    setStatusText('Semantic search requires OpenAI to be enabled and configured')
+                    setEditorSearchMode('exact')
+                    return
+                  }
+
+                  setEditorSearchMode(nextMode)
+                }}
+              >
+                <option value="exact">Exact</option>
+                <option value="semantic" disabled={!isSemanticSearchAvailable}>Semantic</option>
+              </select>
+              <input
+                ref={searchInputRef}
+                className="editor-search-input"
+                type="search"
+                placeholder="Search in editor"
+                value={editorSearchQuery}
+                onChange={(event) => setEditorSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+
+                    if (event.shiftKey) {
+                      moveEditorSearchSelection(-1)
+                      return
+                    }
+
+                    void handleRunEditorSearch()
+                  }
+
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    moveEditorSearchSelection(1)
+                  }
+
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    moveEditorSearchSelection(-1)
+                  }
+                }}
+              />
+              <button type="button" onClick={() => void handleRunEditorSearch()} disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}>
+                {isRunningEditorSearch ? '...' : 'Go'}
+              </button>
+              <button type="button" onClick={() => moveEditorSearchSelection(-1)} disabled={editorSearchResults.length === 0}>
+                Prev
+              </button>
+              <button type="button" onClick={() => moveEditorSearchSelection(1)} disabled={editorSearchResults.length === 0}>
+                Next
+              </button>
+              <span className="editor-search-count">
+                {editorSearchResults.length === 0 ? '0' : `${selectedSearchResultIndex + 1}/${editorSearchResults.length}`}
+              </span>
+            </div>
             <label className="theme-select-shell" title="Theme">
               <span>Theme</span>
               <select
@@ -801,13 +1303,41 @@ function App() {
           </div>
         </header>
 
+        {(editorSearchError || editorSearchResults.length > 0) ? (
+          <section className="editor-search-results" aria-label="Editor search results">
+            {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
+            {editorSearchResults.map((result, index) => (
+              <button
+                key={result.id}
+                type="button"
+                className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
+                onClick={() => jumpToEditorSearchResult(result, index)}
+              >
+                <span className="editor-search-result-meta">{result.meta}</span>
+                <span className="editor-search-result-preview">{result.preview}</span>
+              </button>
+            ))}
+          </section>
+        ) : null}
+
         {activePanel === 'write' ? (
           <div className="single-panel">
             <div className="panel editor-panel full-panel">
               <EditorSurface
                 value={markdownText}
-                onChange={setMarkdownText}
+                onChange={(nextMarkdown) => {
+                  invalidateEditorSearch()
+                  setMarkdownText(nextMarkdown)
+                }}
                 editorRef={editorRef}
+                onReady={(editor) => {
+                  if (!pendingSearchJump) {
+                    return
+                  }
+
+                  selectSpanInEditor(editor, pendingSearchJump)
+                  setPendingSearchJump(null)
+                }}
               />
             </div>
           </div>
@@ -848,7 +1378,7 @@ function App() {
         ) : null}
 
         <div className="statusbar">
-          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2</span>
+          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
       </section>
