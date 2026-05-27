@@ -1123,6 +1123,65 @@ async function readFullTargetTextForWindow(editorWindow, payload) {
   }
 }
 
+async function readFullEditorWindowSpan(editorWindow, target) {
+  let cursor = null
+  let firstPage = null
+  let lastPage = null
+  let pageCount = 0
+  const seenCursors = new Set()
+
+  do {
+    const page = await requestEditorWindowData(editorWindow, {
+      type: 'read',
+      target,
+      cursor,
+      maxTokens: getInlineTokenBudget(),
+    })
+
+    if (!page) {
+      break
+    }
+
+    if (!firstPage) {
+      firstPage = page
+    }
+
+    lastPage = page
+    cursor = page.nextCursor || null
+    pageCount += 1
+
+    if (!cursor) {
+      break
+    }
+
+    const cursorKey = JSON.stringify(cursor)
+
+    if (seenCursors.has(cursorKey)) {
+      throw new Error('AI read cursor repeated while resolving editor span')
+    }
+
+    seenCursors.add(cursorKey)
+
+    if (pageCount > 256) {
+      throw new Error('AI read pagination exceeded safety limit while resolving editor span')
+    }
+  } while (cursor)
+
+  if (!firstPage || !lastPage) {
+    return {
+      start: { line: 1, column: 1 },
+      end: { line: 1, column: 1 },
+      isEmpty: true,
+    }
+  }
+
+  return {
+    start: firstPage.span.start,
+    end: lastPage.span.end,
+    isEmpty: firstPage.span.isEmpty && lastPage.span.isEmpty,
+  }
+}
+
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -2359,7 +2418,18 @@ async function writeAiTargetForWindow(editorWindow, payload) {
         span: { kind: 'document' },
       },
     })
-    const overwriteOffsets = resolveSpanToOffsets(fullDocumentTarget.text, resolvedTarget.span)
+    const overwriteSpan = resolvedTarget.kind === 'editor-window' && resolvedTarget.span?.kind === 'selection'
+      ? await readFullEditorWindowSpan(editorWindow, {
+          editorId: resolvedTarget.editorId,
+          span: resolvedTarget.span,
+        })
+      : resolvedTarget.span
+    const overwriteOffsets = 'start' in overwriteSpan && 'end' in overwriteSpan
+      ? {
+          startOffset: markdownPosToOffset(fullDocumentTarget.text, overwriteSpan.start),
+          endOffset: markdownPosToOffset(fullDocumentTarget.text, overwriteSpan.end),
+        }
+      : resolveSpanToOffsets(fullDocumentTarget.text, overwriteSpan)
     const isWholeDocumentOverwrite = overwriteOffsets.startOffset === 0 && overwriteOffsets.endOffset === fullDocumentTarget.text.length
 
     if (isWholeDocumentOverwrite) {
