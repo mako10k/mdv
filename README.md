@@ -37,6 +37,8 @@ npm run dev
 AI chat の runtime 前提:
 
 - OpenAI live chat は settings の OpenAI enabled が有効で、settings に保存した API key または `OPENAI_API_KEY` があるときに main process 経由で送信できます
+- Tavily web search は settings の Tavily enabled が有効で、settings に保存した API key または `TAVILY_API_KEY` があるときに main process 経由で利用できます
+- `fetch_url` は settings の fetch permission が有効で、fetch permissions window に登録した URL / method / header allowlist に一致したときだけ main process 経由で利用できます
 - `MDV_OPENAI_MODEL` は OpenAI model の初期値として使われ、`MDV_OPENAI_BASE_URL` は settings に base URL が無いときの fallback として使われます
 
 ビルド:

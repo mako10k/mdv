@@ -11,6 +11,7 @@
 - editor window と AI chat window の両方から開ける設定画面を用意する
 - theme のような既存のローカル設定を統合する
 - OpenAI と Tavily の設定面を段階的に UI へ寄せられる土台を用意する
+- Tavily web search と guarded fetch の許可設定を main process 側へ集約する
 - API キーや秘密情報を renderer に露出しない
 - 設定変更を main process 管理に寄せ、renderer ごとに状態がズレないようにする
 - 将来 provider が増えても settings schema を破綻させない
@@ -30,6 +31,7 @@
 - OpenAI の有効化と model 指定
 - Tavily の有効化
 - AI tool の挙動
+- fetch allowlist / method / header / timeout
 - 書き換えの安全モード
 - 外部リンクと Web 検索の扱い
 
@@ -45,6 +47,14 @@
 - AI chat と同様に責務を分離できる
 - 後から設定カテゴリが増えても editor 本体を圧迫しない
 - 秘密情報の保存、接続確認、provider 状態表示を専用 UI に集約できる
+
+fetch の許可設定は別 window とする。
+
+理由:
+
+- allowlist、method、header の件数が増えやすい
+- settings 本体の情報密度を過剰に上げたくない
+- editor / chat 操作中に並べて調整しやすい
 
 初期の起動導線:
 
@@ -178,7 +188,7 @@ Target categories after expansion:
 
 #### Tavily Section
 
-初期 scaffold では `Enabled` / `Configured` の read-only 表示に留め、詳細設定 UI は後段で配線する。
+現行実装では `Enabled` / `API Key` / `Default Search Depth` / `Default Max Results` を編集できる。
 
 - Enabled
 - API Key
@@ -207,6 +217,28 @@ Target categories after expansion:
 - Allow write destination `:new`
 - Allow workspace grep
 - Allow Tavily web_search
+- Allow guarded fetch_url
+
+### 4.1 Fetch Permissions Window
+
+目的:
+
+- `fetch_url` の allowlist と timeout を settings 本体から分離する
+
+項目:
+
+- Allowed URL rules
+- Allowed methods
+- Allowed headers
+- Request timeout
+- Idle timeout
+- Temp buffer auto-dispose timeout
+- Max response bytes
+
+補足:
+
+- 既存の外部リンク allowlist は入力時の参考情報として扱い、自動では fetch 許可に流用しない
+- localhost、private IP、embedded credentials、危険 redirect は main process で追加ブロックする
 
 ### 5. Safety
 
@@ -260,8 +292,10 @@ type MdvSettings = {
       writeActiveDocument: boolean
       writeActiveSelection: boolean
       writeNewDocument: boolean
+      sliceSearch: boolean
       workspaceGrep: boolean
       tavilyWebSearch: boolean
+      fetchUrl: boolean
     }
     openai: {
       enabled: boolean
@@ -272,6 +306,15 @@ type MdvSettings = {
       enabled: boolean
       defaultSearchDepth: 'basic' | 'advanced'
       defaultMaxResults: number
+    }
+    fetch: {
+      allowedUrlRules: string[]
+      allowedMethods: string[]
+      allowedHeaders: string[]
+      requestTimeoutMs: number
+      idleTimeoutMs: number
+      autoDisposeAfterMs: number
+      maxResponseBytes: number
     }
   }
   safety: {
@@ -375,7 +418,7 @@ window.mdvDesktop.settings = {
 
 ## Validation Rules
 
-- `defaultMaxResults` は 1 以上 20 以下
+- `defaultMaxResults` は 1 以上 10 以下
 - `baseUrl` は空文字なら null に正規化
 - provider が disabled のときも secret は保持可能
 - `writeActiveDocument` が false なら confirm 設定は UI で disabled にする

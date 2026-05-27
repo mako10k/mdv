@@ -20,6 +20,7 @@ declare module '@toast-ui/editor' {
 
   export default class Editor {
     constructor(options: EditorOptions)
+    exec(name: string, payload?: Record<string, unknown>): void
     getMarkdown(): string
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
     getSelection(): SelectionPos
@@ -59,6 +60,7 @@ type MdvExternalLinkResult = {
 
 type MdvClientSnapshot = {
   markdownText: string
+  persistedMarkdown: string
   currentFilePath: string | null
   displayTitle: string
   activePanel: 'write' | 'preview'
@@ -73,6 +75,7 @@ type MdvServerCommand = {
 }
 
 type MdvMenuAction =
+  | 'redo'
   | 'open'
   | 'save'
   | 'save-as'
@@ -192,6 +195,7 @@ type MdvSettings = {
       sliceSearch: boolean
       workspaceGrep: boolean
       tavilyWebSearch: boolean
+      fetchUrl: boolean
     }
     openai: {
       enabled: boolean
@@ -202,6 +206,15 @@ type MdvSettings = {
       enabled: boolean
       defaultSearchDepth: 'basic' | 'advanced'
       defaultMaxResults: number
+    }
+    fetch: {
+      allowedUrlRules: string[]
+      allowedMethods: string[]
+      allowedHeaders: string[]
+      requestTimeoutMs: number
+      idleTimeoutMs: number
+      autoDisposeAfterMs: number
+      maxResponseBytes: number
     }
   }
   safety: {
@@ -219,6 +232,7 @@ type MdvSettingsPatch = {
     toolPermissions?: Partial<MdvSettings['ai']['toolPermissions']>
     openai?: Partial<MdvSettings['ai']['openai']>
     tavily?: Partial<MdvSettings['ai']['tavily']>
+    fetch?: Partial<MdvSettings['ai']['fetch']>
   }
   safety?: Partial<MdvSettings['safety']>
 }
@@ -356,6 +370,7 @@ interface Window {
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
+    openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>
@@ -375,6 +390,8 @@ interface Window {
       updateSettings: (patch: MdvSettingsPatch) => Promise<MdvSettings>
       saveOpenAiApiKey: (apiKey: string) => Promise<MdvProviderStatus>
       clearOpenAiApiKey: () => Promise<MdvProviderStatus>
+      saveTavilyApiKey: (apiKey: string) => Promise<MdvProviderStatus>
+      clearTavilyApiKey: () => Promise<MdvProviderStatus>
       getProviderStatus: () => Promise<MdvProviderStatus>
       onSettingsChanged: (callback: (settings: MdvSettings) => void) => () => void
     }

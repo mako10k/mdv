@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
+const dnsPromises = require('node:dns/promises')
+const net = require('node:net')
 const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
 const OpenAI = require('openai')
@@ -35,18 +37,16 @@ const pendingAiEditorRequests = new Map()
 const launchStateByWindowId = new Map()
 const editorRuntimeStateByWindowId = new Map()
 const aiSessionBuffersByEditorWindowId = new Map()
-let settingsWindow = null
-let settingsWindowOwnerEditorId = null
-let settingsState = loadSettings()
-let secretsState = loadSecrets()
-let hasPersistedSettings = fs.existsSync(settingsPath)
-let hasReadableSettings = loadSettings.didLoadPersisted === true
-
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
 const MODEL_CONTEXT_WINDOW_BY_NAME = {
   'gpt-5.4-mini': 128000,
 }
 const DEFAULT_TOKEN_TO_CHAR_RATIO = 4
+const DEFAULT_FETCH_REQUEST_TIMEOUT_MS = 15_000
+const DEFAULT_FETCH_IDLE_TIMEOUT_MS = 5_000
+const DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS = 15 * 60_000
+const DEFAULT_FETCH_MAX_RESPONSE_BYTES = 512 * 1024
+const MAX_FETCH_REDIRECTS = 5
 const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
 const MAX_SEMANTIC_INDEX_BYTES = 1024 * 1024
 const MAX_EMBEDDING_CACHE_BYTES = 256 * 1024 * 1024
@@ -61,6 +61,14 @@ const SEMANTIC_LAYERS = [
   { name: 'medium', maxChars: 2800, overlapChars: 560, weight: 0.97 },
   { name: 'coarse', maxChars: 7200, overlapChars: 1200, weight: 0.94 },
 ]
+let settingsWindow = null
+let settingsWindowOwnerEditorId = null
+let fetchPermissionsWindow = null
+let fetchPermissionsWindowOwnerEditorId = null
+let settingsState = loadSettings()
+let secretsState = loadSecrets()
+let hasPersistedSettings = fs.existsSync(settingsPath)
+let hasReadableSettings = loadSettings.didLoadPersisted === true
 
 let semanticCacheDidLoad = false
 let semanticCacheDirty = false
@@ -702,6 +710,56 @@ function getSessionBufferRegistry(editorWindow) {
   return nextRegistry
 }
 
+function clearSessionBufferTimer(bufferRecord) {
+  if (!bufferRecord?.disposeTimer) {
+    return
+  }
+
+  clearTimeout(bufferRecord.disposeTimer)
+  bufferRecord.disposeTimer = null
+}
+
+function disposeSessionBuffer(editorWindow, editorId) {
+  const registry = getSessionBufferRegistry(editorWindow)
+  const bufferRecord = registry.get(editorId)
+
+  if (!bufferRecord) {
+    return false
+  }
+
+  clearSessionBufferTimer(bufferRecord)
+  clearSemanticRuntimesForEditorId(bufferRecord.editorId)
+  registry.delete(editorId)
+  return true
+}
+
+function scheduleSessionBufferAutoDispose(editorWindow, bufferRecord) {
+  clearSessionBufferTimer(bufferRecord)
+
+  if (!bufferRecord || !Number.isFinite(bufferRecord.autoDisposeAfterMs) || bufferRecord.autoDisposeAfterMs <= 0) {
+    bufferRecord.autoDisposeAt = null
+    return
+  }
+
+  const autoDisposeAt = new Date(Date.now() + bufferRecord.autoDisposeAfterMs).toISOString()
+  bufferRecord.autoDisposeAt = autoDisposeAt
+  bufferRecord.disposeTimer = setTimeout(() => {
+    disposeSessionBuffer(editorWindow, bufferRecord.editorId)
+  }, bufferRecord.autoDisposeAfterMs)
+}
+
+function touchSessionBuffer(editorWindow, bufferRecord) {
+  if (!bufferRecord) {
+    return null
+  }
+
+  const timestamp = new Date().toISOString()
+  bufferRecord.updatedAt = timestamp
+  bufferRecord.lastAccessedAt = timestamp
+  scheduleSessionBufferAutoDispose(editorWindow, bufferRecord)
+  return bufferRecord
+}
+
 function createSessionBuffer(editorWindow, payload) {
   const registry = getSessionBufferRegistry(editorWindow)
   const timestamp = new Date().toISOString()
@@ -719,15 +777,31 @@ function createSessionBuffer(editorWindow, payload) {
     },
     createdAt: timestamp,
     updatedAt: timestamp,
+    lastAccessedAt: timestamp,
     text: typeof payload?.text === 'string' ? payload.text : '',
+    autoDisposeAfterMs: Number.isFinite(Number(payload?.autoDisposeAfterMs)) ? Number(payload.autoDisposeAfterMs) : 0,
+    autoDisposeAt: null,
+    disposeTimer: null,
   }
 
   registry.set(editorId, bufferRecord)
-  return bufferRecord
+  return touchSessionBuffer(editorWindow, bufferRecord)
 }
 
 function getSessionBuffer(editorWindow, editorId) {
-  return getSessionBufferRegistry(editorWindow).get(editorId) || null
+  const registry = getSessionBufferRegistry(editorWindow)
+  const bufferRecord = registry.get(editorId) || null
+
+  if (!bufferRecord) {
+    return null
+  }
+
+  if (bufferRecord.autoDisposeAt && Date.parse(bufferRecord.autoDisposeAt) <= Date.now()) {
+    disposeSessionBuffer(editorWindow, editorId)
+    return null
+  }
+
+  return touchSessionBuffer(editorWindow, bufferRecord)
 }
 
 function clearSessionBuffersForWindow(windowId) {
@@ -738,6 +812,7 @@ function clearSessionBuffersForWindow(windowId) {
   }
 
   for (const bufferRecord of registry.values()) {
+    clearSessionBufferTimer(bufferRecord)
     clearSemanticRuntimesForEditorId(bufferRecord.editorId)
   }
 
@@ -1545,6 +1620,7 @@ function createDefaultSettings() {
         sliceSearch: true,
         workspaceGrep: true,
         tavilyWebSearch: true,
+        fetchUrl: false,
       },
       openai: {
         enabled: true,
@@ -1555,6 +1631,15 @@ function createDefaultSettings() {
         enabled: false,
         defaultSearchDepth: 'basic',
         defaultMaxResults: 5,
+      },
+      fetch: {
+        allowedUrlRules: [],
+        allowedMethods: ['GET'],
+        allowedHeaders: [],
+        requestTimeoutMs: DEFAULT_FETCH_REQUEST_TIMEOUT_MS,
+        idleTimeoutMs: DEFAULT_FETCH_IDLE_TIMEOUT_MS,
+        autoDisposeAfterMs: DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS,
+        maxResponseBytes: DEFAULT_FETCH_MAX_RESPONSE_BYTES,
       },
     },
     safety: {
@@ -1641,7 +1726,62 @@ function clampDefaultMaxResults(value) {
     return 5
   }
 
-  return Math.min(20, Math.max(1, Math.round(numericValue)))
+  return Math.min(10, Math.max(1, Math.round(numericValue)))
+}
+
+function sanitizeStringList(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return Array.from(new Set(value
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)))
+}
+
+function normalizeAllowedMethodList(value) {
+  const normalized = sanitizeStringList(value)
+    .map((entry) => entry.toUpperCase())
+    .filter((entry) => /^[A-Z]+$/.test(entry))
+
+  return normalized.length > 0 ? normalized : ['GET']
+}
+
+function normalizeAllowedHeaderList(value) {
+  return sanitizeStringList(value)
+    .map((entry) => entry.toLowerCase())
+    .filter((entry) => /^[a-z0-9-]+$/.test(entry))
+}
+
+function clampFetchTimeoutMs(value, fallback) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+
+  return Math.min(120_000, Math.max(1_000, Math.round(numericValue)))
+}
+
+function clampFetchAutoDisposeMs(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS
+  }
+
+  return Math.min(24 * 60 * 60_000, Math.max(10_000, Math.round(numericValue)))
+}
+
+function clampFetchResponseBytes(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_FETCH_MAX_RESPONSE_BYTES
+  }
+
+  return Math.min(4 * 1024 * 1024, Math.max(16 * 1024, Math.round(numericValue)))
 }
 
 function sanitizeSettings(candidate) {
@@ -1676,6 +1816,7 @@ function sanitizeSettings(candidate) {
         sliceSearch: normalizedSliceSearch,
         workspaceGrep: toolPermissions?.workspaceGrep !== false,
         tavilyWebSearch: toolPermissions?.tavilyWebSearch !== false,
+        fetchUrl: toolPermissions?.fetchUrl !== false,
       },
       openai: {
         enabled: merged.ai?.openai?.enabled === true,
@@ -1688,6 +1829,15 @@ function sanitizeSettings(candidate) {
         enabled: merged.ai?.tavily?.enabled === true,
         defaultSearchDepth: normalizeSearchDepth(merged.ai?.tavily?.defaultSearchDepth),
         defaultMaxResults: clampDefaultMaxResults(merged.ai?.tavily?.defaultMaxResults),
+      },
+      fetch: {
+        allowedUrlRules: sanitizeStringList(merged.ai?.fetch?.allowedUrlRules),
+        allowedMethods: normalizeAllowedMethodList(merged.ai?.fetch?.allowedMethods),
+        allowedHeaders: normalizeAllowedHeaderList(merged.ai?.fetch?.allowedHeaders),
+        requestTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.requestTimeoutMs, DEFAULT_FETCH_REQUEST_TIMEOUT_MS),
+        idleTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.idleTimeoutMs, DEFAULT_FETCH_IDLE_TIMEOUT_MS),
+        autoDisposeAfterMs: clampFetchAutoDisposeMs(merged.ai?.fetch?.autoDisposeAfterMs),
+        maxResponseBytes: clampFetchResponseBytes(merged.ai?.fetch?.maxResponseBytes),
       },
     },
     safety: {
@@ -1771,6 +1921,7 @@ const openAiChatInstructions = [
   'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
   'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
+  'fetch_url may return a temp buffer instead of inline content when the response exceeds the inline chunk budget; use the returned target or bufferId with read_target/write_target, and call dispose_buffer when you are done.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
 
@@ -1891,6 +2042,50 @@ const aiToolDefinitions = [
       additionalProperties: false,
     },
   },
+  {
+    type: 'function',
+    name: 'web_search',
+    description: 'Run Tavily web search and return ranked results. A temp buffer may also be returned for deeper follow-up reads.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        searchDepth: { type: 'string', enum: ['basic', 'advanced'] },
+        maxResults: { type: 'number' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'fetch_url',
+    description: 'Fetch an allowlisted HTTP(S) URL with explicit method and header controls. Large responses are returned as temp buffers instead of inline text.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        method: { type: 'string' },
+        headers: { type: 'object', additionalProperties: { type: 'string' } },
+        body: { type: 'string' },
+      },
+      required: ['url'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'dispose_buffer',
+    description: 'Dispose a temp buffer explicitly when it is no longer needed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        editorId: { type: 'string' },
+      },
+      required: ['editorId'],
+      additionalProperties: false,
+    },
+  },
 ]
 
 function getOpenAiApiKey() {
@@ -1905,6 +2100,448 @@ function getTavilyApiKey() {
     || (typeof process.env.TAVILY_API_KEY === 'string' && process.env.TAVILY_API_KEY.trim().length > 0
       ? process.env.TAVILY_API_KEY.trim()
       : null)
+}
+
+function isUrlAllowedByRules(rules, targetUrl) {
+  return Array.isArray(rules) && rules.some((rule) => {
+    if (typeof rule !== 'string' || rule.length === 0) {
+      return false
+    }
+
+    if (rule.endsWith('*')) {
+      return targetUrl.href.startsWith(rule.slice(0, -1))
+    }
+
+    return targetUrl.href === rule
+  })
+}
+
+function isRestrictedIpAddress(address) {
+  const ipVersion = net.isIP(address)
+
+  if (ipVersion === 4) {
+    const octets = address.split('.').map((segment) => Number(segment))
+    const [first, second] = octets
+
+    return first === 0
+      || first === 10
+      || first === 127
+      || (first === 100 && second >= 64 && second <= 127)
+      || (first === 169 && second === 254)
+      || (first === 172 && second >= 16 && second <= 31)
+      || (first === 192 && second === 168)
+      || (first === 198 && (second === 18 || second === 19))
+      || first >= 224
+    }
+
+  if (ipVersion === 6) {
+    const normalized = address.toLowerCase()
+
+    return normalized === '::'
+      || normalized === '::1'
+      || normalized.startsWith('fc')
+      || normalized.startsWith('fd')
+      || normalized.startsWith('fe80:')
+      || normalized.startsWith('::ffff:127.')
+  }
+
+  return false
+}
+
+async function assertSafeFetchDestination(targetUrl) {
+  const hostname = targetUrl.hostname.toLowerCase()
+
+  if (!isSupportedExternalUrl(targetUrl)) {
+    throw new Error(`Unsupported fetch protocol: ${targetUrl.protocol}`)
+  }
+
+  if (targetUrl.username || targetUrl.password) {
+    throw new Error('Fetch URLs with embedded credentials are blocked')
+  }
+
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) {
+    throw new Error(`Fetch target is blocked: ${hostname}`)
+  }
+
+  if (net.isIP(hostname)) {
+    if (isRestrictedIpAddress(hostname)) {
+      throw new Error(`Fetch target IP is blocked: ${hostname}`)
+    }
+
+    return
+  }
+
+  const resolvedAddresses = await dnsPromises.lookup(hostname, { all: true, verbatim: true })
+
+  if (!Array.isArray(resolvedAddresses) || resolvedAddresses.length === 0) {
+    throw new Error(`Fetch target could not be resolved: ${hostname}`)
+  }
+
+  if (resolvedAddresses.some((entry) => isRestrictedIpAddress(entry.address))) {
+    throw new Error(`Fetch target resolves to a blocked address: ${hostname}`)
+  }
+}
+
+function resolveFetchRequestHeaders(headers) {
+  if (!isPlainObject(headers)) {
+    return {}
+  }
+
+  const allowedHeaders = new Set(settingsState.ai.fetch.allowedHeaders)
+  const forbiddenHeaders = new Set(['connection', 'content-length', 'cookie', 'host', 'proxy-authenticate', 'proxy-authorization', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
+  const normalizedHeaders = {}
+
+  for (const [headerName, headerValue] of Object.entries(headers)) {
+    const normalizedName = typeof headerName === 'string' ? headerName.trim().toLowerCase() : ''
+
+    if (!normalizedName || !allowedHeaders.has(normalizedName)) {
+      throw new Error(`Fetch header is not allowlisted: ${headerName}`)
+    }
+
+    if (forbiddenHeaders.has(normalizedName)) {
+      throw new Error(`Fetch header is blocked: ${headerName}`)
+    }
+
+    if (typeof headerValue !== 'string') {
+      throw new Error(`Fetch header value must be a string: ${headerName}`)
+    }
+
+    if (/[\r\n]/.test(headerValue)) {
+      throw new Error(`Fetch header contains an unsafe newline: ${headerName}`)
+    }
+
+    normalizedHeaders[normalizedName] = headerValue
+  }
+
+  return normalizedHeaders
+}
+
+function resolveFetchMethod(method) {
+  const normalizedMethod = typeof method === 'string' && method.trim().length > 0 ? method.trim().toUpperCase() : 'GET'
+
+  if (!settingsState.ai.fetch.allowedMethods.includes(normalizedMethod)) {
+    throw new Error(`Fetch method is not allowlisted: ${normalizedMethod}`)
+  }
+
+  return normalizedMethod
+}
+
+function resolveFetchBody(body, method) {
+  if (body == null || body === '') {
+    return undefined
+  }
+
+  if (method === 'GET' || method === 'HEAD') {
+    throw new Error(`Fetch method ${method} does not allow a request body`)
+  }
+
+  if (typeof body !== 'string') {
+    throw new Error('Fetch body must be a string when provided')
+  }
+
+  if (Buffer.byteLength(body, 'utf8') > 64 * 1024) {
+    throw new Error('Fetch body exceeds the 64 KiB safety limit')
+  }
+
+  return body
+}
+
+async function readResponseTextWithIdleTimeout(response, controller, idleTimeoutMs, maxResponseBytes) {
+  if (!response.body) {
+    return ''
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytesRead = 0
+  let idleTimer = null
+  let abortedByIdleTimeout = false
+  let text = ''
+
+  const refreshIdleTimer = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+    }
+
+    idleTimer = setTimeout(() => {
+      abortedByIdleTimeout = true
+      controller.abort()
+    }, idleTimeoutMs)
+  }
+
+  refreshIdleTimer()
+
+  try {
+    while (true) {
+      const chunk = await reader.read()
+
+      if (chunk.done) {
+        break
+      }
+
+      refreshIdleTimer()
+      bytesRead += chunk.value.byteLength
+
+      if (bytesRead > maxResponseBytes) {
+        throw new Error(`Fetch response exceeded ${maxResponseBytes} bytes`)
+      }
+
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+
+    text += decoder.decode()
+    return text
+  } catch (error) {
+    if (abortedByIdleTimeout) {
+      throw new Error(`Fetch response timed out after ${idleTimeoutMs} ms of inactivity`)
+    }
+
+    throw error
+  } finally {
+    if (idleTimer) {
+      clearTimeout(idleTimer)
+    }
+    reader.releaseLock()
+  }
+}
+
+async function performSafeFetch(requestUrl, options) {
+  let targetUrl = new URL(requestUrl)
+  const redirectTrail = []
+
+  for (let redirectCount = 0; redirectCount <= MAX_FETCH_REDIRECTS; redirectCount += 1) {
+    if (!isUrlAllowedByRules(settingsState.ai.fetch.allowedUrlRules, targetUrl)) {
+      throw new Error(`Fetch URL is not allowlisted: ${targetUrl.href}`)
+    }
+
+    await assertSafeFetchDestination(targetUrl)
+
+    const controller = new AbortController()
+    let requestTimedOut = false
+    const requestTimer = setTimeout(() => {
+      requestTimedOut = true
+      controller.abort()
+    }, options.requestTimeoutMs)
+
+    try {
+      const response = await fetch(targetUrl, {
+        method: options.method,
+        headers: options.headers,
+        body: options.body,
+        redirect: 'manual',
+        signal: controller.signal,
+      })
+
+      const redirectLocation = response.headers.get('location')
+
+      if (redirectLocation && response.status >= 300 && response.status < 400) {
+        if (redirectCount === MAX_FETCH_REDIRECTS) {
+          throw new Error(`Fetch redirect limit exceeded for ${targetUrl.href}`)
+        }
+
+        const nextUrl = new URL(redirectLocation, targetUrl)
+        redirectTrail.push({ status: response.status, url: targetUrl.href })
+        targetUrl = nextUrl
+        continue
+      }
+
+      const text = await readResponseTextWithIdleTimeout(response, controller, options.idleTimeoutMs, options.maxResponseBytes)
+
+      return {
+        url: targetUrl.href,
+        response,
+        text,
+        redirectTrail,
+      }
+    } catch (error) {
+      if (requestTimedOut) {
+        throw new Error(`Fetch request timed out after ${options.requestTimeoutMs} ms`)
+      }
+
+      throw error
+    } finally {
+      clearTimeout(requestTimer)
+    }
+  }
+
+  throw new Error(`Fetch redirect limit exceeded for ${requestUrl}`)
+}
+
+function buildFetchResult(editorWindow, payload) {
+  const text = typeof payload?.text === 'string' ? payload.text : ''
+  const estimatedTokens = estimateTokenCount(text)
+  const baseResult = {
+    url: payload.url,
+    method: payload.method,
+    status: payload.status,
+    ok: payload.ok,
+    statusText: payload.statusText,
+    contentType: payload.contentType,
+    estimatedTokens,
+    redirectTrail: payload.redirectTrail,
+    responseHeaders: payload.responseHeaders,
+  }
+
+  if (estimatedTokens <= getInlineTokenBudget()) {
+    return {
+      ...baseResult,
+      delivery: 'inline',
+      content: text,
+    }
+  }
+
+  const bufferRecord = createSessionBuffer(editorWindow, {
+    title: createSliceBufferTitle('fetch', payload.url),
+    text,
+    autoDisposeAfterMs: settingsState.ai.fetch.autoDisposeAfterMs,
+  })
+
+  return {
+    ...baseResult,
+    delivery: 'buffer',
+    bufferId: bufferRecord.editorId,
+    target: buildAiTargetRef(bufferRecord.editorId, { kind: 'document' }),
+    preview: createPreviewText(text, 320),
+    autoDisposeAt: bufferRecord.autoDisposeAt,
+  }
+}
+
+async function fetchUrlForWindow(editorWindow, payload) {
+  if (!settingsState.ai.toolPermissions.fetchUrl) {
+    throw new Error('Fetch URL tool is disabled in settings')
+  }
+
+  const url = typeof payload?.url === 'string' ? payload.url.trim() : ''
+
+  if (url.length === 0) {
+    throw new Error('Fetch URL is required')
+  }
+
+  let parsedUrl
+
+  try {
+    parsedUrl = new URL(url)
+  } catch {
+    throw new Error(`Invalid fetch URL: ${url}`)
+  }
+
+  const method = resolveFetchMethod(payload?.method)
+  const headers = resolveFetchRequestHeaders(payload?.headers)
+  const body = resolveFetchBody(payload?.body, method)
+  const result = await performSafeFetch(parsedUrl.href, {
+    method,
+    headers,
+    body,
+    requestTimeoutMs: settingsState.ai.fetch.requestTimeoutMs,
+    idleTimeoutMs: settingsState.ai.fetch.idleTimeoutMs,
+    maxResponseBytes: settingsState.ai.fetch.maxResponseBytes,
+  })
+
+  return buildFetchResult(editorWindow, {
+    url: result.url,
+    method,
+    status: result.response.status,
+    ok: result.response.ok,
+    statusText: result.response.statusText,
+    contentType: result.response.headers.get('content-type') || 'application/octet-stream',
+    responseHeaders: Object.fromEntries(Array.from(result.response.headers.entries()).slice(0, 24)),
+    redirectTrail: result.redirectTrail,
+    text: result.text,
+  })
+}
+
+async function tavilyWebSearchForWindow(editorWindow, payload) {
+  if (!settingsState.ai.toolPermissions.tavilyWebSearch) {
+    throw new Error('Tavily web search is disabled in settings')
+  }
+
+  if (!settingsState.ai.tavily.enabled) {
+    throw new Error('Tavily is disabled in settings')
+  }
+
+  const apiKey = getTavilyApiKey()
+
+  if (!apiKey) {
+    throw new Error('TAVILY_API_KEY is not configured')
+  }
+
+  const query = typeof payload?.query === 'string' ? payload.query.trim() : ''
+
+  if (query.length === 0) {
+    throw new Error('Tavily query is required')
+  }
+
+  const maxResults = Math.min(10, Math.max(1, Math.round(Number(payload?.maxResults) || settingsState.ai.tavily.defaultMaxResults)))
+  const searchDepth = payload?.searchDepth === 'advanced' ? 'advanced' : settingsState.ai.tavily.defaultSearchDepth
+  const controller = new AbortController()
+  let requestTimedOut = false
+  const requestTimer = setTimeout(() => {
+    requestTimedOut = true
+    controller.abort()
+  }, settingsState.ai.fetch.requestTimeoutMs)
+
+  try {
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: searchDepth,
+        max_results: maxResults,
+        include_answer: true,
+        include_raw_content: false,
+        topic: 'general',
+      }),
+      signal: controller.signal,
+    })
+    const responseText = await readResponseTextWithIdleTimeout(response, controller, settingsState.ai.fetch.idleTimeoutMs, settingsState.ai.fetch.maxResponseBytes)
+
+    if (!response.ok) {
+      throw new Error(`Tavily request failed: ${response.status} ${response.statusText}`)
+    }
+
+    const parsed = JSON.parse(responseText)
+    const results = Array.isArray(parsed?.results)
+      ? parsed.results.slice(0, maxResults).map((entry) => ({
+          title: typeof entry?.title === 'string' ? entry.title : '',
+          url: typeof entry?.url === 'string' ? entry.url : '',
+          content: typeof entry?.content === 'string' ? entry.content : '',
+          score: Number.isFinite(Number(entry?.score)) ? Number(entry.score) : null,
+        }))
+      : []
+    const summaryText = [
+      typeof parsed?.answer === 'string' && parsed.answer.trim().length > 0 ? `Answer: ${parsed.answer.trim()}` : null,
+      ...results.map((entry, index) => `${index + 1}. ${entry.title}\n${entry.url}\n${entry.content}`),
+    ].filter(Boolean).join('\n\n')
+    const bufferRecord = summaryText.length > 0
+      ? createSessionBuffer(editorWindow, {
+          title: createSliceBufferTitle('web_search', query),
+          text: summaryText,
+          autoDisposeAfterMs: settingsState.ai.fetch.autoDisposeAfterMs,
+        })
+      : null
+
+    return {
+      query,
+      answer: typeof parsed?.answer === 'string' ? parsed.answer : null,
+      results,
+      responseTime: Number.isFinite(Number(parsed?.response_time)) ? Number(parsed.response_time) : null,
+      bufferId: bufferRecord?.editorId || null,
+      target: bufferRecord ? buildAiTargetRef(bufferRecord.editorId, { kind: 'document' }) : null,
+      autoDisposeAt: bufferRecord?.autoDisposeAt || null,
+    }
+  } catch (error) {
+    if (requestTimedOut) {
+      throw new Error(`Tavily request timed out after ${settingsState.ai.fetch.requestTimeoutMs} ms`)
+    }
+
+    throw error
+  } finally {
+    clearTimeout(requestTimer)
+  }
 }
 
 function getOpenAiBaseUrl() {
@@ -2077,6 +2714,29 @@ function summarizeAiToolArgsForLog(toolName, args) {
     return null
   }
 
+  if (toolName === 'web_search') {
+    return {
+      query: typeof args?.query === 'string' ? args.query.slice(0, 160) : undefined,
+      searchDepth: typeof args?.searchDepth === 'string' ? args.searchDepth : undefined,
+      maxResults: Number.isFinite(Number(args?.maxResults)) ? Number(args.maxResults) : undefined,
+    }
+  }
+
+  if (toolName === 'fetch_url') {
+    return {
+      url: typeof args?.url === 'string' ? args.url.slice(0, 320) : undefined,
+      method: typeof args?.method === 'string' ? args.method : undefined,
+      headerNames: isPlainObject(args?.headers) ? Object.keys(args.headers).slice(0, 16) : undefined,
+      hasBody: typeof args?.body === 'string' && args.body.length > 0,
+    }
+  }
+
+  if (toolName === 'dispose_buffer') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+    }
+  }
+
   return args
 }
 
@@ -2132,6 +2792,32 @@ function summarizeAiToolResultForLog(toolName, result) {
   if (toolName === 'list_buffers') {
     return {
       bufferCount: Array.isArray(result?.buffers) ? result.buffers.length : Array.isArray(result) ? result.length : null,
+    }
+  }
+
+  if (toolName === 'web_search') {
+    return {
+      resultCount: Array.isArray(result?.results) ? result.results.length : null,
+      bufferId: typeof result?.bufferId === 'string' ? result.bufferId : null,
+      target: summarizeTargetForLog(result?.target),
+    }
+  }
+
+  if (toolName === 'fetch_url') {
+    return {
+      url: typeof result?.url === 'string' ? result.url : null,
+      status: Number.isFinite(Number(result?.status)) ? Number(result.status) : null,
+      delivery: typeof result?.delivery === 'string' ? result.delivery : null,
+      estimatedTokens: Number.isFinite(Number(result?.estimatedTokens)) ? Number(result.estimatedTokens) : null,
+      bufferId: typeof result?.bufferId === 'string' ? result.bufferId : null,
+      target: summarizeTargetForLog(result?.target),
+    }
+  }
+
+  if (toolName === 'dispose_buffer') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      disposed: result?.disposed === true,
     }
   }
 
@@ -2218,6 +2904,23 @@ async function executeAiToolCall(editorWindow, toolName, args) {
         target: normalizeToolTarget(args),
         query: args?.query,
         maxResults: args?.maxResults,
+      })
+    } else if (toolName === 'web_search') {
+      result = tavilyWebSearchForWindow(editorWindow, {
+        query: args?.query,
+        searchDepth: args?.searchDepth,
+        maxResults: args?.maxResults,
+      })
+    } else if (toolName === 'fetch_url') {
+      result = fetchUrlForWindow(editorWindow, {
+        url: args?.url,
+        method: args?.method,
+        headers: args?.headers,
+        body: args?.body,
+      })
+    } else if (toolName === 'dispose_buffer') {
+      result = disposeBufferForWindow(editorWindow, {
+        editorId: args?.editorId,
       })
     } else {
       throw new Error(`Unsupported AI tool: ${toolName}`)
@@ -2402,12 +3105,16 @@ function isSettingsWindow(window) {
   return Boolean(settingsWindow) && Boolean(window) && settingsWindow.id === window.id
 }
 
+function isFetchPermissionsWindow(window) {
+  return Boolean(fetchPermissionsWindow) && Boolean(window) && fetchPermissionsWindow.id === window.id
+}
+
 function isAiChatWindow(window) {
   return Boolean(window) && aiChatToEditorWindowId.has(window.id)
 }
 
 function isEditorWindow(window) {
-  return Boolean(window) && !isAiChatWindow(window) && !isSettingsWindow(window)
+  return Boolean(window) && !isAiChatWindow(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
 }
 
 function getDefaultEditorWindow() {
@@ -2427,6 +3134,17 @@ function getEditorWindowForAiAction(candidateWindow) {
   if (isSettingsWindow(candidateWindow)) {
     if (settingsWindowOwnerEditorId) {
       const ownerWindow = BrowserWindow.fromId(settingsWindowOwnerEditorId)
+      if (ownerWindow && !ownerWindow.isDestroyed()) {
+        return ownerWindow
+      }
+    }
+
+    return getDefaultEditorWindow()
+  }
+
+  if (isFetchPermissionsWindow(candidateWindow)) {
+    if (fetchPermissionsWindowOwnerEditorId) {
+      const ownerWindow = BrowserWindow.fromId(fetchPermissionsWindowOwnerEditorId)
       if (ownerWindow && !ownerWindow.isDestroyed()) {
         return ownerWindow
       }
@@ -2772,6 +3490,19 @@ async function listAiBuffersForWindow(editorWindow) {
   return { buffers }
 }
 
+function disposeBufferForWindow(editorWindow, payload) {
+  const editorId = typeof payload?.editorId === 'string' ? payload.editorId : ''
+
+  if (!editorId || isActiveEditorAlias(editorId) || editorId.startsWith('editor:')) {
+    throw new Error('dispose_buffer requires a temp buffer editorId')
+  }
+
+  return {
+    editorId,
+    disposed: disposeSessionBuffer(editorWindow, editorId),
+  }
+}
+
 function openAiChatWindow(targetWindow) {
   const editorWindow = getEditorWindowForAiAction(targetWindow)
 
@@ -2859,6 +3590,50 @@ function openSettingsWindow(targetWindow) {
   loadRendererWindow(settingsWindow, 'settings.html')
   focusWindow(settingsWindow)
   writeLog('INFO', 'settings', 'Settings window opened')
+
+  return { status: 'opened' }
+}
+
+function openFetchPermissionsWindow(targetWindow) {
+  const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
+
+  if (!ownerEditorWindow && (!fetchPermissionsWindow || fetchPermissionsWindow.isDestroyed())) {
+    writeLog('WARN', 'fetch-permissions', 'No editor window available for fetch permissions owner')
+    return { status: 'focused' }
+  }
+
+  if (ownerEditorWindow && !ownerEditorWindow.isDestroyed()) {
+    fetchPermissionsWindowOwnerEditorId = ownerEditorWindow.id
+  }
+
+  if (fetchPermissionsWindow && !fetchPermissionsWindow.isDestroyed()) {
+    focusWindow(fetchPermissionsWindow)
+    return { status: 'focused' }
+  }
+
+  fetchPermissionsWindow = new BrowserWindow({
+    width: 920,
+    height: 760,
+    minWidth: 760,
+    minHeight: 560,
+    backgroundColor: '#fffaf4',
+    autoHideMenuBar: true,
+    icon: windowIcon,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  fetchPermissionsWindow.on('closed', () => {
+    fetchPermissionsWindow = null
+    fetchPermissionsWindowOwnerEditorId = null
+  })
+
+  loadRendererWindow(fetchPermissionsWindow, 'fetch-permissions.html')
+  focusWindow(fetchPermissionsWindow)
+  writeLog('INFO', 'fetch-permissions', 'Fetch permissions window opened')
 
   return { status: 'opened' }
 }
@@ -3276,11 +4051,17 @@ function createWindow(initialLaunchRequest = null) {
     if (settingsWindowOwnerEditorId === mainWindow.id) {
       settingsWindowOwnerEditorId = null
     }
+    if (fetchPermissionsWindowOwnerEditorId === mainWindow.id) {
+      fetchPermissionsWindowOwnerEditorId = null
+    }
 
     clearEditorRuntimeState(mainWindow.id)
 
     if (!getDefaultEditorWindow() && settingsWindow && !settingsWindow.isDestroyed()) {
       settingsWindow.close()
+    }
+    if (!getDefaultEditorWindow() && fetchPermissionsWindow && !fetchPermissionsWindow.isDestroyed()) {
+      fetchPermissionsWindow.close()
     }
   })
   managedMainWindow = mainWindow
@@ -3347,6 +4128,11 @@ ipcMain.handle('mdv:open-settings-window', async (event) => {
   return openSettingsWindow(sourceWindow)
 })
 
+ipcMain.handle('mdv:open-fetch-permissions-window', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  return openFetchPermissionsWindow(sourceWindow)
+})
+
 ipcMain.on('mdv:settings-bootstrap', (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const launchState = sourceWindow ? launchStateByWindowId.get(sourceWindow.id) : null
@@ -3407,6 +4193,32 @@ ipcMain.handle('mdv:settings-clear-openai-api-key', async () => {
   secretsState = sanitizeSecrets({
     ...secretsState,
     openaiApiKey: null,
+  })
+  await persistSecrets()
+  broadcastSettingsChanged()
+  return getProviderStatus()
+})
+
+ipcMain.handle('mdv:settings-save-tavily-api-key', async (_event, apiKey) => {
+  const normalizedApiKey = normalizeSecret(apiKey)
+
+  if (!normalizedApiKey) {
+    throw new Error('Tavily API key cannot be empty')
+  }
+
+  secretsState = sanitizeSecrets({
+    ...secretsState,
+    tavilyApiKey: normalizedApiKey,
+  })
+  await persistSecrets()
+  broadcastSettingsChanged()
+  return getProviderStatus()
+})
+
+ipcMain.handle('mdv:settings-clear-tavily-api-key', async () => {
+  secretsState = sanitizeSecrets({
+    ...secretsState,
+    tavilyApiKey: null,
   })
   await persistSecrets()
   broadcastSettingsChanged()

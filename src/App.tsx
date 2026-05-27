@@ -510,6 +510,10 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
 
   const key = event.key.toLowerCase()
 
+  if (key === 'y' && !event.shiftKey) {
+    return 'redo'
+  }
+
   if (key === 'o') {
     return 'open'
   }
@@ -684,11 +688,44 @@ function App() {
   const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
   const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
+  const [editorSessionKey, setEditorSessionKey] = useState(0)
+  const [persistedMarkdown, setPersistedMarkdown] = useState(initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const persistedMarkdownRef = useRef(initialDocument)
+  const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
+  const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
+  const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
+    markdownText: initialDocument,
+    persistedMarkdown: initialDocument,
+    currentFilePath: null,
+    displayTitle: 'Untitled.md',
+    activePanel: 'preview',
+  }))
+  const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
+  const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
+  const hasUnsavedChanges = markdownText !== persistedMarkdown
+  const isPlaceholderDocument = currentFilePath === null
+    && displayTitle === 'Untitled.md'
+    && markdownText === initialDocument
+    && persistedMarkdown === initialDocument
+
+  const replaceLoadedDocument = (nextMarkdown: string) => {
+    setMarkdownText(nextMarkdown)
+    setEditorSessionKey((currentKey) => currentKey + 1)
+  }
+
+  useEffect(() => {
+    canAbandonCurrentBufferRef.current = (nextActionLabel: string) => {
+      if (!hasUnsavedChanges || isPlaceholderDocument) {
+        return true
+      }
+
+      return window.confirm(`未保存の変更があります。${nextActionLabel}と現在の変更は失われます。続行しますか？`)
+    }
+  }, [hasUnsavedChanges, isPlaceholderDocument])
 
   useEffect(() => {
     const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
@@ -763,6 +800,7 @@ function App() {
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
+    persistedMarkdown,
     currentFilePath,
     displayTitle,
     activePanel,
@@ -777,11 +815,15 @@ function App() {
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
     invalidateEditorSearch()
-    setMarkdownText(snapshot.markdownText)
+    replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath))
     setActivePanel(snapshot.activePanel)
-    editorRef.current?.setMarkdown(snapshot.markdownText)
+    const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
+      ? snapshot.persistedMarkdown
+      : snapshot.markdownText
+    persistedMarkdownRef.current = nextPersistedMarkdown
+    setPersistedMarkdown(nextPersistedMarkdown)
   }
 
   const loadFilePayload = (payload: MdvFilePayload | null) => {
@@ -790,25 +832,30 @@ function App() {
     }
 
     invalidateEditorSearch()
-    setMarkdownText(payload.content)
+    replaceLoadedDocument(payload.content)
     setCurrentFilePath(payload.path)
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
-    editorRef.current?.setMarkdown(payload.content)
+    setPersistedMarkdown(payload.content)
     setStatusText(`Opened ${basename(payload.path)}`)
   }
 
   const loadDetachedFile = (fileName: string, content: string) => {
     invalidateEditorSearch()
-    setMarkdownText(content)
+    replaceLoadedDocument(content)
     setCurrentFilePath(null)
     setDisplayTitle(fileName || 'Untitled.md')
     persistedMarkdownRef.current = content
-    editorRef.current?.setMarkdown(content)
+    setPersistedMarkdown(content)
     setStatusText(`Loaded ${fileName || 'Untitled.md'}`)
   }
 
   const handleOpen = async () => {
+    if (!canAbandonCurrentBufferRef.current('Open')) {
+      setStatusText('Open cancelled')
+      return
+    }
+
     const payload = await window.mdvDesktop?.openFile()
     loadFilePayload(payload ?? null)
   }
@@ -827,6 +874,7 @@ function App() {
     setCurrentFilePath(result.path)
     setDisplayTitle(basename(result.path))
     persistedMarkdownRef.current = markdownText
+    setPersistedMarkdown(markdownText)
     setStatusText(`Saved ${basename(result.path)}`)
   }
 
@@ -962,7 +1010,7 @@ function App() {
           `Panel: ${activePanel}`,
           `Text length: ${markdownText.length}`,
           `Selection length: ${selectedText.length}`,
-          `Dirty: ${markdownText !== persistedMarkdownRef.current ? 'yes' : 'no'}`,
+          `Dirty: ${markdownText !== persistedMarkdown ? 'yes' : 'no'}`,
         ].join('\n')
 
         window.mdvDesktop?.sendAiEditorResponse({
@@ -976,7 +1024,7 @@ function App() {
             textLength: markdownText.length,
             selectionTextLength: selectedText.length,
             tokenEstimate: estimateTokenCount(contextSummary),
-            isDirty: markdownText !== persistedMarkdownRef.current,
+            isDirty: markdownText !== persistedMarkdown,
           },
         })
         return
@@ -1074,7 +1122,19 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    buildClientSnapshotRef.current = buildClientSnapshot
+    applyClientSnapshotRef.current = applyClientSnapshot
+    respondToAiEditorRequestRef.current = respondToAiEditorRequest
+  })
+
   const runDesktopAction = (action: MdvMenuAction) => {
+    if (action === 'redo') {
+      editorRef.current?.exec('redo')
+      setStatusText('Redid last edit')
+      return
+    }
+
     if (action === 'open') {
       void handleOpen()
       return
@@ -1115,6 +1175,27 @@ function App() {
   }
 
   useEffect(() => {
+    runDesktopActionRef.current = runDesktopAction
+  })
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (canAbandonCurrentBufferRef.current('このまま閉じる')) {
+        return
+      }
+
+      event.preventDefault()
+      event.returnValue = false
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
@@ -1129,7 +1210,7 @@ function App() {
       }
 
       event.preventDefault()
-      runDesktopAction(action)
+      runDesktopActionRef.current(action)
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
@@ -1137,12 +1218,12 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [handleOpen, handleSave])
+  }, [])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onServerCommand((command) => {
       if (command.type === 'suspend') {
-        const snapshot = buildClientSnapshot()
+        const snapshot = buildClientSnapshotRef.current()
         setStatusText('Suspending for update')
         window.mdvDesktop?.sendServerCommandResult({
           requestId: command.requestId,
@@ -1154,7 +1235,7 @@ function App() {
       }
 
       if (command.type === 'resume' && command.snapshot) {
-        applyClientSnapshot(command.snapshot)
+        applyClientSnapshotRef.current(command.snapshot)
       }
 
       setStatusText('Resumed from server state')
@@ -1162,17 +1243,22 @@ function App() {
         requestId: command.requestId,
         type: 'resume',
         status: 'completed',
-        snapshot: command.snapshot || buildClientSnapshot(),
+        snapshot: command.snapshot || buildClientSnapshotRef.current(),
       })
     })
 
     return () => {
       unsubscribe?.()
     }
-  }, [activePanel, currentFilePath, markdownText])
+  }, [])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
+      if (!canAbandonCurrentBufferRef.current('別のファイルを開く')) {
+        setStatusText('Open request cancelled')
+        return
+      }
+
       const filePath = typeof request === 'string' ? request : request.filePath
       const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
 
@@ -1194,11 +1280,11 @@ function App() {
         }
 
         invalidateEditorSearch()
-        setMarkdownText(payload.content)
+        replaceLoadedDocument(payload.content)
         setCurrentFilePath(payload.path)
         setDisplayTitle(basename(payload.path))
         persistedMarkdownRef.current = payload.content
-        editorRef.current?.setMarkdown(payload.content)
+        setPersistedMarkdown(payload.content)
         setStatusText(`Opened ${basename(payload.path)}`)
       })
     })
@@ -1210,23 +1296,23 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onMenuAction((action) => {
-      runDesktopAction(action)
+      runDesktopActionRef.current(action)
     })
 
     return () => {
       unsubscribe?.()
     }
-  }, [handleOpen, handleSave])
+  }, [])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onAiEditorRequest((request) => {
-      respondToAiEditorRequest(request)
+      respondToAiEditorRequestRef.current(request)
     })
 
     return () => {
       unsubscribe?.()
     }
-  }, [activePanel, currentFilePath, markdownText])
+  }, [])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -1262,6 +1348,11 @@ function App() {
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
     setIsDraggingFile(false)
+
+    if (!canAbandonCurrentBufferRef.current('別のファイルを読み込む')) {
+      setStatusText('Drop cancelled')
+      return
+    }
 
     const droppedFile = event.dataTransfer.files.item(0)
     if (!droppedFile) {
@@ -1429,6 +1520,7 @@ function App() {
           <div className="single-panel">
             <div className="panel editor-panel full-panel">
               <EditorSurface
+                key={editorSessionKey}
                 value={markdownText}
                 onChange={(nextMarkdown) => {
                   invalidateEditorSearch()

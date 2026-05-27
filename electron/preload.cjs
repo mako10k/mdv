@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
+  openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
   readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),
@@ -55,6 +56,8 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
     updateSettings: (patch) => ipcRenderer.invoke('mdv:settings-update', patch),
     saveOpenAiApiKey: (apiKey) => ipcRenderer.invoke('mdv:settings-save-openai-api-key', apiKey),
     clearOpenAiApiKey: () => ipcRenderer.invoke('mdv:settings-clear-openai-api-key'),
+    saveTavilyApiKey: (apiKey) => ipcRenderer.invoke('mdv:settings-save-tavily-api-key', apiKey),
+    clearTavilyApiKey: () => ipcRenderer.invoke('mdv:settings-clear-tavily-api-key'),
     getProviderStatus: () => ipcRenderer.invoke('mdv:settings-provider-status'),
     onSettingsChanged: (callback) => {
       settingsChangedListeners.add(callback)

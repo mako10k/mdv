@@ -7,6 +7,13 @@
   box-sizing: border-box;
 }
 
+.settings-divider {
+  width: 100%;
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
 .settings-header {
   display: flex;
   justify-content: space-between;

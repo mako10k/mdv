@@ -10,8 +10,8 @@
 
 注記:
 
-- 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice のモデル主導 tool orchestration を含む
-- workspace_grep と Tavily web_search は後続フェーズで追加する
+- 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
+- guarded fetch は allowlist、method/header allowlist、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 
 ## Target Goals
 
@@ -22,6 +22,7 @@
 - AI が新規 editor window に文書を書き出せること
 - AI がワークスペース grep 相当の検索を行えること
 - AI が Tavily を使った Web 検索を行えること
+- AI が allowlist 付き fetch を行い、大きい本文を temp buffer へ退避できること
 - OpenAI API キーを renderer に露出しないこと
 
 ## Current Scaffold Scope
@@ -31,7 +32,9 @@
 - Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
+- web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
+- fetch allowlist / method / header / timeout は dedicated auxiliary window から編集できること
 - AI 応答バブルは Markdown を描画できること
 
 ## Non-Goals For Initial Scope
@@ -41,7 +44,7 @@
 - 自動的な大規模リファクタリング
 - 長期会話永続化
 - 複数 editor tab 管理 UI の全面導入
-- 任意 URL の fetch と本文抽出
+- allowlist 外 URL への任意 fetch
 
 ## Current Constraints
 
@@ -107,6 +110,8 @@ AI が使う操作面。
 - list_buffers
 - workspace_grep
 - web_search
+- fetch_url
+- dispose_buffer
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 

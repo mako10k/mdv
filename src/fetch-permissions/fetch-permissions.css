@@ -1,0 +1,27 @@
+.fetch-permissions-shell {
+  min-height: 100vh;
+}
+
+.fetch-permissions-card {
+  display: grid;
+  gap: 14px;
+}
+
+.fetch-permissions-textarea {
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.fetch-permissions-textarea-compact {
+  min-height: 120px;
+}
+
+.fetch-permissions-textarea:focus {
+  outline: 1px solid var(--border-strong);
+}

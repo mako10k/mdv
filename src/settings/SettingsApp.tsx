@@ -11,6 +11,12 @@ type OpenAiDraft = {
   baseUrl: string
 }
 
+type TavilyDraft = {
+  enabled: boolean
+  defaultSearchDepth: 'basic' | 'advanced'
+  defaultMaxResults: number
+}
+
 function updateSettingsWithStatus(
   patch: MdvSettingsPatch,
   statusMessage: string,
@@ -40,8 +46,16 @@ function SettingsApp() {
     baseUrl: '',
   })
   const [openAiApiKeyDraft, setOpenAiApiKeyDraft] = useState('')
+  const [tavilyDraft, setTavilyDraft] = useState<TavilyDraft>({
+    enabled: false,
+    defaultSearchDepth: 'basic',
+    defaultMaxResults: 5,
+  })
+  const [tavilyApiKeyDraft, setTavilyApiKeyDraft] = useState('')
   const [isSavingOpenAi, setIsSavingOpenAi] = useState(false)
   const [isSavingOpenAiApiKey, setIsSavingOpenAiApiKey] = useState(false)
+  const [isSavingTavily, setIsSavingTavily] = useState(false)
+  const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false)
   const [logPath, setLogPath] = useState('Loading log path...')
   const [statusText, setStatusText] = useState('Loading settings')
 
@@ -53,11 +67,20 @@ function SettingsApp() {
     })
   }
 
+  const syncTavilyDraft = (nextSettings: MdvSettings) => {
+    setTavilyDraft({
+      enabled: nextSettings.ai.tavily.enabled,
+      defaultSearchDepth: nextSettings.ai.tavily.defaultSearchDepth,
+      defaultMaxResults: nextSettings.ai.tavily.defaultMaxResults,
+    })
+  }
+
   useEffect(() => {
     let active = true
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
       setSettings(nextSettings)
       syncOpenAiDraft(nextSettings)
+      syncTavilyDraft(nextSettings)
       setStatusText('Settings updated')
     })
 
@@ -74,6 +97,7 @@ function SettingsApp() {
         setSettings(nextSettings ?? null)
         if (nextSettings) {
           syncOpenAiDraft(nextSettings)
+          syncTavilyDraft(nextSettings)
         }
         setProviderStatus(nextProviderStatus ?? null)
         setLogPath(nextLogPath ?? 'Unavailable')
@@ -174,6 +198,75 @@ function SettingsApp() {
       })
   }
 
+  const handleTavilySave = () => {
+    setIsSavingTavily(true)
+    setStatusText('Saving Tavily settings')
+
+    void window.mdvDesktop?.settings.updateSettings({
+      ai: {
+        tavily: {
+          enabled: tavilyDraft.enabled,
+          defaultSearchDepth: tavilyDraft.defaultSearchDepth,
+          defaultMaxResults: tavilyDraft.defaultMaxResults,
+        },
+      },
+    })
+      .then((updatedSettings) => {
+        setSettings(updatedSettings)
+        syncTavilyDraft(updatedSettings)
+        setStatusText('Tavily settings saved')
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        setIsSavingTavily(false)
+      })
+  }
+
+  const handleTavilyApiKeySave = () => {
+    const trimmedApiKey = tavilyApiKeyDraft.trim()
+
+    if (!trimmedApiKey) {
+      setStatusText('Tavily API key cannot be empty')
+      return
+    }
+
+    setIsSavingTavilyApiKey(true)
+    setStatusText('Saving Tavily API key')
+
+    void window.mdvDesktop?.settings.saveTavilyApiKey(trimmedApiKey)
+      .then((nextProviderStatus) => {
+        setProviderStatus(nextProviderStatus)
+        setTavilyApiKeyDraft('')
+        setStatusText('Tavily API key saved')
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        setIsSavingTavilyApiKey(false)
+      })
+  }
+
+  const handleTavilyApiKeyClear = () => {
+    setIsSavingTavilyApiKey(true)
+    setStatusText('Clearing Tavily API key')
+
+    void window.mdvDesktop?.settings.clearTavilyApiKey()
+      .then((nextProviderStatus) => {
+        setProviderStatus(nextProviderStatus)
+        setTavilyApiKeyDraft('')
+        setStatusText('Tavily API key cleared')
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        setIsSavingTavilyApiKey(false)
+      })
+  }
+
   const handleToolPermissionChange = (key: keyof MdvSettings['ai']['toolPermissions'], value: boolean) => {
     updateSettingsWithStatus({
       ai: {
@@ -190,6 +283,18 @@ function SettingsApp() {
         [key]: value,
       },
     }, 'Saving safety setting', setStatusText, setSettings)
+  }
+
+  const handleOpenFetchPermissionsWindow = () => {
+    setStatusText('Opening fetch permissions')
+
+    void window.mdvDesktop?.openFetchPermissionsWindow()
+      .then(() => {
+        setStatusText('Fetch permissions opened')
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
   }
 
   return (
@@ -333,6 +438,77 @@ function SettingsApp() {
                 </div>
               </dl>
               <p className="settings-note">Secrets stay in main process. API key values are sent one-way for storage and are never read back into the renderer. If no stored key exists, OPENAI_API_KEY remains a fallback.</p>
+
+              <hr className="settings-divider" />
+
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={tavilyDraft.enabled}
+                  onChange={(event) => {
+                    setTavilyDraft((currentDraft) => ({
+                      ...currentDraft,
+                      enabled: event.target.checked,
+                    }))
+                  }}
+                />
+                <span>Enable Tavily web search</span>
+              </label>
+              <label className="settings-field">
+                <span>Tavily search depth</span>
+                <select
+                  value={tavilyDraft.defaultSearchDepth}
+                  onChange={(event) => {
+                    setTavilyDraft((currentDraft) => ({
+                      ...currentDraft,
+                      defaultSearchDepth: event.target.value === 'advanced' ? 'advanced' : 'basic',
+                    }))
+                  }}
+                >
+                  <option value="basic">Basic</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>Tavily max results</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={tavilyDraft.defaultMaxResults}
+                  onChange={(event) => {
+                    const numericValue = Number(event.target.value)
+                    setTavilyDraft((currentDraft) => ({
+                      ...currentDraft,
+                      defaultMaxResults: Number.isFinite(numericValue) ? numericValue : currentDraft.defaultMaxResults,
+                    }))
+                  }}
+                />
+              </label>
+              <label className="settings-field settings-field-wide">
+                <span>Tavily API key</span>
+                <input
+                  type="password"
+                  value={tavilyApiKeyDraft}
+                  placeholder="tvly-..."
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setTavilyApiKeyDraft(event.target.value)
+                  }}
+                />
+              </label>
+              <div className="settings-actions">
+                <button type="button" className="settings-primary-button" onClick={handleTavilySave} disabled={isSavingTavily}>
+                  {isSavingTavily ? 'Saving…' : 'Save Tavily settings'}
+                </button>
+                <button type="button" className="settings-secondary-button" onClick={handleTavilyApiKeySave} disabled={isSavingTavilyApiKey}>
+                  {isSavingTavilyApiKey ? 'Saving key…' : 'Save Tavily key'}
+                </button>
+                <button type="button" className="settings-secondary-button" onClick={handleTavilyApiKeyClear} disabled={isSavingTavilyApiKey}>
+                  Clear Tavily key
+                </button>
+              </div>
+              <p className="settings-note">Tavily search uses the same main-process secret boundary as OpenAI. Fetch URL permissions are edited in a dedicated window because the allowlist may grow large.</p>
             </section>
           ) : null}
 
@@ -373,6 +549,15 @@ function SettingsApp() {
                   <input type="checkbox" checked={settings?.ai.toolPermissions.tavilyWebSearch ?? true} onChange={(event) => handleToolPermissionChange('tavilyWebSearch', event.target.checked)} />
                   <span>Tavily web search</span>
                 </label>
+                <label className="settings-toggle">
+                  <input type="checkbox" checked={settings?.ai.toolPermissions.fetchUrl ?? true} onChange={(event) => handleToolPermissionChange('fetchUrl', event.target.checked)} />
+                  <span>Allow guarded fetch_url</span>
+                </label>
+                <div className="settings-actions">
+                  <button type="button" className="settings-secondary-button" onClick={handleOpenFetchPermissionsWindow}>
+                    Open fetch permissions window
+                  </button>
+                </div>
               </div>
               <div className="settings-subsection">
                 <h3>Confirmations</h3>
