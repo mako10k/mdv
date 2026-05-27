@@ -1,6 +1,8 @@
 param(
   [string]$SourceRoot,
   [string]$NodeVersion = "v22.22.3",
+  [ValidateSet('full', 'diff')]
+  [string]$Mode = 'full',
   [switch]$RequireElevation
 )
 
@@ -22,7 +24,8 @@ function Restart-Elevated {
   param(
     [string]$ScriptPath,
     [string]$ResolvedSourceRoot,
-    [string]$ResolvedNodeVersion
+    [string]$ResolvedNodeVersion,
+    [string]$ResolvedMode
   )
 
   $argumentList = @(
@@ -31,6 +34,7 @@ function Restart-Elevated {
     '-File', ('"{0}"' -f $ScriptPath)
     '-SourceRoot', ('"{0}"' -f $ResolvedSourceRoot)
     '-NodeVersion', ('"{0}"' -f $ResolvedNodeVersion)
+    '-Mode', ('"{0}"' -f $ResolvedMode)
   )
 
   $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argumentList -Wait -PassThru
@@ -38,14 +42,96 @@ function Restart-Elevated {
 }
 
 if ($RequireElevation -and -not (Test-IsAdministrator)) {
-  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion
+  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion -ResolvedMode $Mode
 }
 
 $workRoot = Join-Path $tempRoot 'mdv-winbuild'
 $nodeZip = Join-Path $tempRoot "node-$NodeVersion-win-x64.zip"
 $nodeRoot = Join-Path $tempRoot "node-$NodeVersion-win-x64"
 $artifactDest = Join-Path $SourceRoot 'release\windows-host'
+$artifactStageDest = Join-Path $SourceRoot 'release\windows-host-staging'
+$artifactBackupDest = Join-Path $SourceRoot 'release\windows-host-backup'
 $localRunDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest'
+$localRunStageDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-staging'
+$localRunBackupDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-backup'
+$buildStatePath = Join-Path $tempRoot 'mdv-winbuild-state.json'
+
+function Get-OptionalFileHash {
+  param(
+    [string]$Path
+  )
+
+  if (-not (Test-Path $Path)) {
+    return $null
+  }
+
+  return (Get-FileHash -Path $Path -Algorithm SHA256).Hash
+}
+
+function Get-DependencyState {
+  param(
+    [string]$Root,
+    [string]$ResolvedNodeVersion
+  )
+
+  return @{
+    nodeVersion = $ResolvedNodeVersion
+    packageJson = Get-OptionalFileHash (Join-Path $Root 'package.json')
+    packageLockJson = Get-OptionalFileHash (Join-Path $Root 'package-lock.json')
+  }
+}
+
+function Read-BuildState {
+  param(
+    [string]$StatePath
+  )
+
+  if (-not (Test-Path $StatePath)) {
+    return $null
+  }
+
+  try {
+    return (Get-Content $StatePath -Raw | ConvertFrom-Json)
+  } catch {
+    return $null
+  }
+}
+
+function Write-BuildState {
+  param(
+    [string]$StatePath,
+    [hashtable]$DependencyState
+  )
+
+  @{
+    dependencies = $DependencyState
+  } | ConvertTo-Json | Set-Content -Path $StatePath -Encoding UTF8
+}
+
+function Test-DependenciesNeedInstall {
+  param(
+    [string]$Root,
+    [string]$RequestedMode,
+    [string]$StatePath,
+    [string]$ResolvedNodeVersion
+  )
+
+  if ($RequestedMode -eq 'full') {
+    return $true
+  }
+
+  if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
+    return $true
+  }
+
+  $previousState = Read-BuildState -StatePath $StatePath
+  if (-not $previousState -or -not $previousState.dependencies) {
+    return $true
+  }
+
+  $currentState = Get-DependencyState -Root $Root -ResolvedNodeVersion $ResolvedNodeVersion
+  return $previousState.dependencies.nodeVersion -ne $currentState.nodeVersion -or $previousState.dependencies.packageJson -ne $currentState.packageJson -or $previousState.dependencies.packageLockJson -ne $currentState.packageLockJson
+}
 
 function Prepare-ArtifactDestination {
   param(
@@ -68,16 +154,20 @@ function Prepare-ArtifactDestination {
   }
 }
 
-function Remove-LocalRunDestination {
+function Ensure-Directory {
   param(
     [string]$TargetPath
   )
 
-  $runningProcesses = Get-Process 'MarkDownViewer' -ErrorAction SilentlyContinue
-  if ($runningProcesses) {
-    $runningProcesses | Stop-Process -Force
-    $runningProcesses | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+  if (-not (Test-Path $TargetPath)) {
+    New-Item -ItemType Directory -Path $TargetPath | Out-Null
   }
+}
+
+function Remove-DirectoryWithRetry {
+  param(
+    [string]$TargetPath
+  )
 
   for ($attempt = 0; $attempt -lt 5; $attempt++) {
     try {
@@ -95,12 +185,95 @@ function Remove-LocalRunDestination {
   }
 }
 
-if (Test-Path $workRoot) {
+function Swap-StagedDirectory {
+  param(
+    [string]$StagePath,
+    [string]$LivePath,
+    [string]$BackupPath
+  )
+
+  if (-not (Test-Path $StagePath)) {
+    throw "Stage path does not exist: $StagePath"
+  }
+
+  if (Test-Path $BackupPath) {
+    Remove-DirectoryWithRetry -TargetPath $BackupPath
+  }
+
+  $liveExisted = Test-Path $LivePath
+
+  try {
+    if ($liveExisted) {
+      Rename-Item -Path $LivePath -NewName (Split-Path $BackupPath -Leaf)
+    }
+
+    Rename-Item -Path $StagePath -NewName (Split-Path $LivePath -Leaf)
+
+    return @{
+      livePath = $LivePath
+      backupPath = if ($liveExisted) { $BackupPath } else { $null }
+    }
+  } catch {
+    if ((-not (Test-Path $LivePath)) -and (Test-Path $BackupPath)) {
+      Rename-Item -Path $BackupPath -NewName (Split-Path $LivePath -Leaf)
+    }
+
+    throw
+  }
+}
+
+function Finalize-SwappedDirectory {
+  param(
+    [hashtable]$SwapResult
+  )
+
+  if ($SwapResult -and $SwapResult.backupPath -and (Test-Path $SwapResult.backupPath)) {
+    Remove-DirectoryWithRetry -TargetPath $SwapResult.backupPath
+  }
+}
+
+function Restore-SwappedDirectory {
+  param(
+    [hashtable]$SwapResult
+  )
+
+  if (-not $SwapResult -or -not $SwapResult.backupPath) {
+    return
+  }
+
+  if (Test-Path $SwapResult.livePath) {
+    Remove-DirectoryWithRetry -TargetPath $SwapResult.livePath
+  }
+
+  if (Test-Path $SwapResult.backupPath) {
+    Rename-Item -Path $SwapResult.backupPath -NewName (Split-Path $SwapResult.livePath -Leaf)
+  }
+}
+
+function Remove-LocalRunDestination {
+  param(
+    [string]$TargetPath
+  )
+
+  Stop-MarkDownViewerProcess
+
+  Remove-DirectoryWithRetry -TargetPath $TargetPath
+}
+
+function Stop-MarkDownViewerProcess {
+  $runningProcesses = Get-Process 'MarkDownViewer' -ErrorAction SilentlyContinue
+  if ($runningProcesses) {
+    $runningProcesses | Stop-Process -Force
+    $runningProcesses | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+  }
+}
+
+if ($Mode -eq 'full' -and (Test-Path $workRoot)) {
   Remove-Item $workRoot -Recurse -Force
 }
 
-New-Item -ItemType Directory -Path $workRoot | Out-Null
-Write-Host "Prepared temp workspace at $workRoot"
+Ensure-Directory -TargetPath $workRoot
+Write-Host "Prepared temp workspace at $workRoot (mode: $Mode)"
 
 robocopy $SourceRoot $workRoot /MIR /XD node_modules dist release .git > $null
 if ($LASTEXITCODE -gt 3) {
@@ -121,10 +294,20 @@ $env:Path = "$nodeRoot;$nodeRoot\node_modules\npm\bin;" + $env:Path
 
 Set-Location $workRoot
 
-Write-Host "Installing npm dependencies in $workRoot"
-& "$nodeRoot\npm.cmd" install
-if ($LASTEXITCODE -ne 0) {
-  throw "npm install failed with code $LASTEXITCODE"
+if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion) {
+  if (Test-Path $buildStatePath) {
+    Remove-Item $buildStatePath -Force
+  }
+
+  Write-Host "Installing npm dependencies in $workRoot"
+  & "$nodeRoot\npm.cmd" install
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm install failed with code $LASTEXITCODE"
+  }
+
+  Write-BuildState -StatePath $buildStatePath -DependencyState (Get-DependencyState -Root $workRoot -ResolvedNodeVersion $NodeVersion)
+} else {
+  Write-Host "Reusing existing npm dependencies in $workRoot"
 }
 
 Write-Host "Building Windows unpacked app"
@@ -164,22 +347,53 @@ if ($LASTEXITCODE -ne 0) {
   throw "rcedit failed with code $LASTEXITCODE"
 }
 
-$artifactDest = Prepare-ArtifactDestination -PreferredPath $artifactDest
+if ($Mode -eq 'full') {
+  $artifactDest = Prepare-ArtifactDestination -PreferredPath $artifactDest
 
-robocopy (Join-Path $workRoot 'release') $artifactDest /E > $null
-if ($LASTEXITCODE -gt 3) {
-  throw "artifact copy failed with code $LASTEXITCODE"
+  robocopy (Join-Path $workRoot 'release') $artifactDest /E > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "artifact copy failed with code $LASTEXITCODE"
+  }
+} else {
+  Ensure-Directory -TargetPath (Split-Path $artifactStageDest -Parent)
+  robocopy (Join-Path $workRoot 'release') $artifactStageDest /MIR > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "artifact staging failed with code $LASTEXITCODE"
+  }
+
+  Ensure-Directory -TargetPath (Split-Path $localRunStageDest -Parent)
+  robocopy (Join-Path $workRoot 'release\win-unpacked') $localRunStageDest /MIR > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "local runnable staging failed with code $LASTEXITCODE"
+  }
+
+  Stop-MarkDownViewerProcess
+
+  $artifactSwap = $null
+  $localSwap = $null
+
+  try {
+    $artifactSwap = Swap-StagedDirectory -StagePath $artifactStageDest -LivePath $artifactDest -BackupPath $artifactBackupDest
+    $localSwap = Swap-StagedDirectory -StagePath $localRunStageDest -LivePath $localRunDest -BackupPath $localRunBackupDest
+  } catch {
+    Restore-SwappedDirectory -SwapResult $localSwap
+    Restore-SwappedDirectory -SwapResult $artifactSwap
+    throw
+  }
+
+  Finalize-SwappedDirectory -SwapResult $localSwap
+  Finalize-SwappedDirectory -SwapResult $artifactSwap
 }
 
 Write-Host "Artifacts copied to $artifactDest"
 
-Remove-LocalRunDestination -TargetPath $localRunDest
-
-New-Item -ItemType Directory -Path $localRunDest | Out-Null
-
-robocopy (Join-Path $artifactDest 'win-unpacked') $localRunDest /E > $null
-if ($LASTEXITCODE -gt 3) {
-  throw "local runnable copy failed with code $LASTEXITCODE"
+if ($Mode -eq 'full') {
+  Remove-LocalRunDestination -TargetPath $localRunDest
+  New-Item -ItemType Directory -Path $localRunDest | Out-Null
+  robocopy (Join-Path $artifactDest 'win-unpacked') $localRunDest /E > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "local runnable copy failed with code $LASTEXITCODE"
+  }
 }
 
 Write-Host "Runnable local copy updated at $localRunDest"

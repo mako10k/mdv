@@ -55,8 +55,15 @@ Windows ホスト build 補助スクリプト:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w ./scripts/build-win-host.ps1)"
 ```
 
-このスクリプトは UAC 昇格を要求します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
+`bash ./scripts/build-win-host.sh` 経由の full/diff は UAC 昇格を要求します。PowerShell スクリプト直呼びと `noadmin` 系コマンドは昇格なしで実行します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
 また、実行用コピーを Windows ローカルパス `%LOCALAPPDATA%\MarkDownViewer\latest` に配置します。`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
+
+Windows host build mode:
+
+- `full`: 一時 workspace の作り直し、依存関係の再導入、成果物コピー先の作り直しを行う安全優先モード
+- `diff`: 一時 workspace と依存関係を再利用し、stage 先へ差分同期したあと成功時だけ live 出力へ入れ替える高速化モード
+
+`diff` は true binary patch ではありません。Electron / `app.asar` / `MarkDownViewer.exe` に対して部分パッチを当てるのではなく、Windows ホスト build の作業領域を再利用しつつ、出力は staged incremental sync のあと live ディレクトリへ swap するモードです。
 
 Portable build:
 
@@ -70,10 +77,29 @@ Windows host build from WSL:
 npm run dist:win:host
 ```
 
+明示的に full rebuild する場合:
+
+```bash
+npm run dist:win:host:full
+```
+
+差分同期ベースの高速化モード:
+
+```bash
+npm run dist:win:host:diff
+```
+
 昇格なしで直接試す場合:
 
 ```bash
 npm run dist:win:host:noadmin
+```
+
+昇格なしの明示モード:
+
+```bash
+npm run dist:win:host:noadmin:full
+npm run dist:win:host:noadmin:diff
 ```
 
 unpacked build:
@@ -97,6 +123,7 @@ npm run dist:win:dir
 - `\\wsl.localhost\...` の UNC パス上の exe は GPU subprocess 起動に失敗することがあるため、Windows ローカルへコピーされた exe を起動してください。
 - Windows の packaged binary は 2 回目以降の起動で既存 process を再利用しつつ、新しい editor window を追加で開きます。
 - 白画面や起動失敗のときは `%APPDATA%\MarkDownViewer\logs\mdv.log` を確認してください。
+- `diff` は staged incremental sync なので、Node.js バージョン変更、依存関係崩れ、成果物不整合が疑わしいときは `full` を使ってください。
 
 ## ファイル操作
 
