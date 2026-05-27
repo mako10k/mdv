@@ -123,6 +123,10 @@ type MdvAiWriteSource =
       editorId: MdvAiEditorId
       span: MdvAiSpanRef
     }
+  | {
+      type: 'slice-ref'
+      target: MdvAiEditorTarget
+    }
 
 type MdvAiBufferSummary = {
   editorId: MdvAiEditorId
@@ -244,6 +248,8 @@ type MdvAiContextPayload = {
 type MdvAiReadPayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
+  pageTarget?: MdvAiEditorTarget
   text: string
   estimatedTokens: number
   truncated: boolean
@@ -253,6 +259,7 @@ type MdvAiReadPayload = {
 type MdvAiWritePayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
   text: string
   mode: 'replace' | 'insert'
   bytesWritten: number
@@ -268,11 +275,13 @@ type MdvAiSliceMatch = {
   column: number
   preview: string
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
 }
 
 type MdvAiGrepSlicePayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
   query: string
   isRegexp: boolean
   caseSensitive: boolean
@@ -284,6 +293,7 @@ type MdvAiGrepSlicePayload = {
 type MdvAiStatsPayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
   characters: number
   lines: number
   emptyLines: number
@@ -296,6 +306,7 @@ type MdvAiStatsPayload = {
 type MdvAiSemanticSearchResult = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
   layer: string
   score: number
   preview: string
@@ -304,6 +315,7 @@ type MdvAiSemanticSearchResult = {
 type MdvAiSemanticSearchPayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
+  target?: MdvAiEditorTarget
   query: string
   results: MdvAiSemanticSearchResult[]
   bufferId?: MdvAiEditorId | null

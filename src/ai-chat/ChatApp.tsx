@@ -18,7 +18,8 @@ type ContextAttachment = {
   label: string
   compactLabel: string
   detail: string
-  editorId: string
+  target: MdvAiEditorTarget | null
+  pageTarget: MdvAiEditorTarget | null
   span: MdvAiNormalizedSpan | null
   estimatedTokens: number
   truncated: boolean
@@ -52,23 +53,25 @@ function buildMessageContent(message: Message): string {
   }
 
   const attachments = message.contextAttachments.map((attachment) => {
+    const pageTargetLine = attachment.pageTarget
+      ? `PageTargetRef: ${JSON.stringify(attachment.pageTarget)}`
+      : null
+    const attachmentHeaderLines = [
+      attachment.transport === 'inline' && attachment.inlineText ? `Attached context: ${attachment.label}` : `Attached context hint: ${attachment.label}`,
+      attachment.target ? `TargetRef: ${JSON.stringify(attachment.target)}` : 'This attachment is metadata-only and cannot be re-read via read_target.',
+      ...(pageTargetLine ? [pageTargetLine] : []),
+      `Resolved span: ${formatSpanLabel(attachment.span)}`,
+      `Estimated tokens: ${attachment.estimatedTokens}`,
+    ]
+
     if (attachment.transport === 'inline' && attachment.inlineText) {
-      return [
-        `Attached context: ${attachment.label}`,
-        `EditorID: ${attachment.editorId}`,
-        `SPAN: ${formatSpanLabel(attachment.span)}`,
-        `Estimated tokens: ${attachment.estimatedTokens}`,
-        attachment.inlineText,
-      ].join('\n')
+      return [...attachmentHeaderLines, attachment.inlineText].join('\n')
     }
 
     const hintLines = [
-      `Attached context hint: ${attachment.label}`,
-      `EditorID: ${attachment.editorId}`,
-      `SPAN: ${formatSpanLabel(attachment.span)}`,
-      `Estimated tokens: ${attachment.estimatedTokens}`,
+      ...attachmentHeaderLines,
       `Preview: ${attachment.previewText || '(empty)'}`,
-      'Use read_target when more detail is needed.',
+      attachment.target ? 'Use read_target when more detail is needed.' : 'Use this metadata as descriptive context only.',
     ]
 
     if (attachment.truncated) {
@@ -188,10 +191,42 @@ function createPreviewText(text: string): string {
   return `${collapsed.slice(0, ATTACHMENT_PREVIEW_LIMIT)}...`
 }
 
+function normalizedSpanToRangeRef(span: MdvAiNormalizedSpan): MdvAiSpanRef {
+  return {
+    kind: 'range',
+    start: span.start,
+    end: span.end,
+  }
+}
+
+function createAttachmentTarget(kind: ContextAttachmentKind, editorId: string, span: MdvAiNormalizedSpan | null): MdvAiEditorTarget | null {
+  if (kind === 'editor' && !span) {
+    return null
+  }
+
+  return {
+    editorId,
+    span: span ? normalizedSpanToRangeRef(span) : { kind: 'document' },
+  }
+}
+
+function createAttachmentPageTarget(editorId: string, span: MdvAiNormalizedSpan | null): MdvAiEditorTarget | null {
+  if (!span) {
+    return null
+  }
+
+  return {
+    editorId,
+    span: normalizedSpanToRangeRef(span),
+  }
+}
+
 function createContextAttachment(kind: ContextAttachmentKind, payload: {
   detail: string
   editorId: string
   span?: MdvAiNormalizedSpan | null
+  target?: MdvAiEditorTarget | null
+  pageTarget?: MdvAiEditorTarget | null
   estimatedTokens?: number
   truncated?: boolean
 }, inlineAttachmentTokenBudget: number): ContextAttachment {
@@ -206,7 +241,8 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
     label: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
     compactLabel: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
     detail: payload.detail,
-    editorId: payload.editorId,
+    target: payload.target ?? createAttachmentTarget(kind, payload.editorId, payload.span ?? null),
+    pageTarget: payload.pageTarget ?? createAttachmentPageTarget(payload.editorId, payload.span ?? null),
     span: payload.span ?? null,
     estimatedTokens,
     truncated,
@@ -368,6 +404,8 @@ function ChatApp() {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
           span: payload?.span ?? null,
+          target: payload?.target ?? null,
+          pageTarget: payload?.pageTarget ?? null,
           estimatedTokens: payload?.estimatedTokens,
           truncated: payload?.truncated,
         }, inlineAttachmentTokenBudget))
@@ -392,6 +430,8 @@ function ChatApp() {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
           span: payload?.span ?? null,
+          target: payload?.target ?? null,
+          pageTarget: payload?.pageTarget ?? null,
           estimatedTokens: payload?.estimatedTokens,
           truncated: payload?.truncated,
         }, inlineAttachmentTokenBudget))

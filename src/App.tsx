@@ -167,6 +167,64 @@ function toMarkdownPos(position: MdvAiMarkdownPos | [number, number]): MdvAiMark
   return position
 }
 
+function isMarkdownPosLike(value: unknown): value is MdvAiMarkdownPos {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && Number.isFinite(Number((value as MdvAiMarkdownPos).line))
+    && Number.isFinite(Number((value as MdvAiMarkdownPos).column)),
+  )
+}
+
+function normalizeMarkdownPosRef(markdown: string, value: unknown): MdvAiMarkdownPos {
+  if (!isMarkdownPosLike(value)) {
+    throw new Error('Invalid markdown position')
+  }
+
+  return clampMarkdownPos(markdown, {
+    line: Math.max(1, Math.round(Number(value.line))),
+    column: Math.max(1, Math.round(Number(value.column))),
+  })
+}
+
+function normalizeSpanRef(markdown: string, span: MdvAiSpanRef): MdvAiSpanRef {
+  if (span.kind === 'selection' || span.kind === 'document') {
+    return { kind: span.kind }
+  }
+
+  if (span.kind === 'point') {
+    return { kind: 'point', at: normalizeMarkdownPosRef(markdown, span.at) }
+  }
+
+  if (span.kind === 'line') {
+    return { kind: 'line', line: Math.max(1, Math.round(Number(span.line))) }
+  }
+
+  if (span.kind === 'line-range') {
+    const startLine = Math.max(1, Math.round(Number(span.startLine)))
+    const endLine = Math.max(1, Math.round(Number(span.endLine)))
+    return {
+      kind: 'line-range',
+      startLine: Math.min(startLine, endLine),
+      endLine: Math.max(startLine, endLine),
+    }
+  }
+
+  if (span.kind === 'from-start') {
+    return { kind: 'from-start', end: normalizeMarkdownPosRef(markdown, span.end) }
+  }
+
+  if (span.kind === 'to-end') {
+    return { kind: 'to-end', start: normalizeMarkdownPosRef(markdown, span.start) }
+  }
+
+  return {
+    kind: 'range',
+    start: normalizeMarkdownPosRef(markdown, span.start),
+    end: normalizeMarkdownPosRef(markdown, span.end),
+  }
+}
+
 function normalizeSelectionToMarkdownSpan(editor: ToastUiEditor, markdown: string): MdvAiNormalizedSpan {
   const selection = editor.getSelection()
   let start: MdvAiMarkdownPos
@@ -243,8 +301,10 @@ function resolveSpanToOffsets(markdown: string, editor: ToastUiEditor | null, sp
   }
 
   if (span.kind === 'line-range') {
-    const startLineOffsets = getLineBoundaryOffsets(markdown, span.startLine)
-    const endLineOffsets = getLineBoundaryOffsets(markdown, span.endLine)
+    const startLine = Math.min(span.startLine, span.endLine)
+    const endLine = Math.max(span.startLine, span.endLine)
+    const startLineOffsets = getLineBoundaryOffsets(markdown, startLine)
+    const endLineOffsets = getLineBoundaryOffsets(markdown, endLine)
 
     return {
       startOffset: startLineOffsets.startOffset,
@@ -929,13 +989,26 @@ function App() {
         const nextText = availableText.slice(0, maxChars)
         const finalEndOffset = resolvedOffsets.startOffset + nextText.length
         const truncated = availableText.length > nextText.length
+        const returnedSpan = normalizeOffsetsToSpan(markdownText, resolvedOffsets.startOffset, finalEndOffset)
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,
           ok: true,
           payload: {
             editorId: request.target.editorId,
-            span: normalizeOffsetsToSpan(markdownText, resolvedOffsets.startOffset, finalEndOffset),
+            span: returnedSpan,
+            target: {
+              editorId: request.target.editorId,
+              span: normalizeSpanRef(markdownText, request.target.span),
+            },
+            pageTarget: {
+              editorId: request.target.editorId,
+              span: {
+                kind: 'range',
+                start: returnedSpan.start,
+                end: returnedSpan.end,
+              },
+            },
             text: nextText,
             estimatedTokens: estimateTokenCount(nextText),
             truncated,

@@ -338,7 +338,19 @@ type ChatMessage = {
 ```json
 {
   "editorId": "editor:active",
-  "resolvedSpan": {
+  "target": {
+    "editorId": "editor:active",
+    "span": { "kind": "document" }
+  },
+  "pageTarget": {
+    "editorId": "editor:active",
+    "span": {
+      "kind": "range",
+      "start": { "line": 12, "column": 1 },
+      "end": { "line": 38, "column": 1 }
+    }
+  },
+  "span": {
     "start": { "line": 12, "column": 1 },
     "end": { "line": 38, "column": 1 },
     "isEmpty": false
@@ -351,6 +363,12 @@ type ChatMessage = {
   "estimatedTokens": 3820
 }
 ```
+
+補足:
+
+- `read_target` の follow-up pagination では `target` と `nextCursor` をそのまま再利用する
+- 今回返したページそのものを次の input に使いたい場合は `pageTarget` を使う
+- `span` は表示・説明用の resolved metadata であり、次の tool input schema ではない
 
 設計方針:
 
@@ -384,8 +402,10 @@ type ChatMessage = {
     { "type": "literal", "text": "# Summary\n" },
     {
       "type": "slice-ref",
-      "editorId": "buffer:grep-1",
-      "span": { "kind": "document" }
+      "target": {
+        "editorId": "buffer:grep-1",
+        "span": { "kind": "document" }
+      }
     }
   ],
   "mode": "replace"
@@ -431,7 +451,15 @@ type ChatMessage = {
 ```json
 {
   "editorId": "editor:active",
-  "resolvedSpan": {
+  "target": {
+    "editorId": "editor:active",
+    "span": {
+      "kind": "range",
+      "start": { "line": 12, "column": 1 },
+      "end": { "line": 18, "column": 1 }
+    }
+  },
+  "span": {
     "start": { "line": 12, "column": 1 },
     "end": { "line": 18, "column": 1 },
     "isEmpty": false
@@ -446,12 +474,14 @@ type ChatMessage = {
 ```ts
 type WriteSource =
   | { type: 'literal'; text: string }
+  | { type: 'slice-ref'; target: { editorId: string; span: SpanRef } }
   | { type: 'slice-ref'; editorId: string; span: SpanRef }
 ```
 
 設計方針:
 
 - write は source を複数受けられるようにして、直値と EditorID+SPAN の混在を許す
+- 返却された `target` は destination だけでなく `slice-ref` source にもそのまま再利用できるようにする
 - 実行前に main process がすべての `slice-ref` を bounded に resolve し、必要なら追加 `read` を促す
 - source が大きすぎるときは失敗ではなく validation error として返し、model に再取得方針を促す
 

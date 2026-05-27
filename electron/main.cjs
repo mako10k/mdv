@@ -811,6 +811,139 @@ function normalizeOffsetsToSpan(markdown, startOffset, endOffset) {
   }
 }
 
+function isMarkdownPos(value) {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && Number.isFinite(Number(value.line))
+    && Number.isFinite(Number(value.column)),
+  )
+}
+
+function normalizeMarkdownPos(value) {
+  if (!isMarkdownPos(value)) {
+    throw new Error('Invalid markdown position')
+  }
+
+  return {
+    line: Math.max(1, Math.round(Number(value.line))),
+    column: Math.max(1, Math.round(Number(value.column))),
+  }
+}
+
+function normalizeAiSpanRef(span) {
+  if (!span || typeof span !== 'object') {
+    return { kind: 'document' }
+  }
+
+  if (span.kind === 'selection' || span.kind === 'document') {
+    return { kind: span.kind }
+  }
+
+  if (span.kind === 'point' && isMarkdownPos(span.at)) {
+    return {
+      kind: 'point',
+      at: normalizeMarkdownPos(span.at),
+    }
+  }
+
+  if (span.kind === 'line' && Number.isFinite(Number(span.line))) {
+    return {
+      kind: 'line',
+      line: Math.max(1, Math.round(Number(span.line))),
+    }
+  }
+
+  if (span.kind === 'line-range' && Number.isFinite(Number(span.startLine)) && Number.isFinite(Number(span.endLine))) {
+    const startLine = Math.max(1, Math.round(Number(span.startLine)))
+    const endLine = Math.max(1, Math.round(Number(span.endLine)))
+    return {
+      kind: 'line-range',
+      startLine: Math.min(startLine, endLine),
+      endLine: Math.max(startLine, endLine),
+    }
+  }
+
+  if (span.kind === 'from-start' && isMarkdownPos(span.end)) {
+    return {
+      kind: 'from-start',
+      end: normalizeMarkdownPos(span.end),
+    }
+  }
+
+  if (span.kind === 'to-end' && isMarkdownPos(span.start)) {
+    return {
+      kind: 'to-end',
+      start: normalizeMarkdownPos(span.start),
+    }
+  }
+
+  if (span.kind === 'range' && isMarkdownPos(span.start) && isMarkdownPos(span.end)) {
+    return {
+      kind: 'range',
+      start: normalizeMarkdownPos(span.start),
+      end: normalizeMarkdownPos(span.end),
+    }
+  }
+
+  if (isMarkdownPos(span.start) && isMarkdownPos(span.end)) {
+    return {
+      kind: 'range',
+      start: normalizeMarkdownPos(span.start),
+      end: normalizeMarkdownPos(span.end),
+    }
+  }
+
+  throw new Error(`Unsupported AI span payload: ${JSON.stringify(span)}`)
+}
+
+function normalizedSpanToSpanRef(span) {
+  return {
+    kind: 'range',
+    start: normalizeMarkdownPos(span.start),
+    end: normalizeMarkdownPos(span.end),
+  }
+}
+
+function buildAiTargetRef(editorId, span) {
+  return {
+    editorId,
+    span: normalizedSpanToSpanRef(span),
+  }
+}
+
+function normalizeAiSliceRefSource(source) {
+  if (!source || typeof source !== 'object' || source.type !== 'slice-ref') {
+    return source
+  }
+
+  if (source.target && typeof source.target === 'object') {
+    const hasExplicitTargetEditorId = typeof source.target.editorId === 'string' && source.target.editorId.length > 0
+    const hasExplicitTargetSpan = source.target.span && typeof source.target.span === 'object'
+
+    if (hasExplicitTargetEditorId && hasExplicitTargetSpan) {
+      return {
+        ...source,
+        editorId: source.target.editorId,
+        span: normalizeAiSpanRef(source.target.span),
+      }
+    }
+  }
+
+  const hasLegacyEditorId = typeof source.editorId === 'string' && source.editorId.length > 0
+  const hasLegacySpan = source.span && typeof source.span === 'object'
+
+  if (hasLegacyEditorId && hasLegacySpan) {
+    return {
+      ...source,
+      editorId: source.editorId,
+      span: normalizeAiSpanRef(source.span),
+    }
+  }
+
+  throw new Error('Invalid AI slice-ref source target')
+}
+
 function getLineBoundaryOffsets(markdown, line) {
   const totalLines = getMarkdownLineStartOffsets(markdown).length
   const clampedLine = Math.min(Math.max(1, Math.trunc(Number(line) || 1)), totalLines)
@@ -841,8 +974,10 @@ function resolveSpanToOffsets(markdown, span) {
   }
 
   if (span.kind === 'line-range') {
-    const startOffsets = getLineBoundaryOffsets(markdown, span.startLine)
-    const endOffsets = getLineBoundaryOffsets(markdown, span.endLine)
+    const startLine = Math.min(span.startLine, span.endLine)
+    const endLine = Math.max(span.startLine, span.endLine)
+    const startOffsets = getLineBoundaryOffsets(markdown, startLine)
+    const endOffsets = getLineBoundaryOffsets(markdown, endLine)
     return {
       startOffset: startOffsets.startOffset,
       endOffset: Math.max(startOffsets.startOffset, endOffsets.endOffset),
@@ -889,9 +1024,17 @@ function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens) {
   const finalEndOffset = resolvedOffsets.startOffset + text.length
   const truncated = availableText.length > text.length
 
+  const normalizedSpan = normalizeOffsetsToSpan(markdown, resolvedOffsets.startOffset, finalEndOffset)
+  const requestedTarget = {
+    editorId,
+    span: normalizeAiSpanRef(span),
+  }
+
   return {
     editorId,
-    span: normalizeOffsetsToSpan(markdown, resolvedOffsets.startOffset, finalEndOffset),
+    span: normalizedSpan,
+    target: requestedTarget,
+    pageTarget: buildAiTargetRef(editorId, normalizedSpan),
     text,
     estimatedTokens: estimateTokenCount(text),
     truncated,
@@ -1037,6 +1180,7 @@ async function grepAiSliceForWindow(editorWindow, payload) {
         preview: lineText,
         span: createMatchSpan(absoluteLine, absoluteColumn, match[0] || ''),
       }
+      result.target = buildAiTargetRef(targetText.editorId, result.span)
 
       if (matches.length >= maxResults) {
         truncated = true
@@ -1066,6 +1210,7 @@ async function grepAiSliceForWindow(editorWindow, payload) {
   return {
     editorId: targetText.editorId,
     span: targetText.span,
+    target: buildAiTargetRef(targetText.editorId, targetText.span),
     query,
     isRegexp,
     caseSensitive,
@@ -1089,6 +1234,7 @@ async function statsAiSliceForWindow(editorWindow, payload) {
   return {
     editorId: targetText.editorId,
     span: targetText.span,
+    target: buildAiTargetRef(targetText.editorId, targetText.span),
     characters: targetText.text.length,
     lines: lines.length,
     emptyLines,
@@ -1173,6 +1319,7 @@ async function semanticSearchForWindow(editorWindow, payload) {
     .map((chunk) => ({
       editorId: runtime.editorId,
       span: chunk.span,
+      target: buildAiTargetRef(runtime.editorId, chunk.span),
       layer: chunk.layer,
       score: cosineSimilarity(queryEmbedding, chunk.embedding) * chunk.weight,
       preview: createPreviewText(chunk.text),
@@ -1190,6 +1337,7 @@ async function semanticSearchForWindow(editorWindow, payload) {
   return {
     editorId: runtime.editorId,
     span: runtime.span,
+    target: buildAiTargetRef(runtime.editorId, runtime.span),
     query,
     results,
     bufferId: bufferRecord?.editorId || null,
@@ -1519,9 +1667,28 @@ const openAiChatInstructions = [
   'Treat transcript entries labeled as tool context as trusted application-provided context.',
   'Large context hints that include EditorID and SPAN are references, not full text; call read_target when you need the actual text.',
   'Prefer exact_search or semantic_search to narrow large documents before reading wide spans.',
+  'For follow-up tool calls, prefer the returned target object exactly as-is; resolved span objects with start/end/isEmpty are output metadata, not SPAN input schema.',
+  'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
+
+const aiSpanDescription = [
+  'SPAN must be one of:',
+  '{"kind":"document"},',
+  '{"kind":"selection"},',
+  '{"kind":"point","at":{"line":12,"column":1}},',
+  '{"kind":"line","line":12},',
+  '{"kind":"line-range","startLine":10,"endLine":18},',
+  '{"kind":"from-start","end":{"line":20,"column":1}},',
+  '{"kind":"to-end","start":{"line":20,"column":1}},',
+  '{"kind":"range","start":{"line":10,"column":1},"end":{"line":18,"column":1}}.',
+  'Use the returned target field for follow-up calls whenever available.',
+].join(' ')
+
+const aiTargetDescription = `Target object as {"editorId":"editor:active","span":SPAN}. ${aiSpanDescription}`
+const aiDestinationDescription = `Destination object as {"editorId":"editor:active"|":new","span":SPAN}. ${aiSpanDescription}`
+const aiSliceRefSourceDescription = `Slice-ref source as either {"type":"slice-ref","target":{"editorId":"...","span":SPAN}} or {"type":"slice-ref","editorId":"...","span":SPAN}. ${aiSpanDescription}`
 
 const aiToolDefinitions = [
   {
@@ -1549,11 +1716,11 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'read_target',
-    description: 'Read bounded text from an EditorID + SPAN target. Use nextCursor for continuation.',
+    description: 'Read bounded text from an EditorID + SPAN target. Use nextCursor with the returned target for continuation. Use pageTarget when you need exactly the returned page as a new input target.',
     parameters: {
       type: 'object',
       properties: {
-        target: { type: 'object', description: 'Target object with editorId and span.' },
+        target: { type: 'object', description: aiTargetDescription },
         cursor: { type: 'object', description: 'Optional cursor returned by a previous read_target call.' },
         maxTokens: { type: 'number', description: 'Optional bounded token target.' },
       },
@@ -1564,12 +1731,12 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'write_target',
-    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window.',
+    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window. Prefer target refs returned by earlier tools.',
     parameters: {
       type: 'object',
       properties: {
-        destination: { type: 'object', description: 'Destination object with editorId and span.' },
-        sources: { type: 'array', description: 'Array of literal or slice-ref sources.' },
+        destination: { type: 'object', description: aiDestinationDescription },
+        sources: { type: 'array', description: `Array of literal sources like {"type":"literal","text":"..."} or slice-ref sources. ${aiSliceRefSourceDescription}` },
         mode: { type: 'string', enum: ['replace', 'insert'] },
         title: { type: 'string' },
       },
@@ -1580,11 +1747,11 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'exact_search',
-    description: 'Run an exact search inside an EditorID + SPAN target and return matching lines.',
+    description: 'Run an exact search inside an EditorID + SPAN target and return matching lines plus reusable target refs.',
     parameters: {
       type: 'object',
       properties: {
-        target: { type: 'object', description: 'Target object with editorId and span.' },
+        target: { type: 'object', description: aiTargetDescription },
         query: { type: 'string' },
         isRegexp: { type: 'boolean' },
         caseSensitive: { type: 'boolean' },
@@ -1597,11 +1764,11 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'stats_slice',
-    description: 'Return statistics for an EditorID + SPAN target.',
+    description: 'Return statistics for an EditorID + SPAN target and include a reusable target ref.',
     parameters: {
       type: 'object',
       properties: {
-        target: { type: 'object', description: 'Target object with editorId and span.' },
+        target: { type: 'object', description: aiTargetDescription },
       },
       required: ['target'],
       additionalProperties: false,
@@ -1610,11 +1777,11 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'semantic_search',
-    description: 'Run multi-layer semantic search over an EditorID + SPAN target using cached embeddings.',
+    description: 'Run multi-layer semantic search over an EditorID + SPAN target using cached embeddings and return reusable target refs.',
     parameters: {
       type: 'object',
       properties: {
-        target: { type: 'object', description: 'Target object with editorId and span.' },
+        target: { type: 'object', description: aiTargetDescription },
         query: { type: 'string' },
         maxResults: { type: 'number' },
       },
@@ -1674,7 +1841,7 @@ function normalizeToolTarget(args) {
 
   return {
     editorId: typeof target?.editorId === 'string' && target.editorId.length > 0 ? target.editorId : 'editor:active',
-    span: target?.span && typeof target.span === 'object' ? target.span : { kind: 'document' },
+    span: normalizeAiSpanRef(target?.span),
   }
 }
 
@@ -1721,10 +1888,12 @@ async function executeAiToolCall(editorWindow, toolName, args) {
       destination: args?.destination && typeof args.destination === 'object'
         ? {
             editorId: typeof args.destination.editorId === 'string' && args.destination.editorId.length > 0 ? args.destination.editorId : 'editor:active',
-            span: args.destination.span && typeof args.destination.span === 'object' ? args.destination.span : { kind: 'document' },
+            span: normalizeAiSpanRef(args.destination.span),
           }
         : { editorId: 'editor:active', span: { kind: 'document' } },
-      sources: Array.isArray(args?.sources) ? args.sources : [],
+      sources: Array.isArray(args?.sources)
+        ? args.sources.map((source) => normalizeAiSliceRefSource(source))
+        : [],
       mode: args?.mode === 'insert' ? 'insert' : 'replace',
       title: typeof args?.title === 'string' ? args.title : undefined,
     })
@@ -1990,7 +2159,7 @@ async function readAiTargetForWindow(editorWindow, payload) {
     throw new Error('Active document read is disabled in settings')
   }
 
-  return requestEditorWindowData(editorWindow, {
+  const readResult = await requestEditorWindowData(editorWindow, {
     type: 'read',
     target: {
       editorId: runtimeState.editorId,
@@ -1999,6 +2168,8 @@ async function readAiTargetForWindow(editorWindow, payload) {
     cursor: payload?.cursor ?? null,
     maxTokens: resolveReadTokenBudget(payload?.maxTokens),
   })
+
+  return readResult
 }
 
 async function materializeWriteSources(editorWindow, sources) {
@@ -2021,18 +2192,19 @@ async function materializeWriteSources(editorWindow, sources) {
     if (source.type !== 'slice-ref') {
       throw new Error(`Unsupported AI write source type: ${source.type}`)
     }
+    const normalizedSource = normalizeAiSliceRefSource(source)
 
     const readPayload = await readAiTargetForWindow(editorWindow, {
       target: {
-        editorId: source.editorId,
-        span: source.span,
+        editorId: normalizedSource.editorId,
+        span: normalizedSource.span,
       },
       cursor: null,
       maxTokens: getInlineTokenBudget(),
     })
 
     if (readPayload?.truncated) {
-      throw new Error(`Write source ${source.editorId} exceeded bounded read budget; narrow the span first`)
+      throw new Error(`Write source ${normalizedSource.editorId} exceeded bounded read budget; narrow the span first`)
     }
 
     output += readPayload?.text || ''
@@ -2129,6 +2301,7 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     const writeResult = await createNewEditorWindowFromContent(content, payload?.title)
     return {
       ...writeResult,
+      target: writeResult?.span && typeof writeResult.editorId === 'string' ? buildAiTargetRef(writeResult.editorId, writeResult.span) : undefined,
       created: true,
     }
   }
@@ -2142,12 +2315,14 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     const startOffset = resolvedOffsets.startOffset
     const endOffset = nextMode === 'insert' ? startOffset : resolvedOffsets.endOffset
     const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
+    const writtenSpan = normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length)
     resolvedTarget.bufferRecord.text = nextText
     resolvedTarget.bufferRecord.updatedAt = new Date().toISOString()
 
     return {
       editorId: resolvedTarget.editorId,
-      span: normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length),
+      span: writtenSpan,
+      target: buildAiTargetRef(resolvedTarget.editorId, writtenSpan),
       text: content,
       mode: nextMode,
       bytesWritten: Buffer.byteLength(content, 'utf8'),
@@ -2186,7 +2361,7 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     }
   }
 
-  return requestEditorWindowData(editorWindow, {
+  const writeResult = await requestEditorWindowData(editorWindow, {
     type: 'write',
     destination: {
       editorId: runtimeState.editorId,
@@ -2201,6 +2376,11 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     mode: payload?.mode === 'insert' ? 'insert' : 'replace',
     title: resolvedTarget.editorId === ':new' && typeof payload?.title === 'string' ? payload.title : undefined,
   })
+
+  return {
+    ...writeResult,
+    target: writeResult?.span && typeof writeResult.editorId === 'string' ? buildAiTargetRef(writeResult.editorId, writeResult.span) : undefined,
+  }
 }
 
 async function listAiBuffersForWindow(editorWindow) {
