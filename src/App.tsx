@@ -798,6 +798,16 @@ function App() {
     setStatusText(`Opened ${basename(payload.path)}`)
   }
 
+  const loadDetachedFile = (fileName: string, content: string) => {
+    invalidateEditorSearch()
+    setMarkdownText(content)
+    setCurrentFilePath(null)
+    setDisplayTitle(fileName || 'Untitled.md')
+    persistedMarkdownRef.current = content
+    editorRef.current?.setMarkdown(content)
+    setStatusText(`Loaded ${fileName || 'Untitled.md'}`)
+  }
+
   const handleOpen = async () => {
     const payload = await window.mdvDesktop?.openFile()
     loadFilePayload(payload ?? null)
@@ -1266,10 +1276,7 @@ function App() {
     }
 
     const content = await droppedFile.text()
-    setMarkdownText(content)
-    setCurrentFilePath(null)
-    editorRef.current?.setMarkdown(content)
-    setStatusText(`Loaded ${droppedFile.name}`)
+    loadDetachedFile(droppedFile.name, content)
   }
 
   const handleDragOver = (event: DragEvent<HTMLElement>) => {

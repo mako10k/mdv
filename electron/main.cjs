@@ -2293,7 +2293,7 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         input: nextInput,
         previous_response_id: previousResponseId || undefined,
         tools: aiToolDefinitions,
-        store: false,
+        store: true,
       })
 
       previousResponseId = typeof response.id === 'string' ? response.id : null

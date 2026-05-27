@@ -304,10 +304,15 @@
 .editor-panel .toastui-editor-md-tab-container,
 .editor-panel .toastui-editor-mode-switch {
   margin: 0;
+  font-family: var(--sans);
 }
 
 .editor-panel .toastui-editor-mode-switch .tab-item,
 .editor-panel .toastui-editor-tabs .tab-item {
+  font: inherit;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
