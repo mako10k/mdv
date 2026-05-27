@@ -167,6 +167,21 @@
   color: var(--text-muted);
 }
 
+.editor-search-icon-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-search-icon-button .toolbar-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .editor-search-results {
   display: flex;
   gap: 6px;

@@ -391,6 +391,26 @@ function ChatApp() {
     setStatusText(`Context queued: ${attachment.label}`)
   }
 
+  const removePendingContext = (attachmentId: string) => {
+    const hasTarget = pendingContexts.some((attachment) => attachment.id === attachmentId)
+    setPendingContexts((currentContexts) => {
+      return currentContexts.filter((attachment) => attachment.id !== attachmentId)
+    })
+
+    if (hasTarget) {
+      setStatusText('Pending context removed')
+    }
+  }
+
+  const clearPendingContexts = () => {
+    if (pendingContexts.length === 0) {
+      return
+    }
+
+    setPendingContexts([])
+    setStatusText('Pending context cleared')
+  }
+
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const anchor = resolveExternalAnchor(event.target)
@@ -690,10 +710,22 @@ function ChatApp() {
         {pendingContexts.length ? (
           <div className="chat-context-badges ai-chat-pending-contexts" aria-label="Pending context">
             {pendingContexts.map((attachment) => (
-              <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
-                {attachment.compactLabel}
+              <span key={attachment.id} className="chat-context-badge chat-context-badge-pending" title={attachment.detail}>
+                <span>{attachment.compactLabel}</span>
+                <button
+                  type="button"
+                  className="chat-context-badge-remove"
+                  onClick={() => removePendingContext(attachment.id)}
+                  aria-label={`Remove pending context ${attachment.compactLabel}`}
+                  title="Remove pending context"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
               </span>
             ))}
+            <button type="button" className="ai-chat-clear-contexts" onClick={clearPendingContexts}>
+              Clear all
+            </button>
           </div>
         ) : null}
         <textarea

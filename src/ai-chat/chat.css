@@ -120,6 +120,33 @@ body,
   letter-spacing: 0.04em;
 }
 
+.chat-context-badge-pending {
+  gap: 4px;
+  padding-right: 2px;
+}
+
+.chat-context-badge-remove {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  line-height: 1;
+}
+
+.chat-context-badge-remove:hover,
+.chat-context-badge-remove:focus-visible {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  outline: none;
+}
+
 .chat-bubble .markdown-fragment p,
 .chat-bubble .markdown-fragment ul,
 .chat-bubble .markdown-fragment ol,
@@ -417,11 +444,27 @@ body,
   margin: -2px 0 0;
 }
 
+.ai-chat-clear-contexts {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .ai-chat-icon-button:hover,
 .ai-chat-icon-button:focus-visible,
+.ai-chat-clear-contexts:hover,
+.ai-chat-clear-contexts:focus-visible,
 .ai-chat-send:hover,
 .ai-chat-send:focus-visible {
   border-color: var(--link);
+  outline: none;
 }
 
 @media (max-width: 640px) {

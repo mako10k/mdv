@@ -668,6 +668,47 @@ function SettingsIcon() {
   )
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m15 15 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function PrevIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M14.5 6.5 9 12l5.5 5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function NextIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M9.5 6.5 15 12l-5.5 5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M7 7 17 17M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ResultsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M5 7.5h14M5 12h14M5 16.5h9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const [markdownText, setMarkdownText] = useState(initialDocument)
@@ -686,6 +727,7 @@ function App() {
   const [pendingSearchJump, setPendingSearchJump] = useState<MdvAiNormalizedSpan | null>(null)
   const [isRunningEditorSearch, setIsRunningEditorSearch] = useState(false)
   const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
+  const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
   const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
@@ -811,6 +853,7 @@ function App() {
     setSelectedSearchResultIndex(-1)
     setPendingSearchJump(null)
     setEditorSearchError(null)
+    setIsEditorSearchResultsVisible(false)
   }
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
@@ -908,6 +951,7 @@ function App() {
       setEditorSearchResults([])
       setSelectedSearchResultIndex(-1)
       setEditorSearchError(null)
+      setIsEditorSearchResultsVisible(false)
       setStatusText('Cleared editor search')
       return
     }
@@ -940,6 +984,7 @@ function App() {
 
         setEditorSearchResults(results)
         setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
+        setIsEditorSearchResultsVisible(results.length > 0)
 
         if (results.length > 0) {
           jumpToEditorSearchResult(results[0], 0)
@@ -973,6 +1018,7 @@ function App() {
 
       setEditorSearchResults(results)
       setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
+      setIsEditorSearchResultsVisible(results.length > 0)
 
       if (results.length > 0) {
         jumpToEditorSearchResult(results[0], 0)
@@ -984,10 +1030,25 @@ function App() {
       setEditorSearchError(message)
       setEditorSearchResults([])
       setSelectedSearchResultIndex(-1)
+      setIsEditorSearchResultsVisible(true)
       setStatusText(`Search failed: ${message}`)
     } finally {
       setIsRunningEditorSearch(false)
     }
+  }
+
+  const hideEditorSearchResults = () => {
+    setIsEditorSearchResultsVisible(false)
+    setStatusText('Search results hidden')
+  }
+
+  const showEditorSearchResults = () => {
+    if (!editorSearchError && editorSearchResults.length === 0) {
+      return
+    }
+
+    setIsEditorSearchResultsVisible(true)
+    setStatusText('Search results shown')
   }
 
   const moveEditorSearchSelection = (delta: number) => {
@@ -1457,18 +1518,50 @@ function App() {
                   }
                 }}
               />
-              <button type="button" onClick={() => void handleRunEditorSearch()} disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}>
-                {isRunningEditorSearch ? '...' : 'Go'}
+              <button
+                type="button"
+                className="editor-search-icon-button"
+                onClick={() => void handleRunEditorSearch()}
+                disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}
+                aria-label={isRunningEditorSearch ? 'Searching' : 'Run search'}
+                title={isRunningEditorSearch ? 'Searching' : 'Run search'}
+              >
+                {isRunningEditorSearch ? '...' : <SearchIcon />}
               </button>
-              <button type="button" onClick={() => moveEditorSearchSelection(-1)} disabled={editorSearchResults.length === 0}>
-                Prev
+              <button
+                type="button"
+                className="editor-search-icon-button"
+                onClick={() => moveEditorSearchSelection(-1)}
+                disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
+                aria-label="Previous result"
+                title="Previous result"
+              >
+                <PrevIcon />
               </button>
-              <button type="button" onClick={() => moveEditorSearchSelection(1)} disabled={editorSearchResults.length === 0}>
-                Next
+              <button
+                type="button"
+                className="editor-search-icon-button"
+                onClick={() => moveEditorSearchSelection(1)}
+                disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
+                aria-label="Next result"
+                title="Next result"
+              >
+                <NextIcon />
               </button>
               <span className="editor-search-count">
-                {editorSearchResults.length === 0 ? '0' : `${selectedSearchResultIndex + 1}/${editorSearchResults.length}`}
+                {!isEditorSearchResultsVisible || editorSearchResults.length === 0 ? '0' : `${selectedSearchResultIndex + 1}/${editorSearchResults.length}`}
               </span>
+              {(editorSearchError || editorSearchResults.length > 0) ? (
+                <button
+                  type="button"
+                  className="editor-search-icon-button"
+                  onClick={isEditorSearchResultsVisible ? hideEditorSearchResults : showEditorSearchResults}
+                  aria-label={isEditorSearchResultsVisible ? 'Hide search results' : 'Show search results'}
+                  title={isEditorSearchResultsVisible ? 'Hide search results' : 'Show search results'}
+                >
+                  {isEditorSearchResultsVisible ? <CloseIcon /> : <ResultsIcon />}
+                </button>
+              ) : null}
             </div>
             <label className="theme-select-shell" title="Theme">
               <span>Theme</span>
@@ -1499,7 +1592,7 @@ function App() {
           </div>
         </header>
 
-        {(editorSearchError || editorSearchResults.length > 0) ? (
+        {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
           <section className="editor-search-results" aria-label="Editor search results">
             {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
             {editorSearchResults.map((result, index) => (
