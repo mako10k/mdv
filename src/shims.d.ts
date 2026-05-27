@@ -228,10 +228,18 @@ type MdvProviderStatus = {
   tavilyConfigured: boolean
 }
 
+type MdvInitialPanel = 'write' | 'preview'
+
+type MdvLaunchRequest = {
+  filePath: string | null
+  initialPanel: MdvInitialPanel
+}
+
 type MdvSettingsBootstrap = {
   settings: MdvSettings
   hasPersistedSettings: boolean
   hasReadableSettings: boolean
+  initialPanel: MdvInitialPanel
 }
 
 type MdvAiContextPayload = {
@@ -378,7 +386,7 @@ interface Window {
       status: 'completed' | 'failed'
       snapshot?: MdvClientSnapshot | null
     }) => void
-    onOpenFileRequested: (callback: (filePath: string) => void) => () => void
+    onOpenFileRequested: (callback: (request: MdvLaunchRequest | string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     onAiEditorRequest: (callback: (request: MdvAiEditorRequest) => void | Promise<void>) => () => void
     sendAiEditorResponse: (payload: {

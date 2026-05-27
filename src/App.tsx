@@ -667,7 +667,10 @@ function SettingsIcon() {
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const [markdownText, setMarkdownText] = useState(initialDocument)
-  const [activePanel, setActivePanel] = useState<'write' | 'preview'>('write')
+  const [activePanel, setActivePanel] = useState<'write' | 'preview'>(() => {
+    const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
+    return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
+  })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
   const [displayTitle, setDisplayTitle] = useState('Untitled.md')
   const [statusText, setStatusText] = useState('Ready')
@@ -797,11 +800,6 @@ function App() {
 
   const handleOpen = async () => {
     const payload = await window.mdvDesktop?.openFile()
-    loadFilePayload(payload ?? null)
-  }
-
-  const handleOpenByPath = async (filePath: string) => {
-    const payload = await window.mdvDesktop?.readFile(filePath)
     loadFilePayload(payload ?? null)
   }
 
@@ -1164,8 +1162,35 @@ function App() {
   }, [activePanel, currentFilePath, markdownText])
 
   useEffect(() => {
-    const unsubscribe = window.mdvDesktop?.onOpenFileRequested((filePath) => {
-      void handleOpenByPath(filePath)
+    const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
+      const filePath = typeof request === 'string' ? request : request.filePath
+      const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
+
+      if (!filePath) {
+        if (initialPanel) {
+          setActivePanel(initialPanel)
+        }
+
+        return
+      }
+
+      void window.mdvDesktop?.readFile(filePath).then((payload) => {
+        if (initialPanel) {
+          setActivePanel(initialPanel)
+        }
+
+        if (!payload) {
+          return
+        }
+
+        invalidateEditorSearch()
+        setMarkdownText(payload.content)
+        setCurrentFilePath(payload.path)
+        setDisplayTitle(basename(payload.path))
+        persistedMarkdownRef.current = payload.content
+        editorRef.current?.setMarkdown(payload.content)
+        setStatusText(`Opened ${basename(payload.path)}`)
+      })
     })
 
     return () => {

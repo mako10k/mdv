@@ -25,13 +25,14 @@ app.setAppLogsPath()
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
 let allowedLinkRules = loadAllowedLinkRules()
-let pendingLaunchFilePath = resolveLaunchFilePath(process.argv)
+let pendingLaunchRequest = resolveLaunchRequest(process.argv)
 let managedMainWindow = null
 let commandPollTimer = null
 const pendingServerRequests = new Map()
 const editorToAiChatWindowId = new Map()
 const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
+const launchStateByWindowId = new Map()
 const editorRuntimeStateByWindowId = new Map()
 const aiSessionBuffersByEditorWindowId = new Map()
 let settingsWindow = null
@@ -1449,8 +1450,21 @@ function getFileArgumentStartIndex() {
   return process.defaultApp ? 2 : 1
 }
 
-function resolveLaunchFilePath(argv) {
+function resolveLaunchRequest(argv) {
+  let explicitInitialPanel = null
+  let filePath = null
+
   for (const candidate of argv.slice(getFileArgumentStartIndex())) {
+    if (candidate === '--edit') {
+      explicitInitialPanel = 'write'
+      continue
+    }
+
+    if (candidate === '--view') {
+      explicitInitialPanel = 'preview'
+      continue
+    }
+
     if (typeof candidate !== 'string' || candidate.length === 0 || candidate.startsWith('-')) {
       continue
     }
@@ -1458,15 +1472,30 @@ function resolveLaunchFilePath(argv) {
     const resolvedPath = path.resolve(candidate)
 
     try {
-      if (fs.statSync(resolvedPath).isFile()) {
-        return resolvedPath
+      if (fs.statSync(resolvedPath).isFile() && !filePath) {
+        filePath = resolvedPath
       }
     } catch {
       continue
     }
   }
 
-  return null
+  return {
+    filePath,
+    explicitInitialPanel,
+  }
+}
+
+function resolveInitialPanelForLaunch(launchRequest) {
+  if (launchRequest?.explicitInitialPanel === 'write' || launchRequest?.explicitInitialPanel === 'preview') {
+    return launchRequest.explicitInitialPanel
+  }
+
+  if (launchRequest?.filePath) {
+    return 'preview'
+  }
+
+  return settingsState.general.defaultStartPanel === 'preview' ? 'preview' : 'write'
 }
 
 function focusWindow(window) {
@@ -2834,13 +2863,18 @@ function openSettingsWindow(targetWindow) {
   return { status: 'opened' }
 }
 
-function dispatchOpenFileToWindow(targetWindow, filePath) {
-  if (!targetWindow || !filePath) {
+function dispatchOpenFileToWindow(targetWindow, launchRequest) {
+  if (!targetWindow || (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel)) {
     return
   }
 
-  writeLog('INFO', 'main', 'Dispatch launch/open file request', filePath)
-  targetWindow.webContents.send('mdv:open-file-requested', filePath)
+  const resolvedLaunchRequest = {
+    filePath: launchRequest?.filePath || null,
+    initialPanel: resolveInitialPanelForLaunch(launchRequest),
+  }
+
+  writeLog('INFO', 'main', 'Dispatch launch/open file request', resolvedLaunchRequest)
+  targetWindow.webContents.send('mdv:open-file-requested', resolvedLaunchRequest)
 }
 
 function dispatchServerCommand(command) {
@@ -2851,20 +2885,20 @@ function dispatchServerCommand(command) {
   managedMainWindow.webContents.send('mdv:server-command', command)
 }
 
-function queueOrDispatchOpenFile(filePath) {
-  if (!filePath) {
+function queueOrDispatchOpenFile(launchRequest) {
+  if (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel) {
     return
   }
 
   const targetWindow = getDefaultEditorWindow()
 
   if (!targetWindow || targetWindow.webContents.isLoading()) {
-    pendingLaunchFilePath = filePath
-    writeLog('INFO', 'main', 'Queued launch file path', filePath)
+    pendingLaunchRequest = launchRequest
+    writeLog('INFO', 'main', 'Queued launch file path', launchRequest)
     return
   }
 
-  dispatchOpenFileToWindow(targetWindow, filePath)
+  dispatchOpenFileToWindow(targetWindow, launchRequest)
 }
 
 function loadAllowedLinkRules() {
@@ -3103,7 +3137,7 @@ async function readUtf8File(filePath) {
   }
 }
 
-function attachWindowLogging(mainWindow, initialLaunchFilePath = null) {
+function attachWindowLogging(mainWindow, initialLaunchRequest = null) {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     writeLog('ERROR', 'webContents', 'did-fail-load', {
       errorCode,
@@ -3127,15 +3161,15 @@ function attachWindowLogging(mainWindow, initialLaunchFilePath = null) {
   mainWindow.webContents.on('did-finish-load', () => {
     writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
 
-    if (initialLaunchFilePath) {
-      dispatchOpenFileToWindow(mainWindow, initialLaunchFilePath)
+    if (initialLaunchRequest?.filePath || initialLaunchRequest?.explicitInitialPanel) {
+      dispatchOpenFileToWindow(mainWindow, initialLaunchRequest)
       return
     }
 
-    if (pendingLaunchFilePath) {
-      const filePath = pendingLaunchFilePath
-      pendingLaunchFilePath = null
-      dispatchOpenFileToWindow(mainWindow, filePath)
+    if (pendingLaunchRequest?.filePath || pendingLaunchRequest?.explicitInitialPanel) {
+      const launchRequest = pendingLaunchRequest
+      pendingLaunchRequest = null
+      dispatchOpenFileToWindow(mainWindow, launchRequest)
     }
   })
 }
@@ -3216,7 +3250,7 @@ function createApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function createWindow(initialLaunchFilePath = null) {
+function createWindow(initialLaunchRequest = null) {
   const mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
@@ -3232,8 +3266,13 @@ function createWindow(initialLaunchFilePath = null) {
     },
   })
 
-  attachWindowLogging(mainWindow, initialLaunchFilePath)
+  launchStateByWindowId.set(mainWindow.id, {
+    initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
+  })
+
+  attachWindowLogging(mainWindow, initialLaunchRequest)
   mainWindow.on('closed', () => {
+    launchStateByWindowId.delete(mainWindow.id)
     if (settingsWindowOwnerEditorId === mainWindow.id) {
       settingsWindowOwnerEditorId = null
     }
@@ -3309,10 +3348,14 @@ ipcMain.handle('mdv:open-settings-window', async (event) => {
 })
 
 ipcMain.on('mdv:settings-bootstrap', (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const launchState = sourceWindow ? launchStateByWindowId.get(sourceWindow.id) : null
+
   event.returnValue = {
     settings: settingsState,
     hasPersistedSettings,
     hasReadableSettings,
+    initialPanel: launchState?.initialPanel === 'write' ? 'write' : 'preview',
   }
 })
 
@@ -3613,11 +3656,11 @@ process.on('unhandledRejection', (reason) => {
 })
 
 app.on('second-instance', (_event, argv) => {
-  const filePath = resolveLaunchFilePath(argv)
-  const shouldOpenAdditionalWindow = Boolean(filePath) && !isManagedClient()
+  const launchRequest = resolveLaunchRequest(argv)
+  const shouldOpenAdditionalWindow = Boolean(launchRequest.filePath) && !isManagedClient()
 
   if (shouldOpenAdditionalWindow) {
-    const nextWindow = createWindow(filePath)
+    const nextWindow = createWindow(launchRequest)
     focusWindow(nextWindow)
     return
   }
@@ -3628,17 +3671,17 @@ app.on('second-instance', (_event, argv) => {
     focusWindow(targetWindow)
   }
 
-  if (filePath) {
-    queueOrDispatchOpenFile(filePath)
+  if (launchRequest.filePath || launchRequest.explicitInitialPanel) {
+    queueOrDispatchOpenFile(launchRequest)
   }
 })
 
 app.whenReady().then(() => {
   writeLog('INFO', 'main', 'app.whenReady resolved')
   createApplicationMenu()
-  const initialFilePath = pendingLaunchFilePath
-  pendingLaunchFilePath = null
-  createWindow(initialFilePath)
+  const initialLaunchRequest = pendingLaunchRequest
+  pendingLaunchRequest = null
+  createWindow(initialLaunchRequest)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
