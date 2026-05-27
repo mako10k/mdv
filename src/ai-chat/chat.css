@@ -113,36 +113,49 @@
 .chat-bubble .markdown-fragment p,
 .chat-bubble .markdown-fragment ul,
 .chat-bubble .markdown-fragment ol,
-.chat-bubble .markdown-fragment blockquote {
+.chat-bubble .markdown-fragment blockquote,
+.chat-tool-content .markdown-fragment p,
+.chat-tool-content .markdown-fragment ul,
+.chat-tool-content .markdown-fragment ol,
+.chat-tool-content .markdown-fragment blockquote {
   line-height: 1.5;
 }
 
 .chat-bubble .markdown-fragment h1,
 .chat-bubble .markdown-fragment h2,
 .chat-bubble .markdown-fragment h3,
-.chat-bubble .markdown-fragment h4 {
+.chat-bubble .markdown-fragment h4,
+.chat-tool-content .markdown-fragment h1,
+.chat-tool-content .markdown-fragment h2,
+.chat-tool-content .markdown-fragment h3,
+.chat-tool-content .markdown-fragment h4 {
   margin: 0.9em 0 0.35em;
   color: var(--text-h);
   line-height: 1.18;
 }
 
-.chat-bubble .markdown-fragment h1 {
+.chat-bubble .markdown-fragment h1,
+.chat-tool-content .markdown-fragment h1 {
   font-size: 1.25rem;
 }
 
-.chat-bubble .markdown-fragment h2 {
+.chat-bubble .markdown-fragment h2,
+.chat-tool-content .markdown-fragment h2 {
   font-size: 1.08rem;
 }
 
-.chat-bubble .markdown-fragment h3 {
+.chat-bubble .markdown-fragment h3,
+.chat-tool-content .markdown-fragment h3 {
   font-size: 0.95rem;
 }
 
-.chat-bubble .markdown-fragment a {
+.chat-bubble .markdown-fragment a,
+.chat-tool-content .markdown-fragment a {
   color: var(--link);
 }
 
-.chat-bubble .markdown-fragment blockquote {
+.chat-bubble .markdown-fragment blockquote,
+.chat-tool-content .markdown-fragment blockquote {
   margin: 0;
   padding: 0.55em 0.7em;
   border-left: 3px solid var(--link);
@@ -151,24 +164,37 @@
 }
 
 .chat-bubble .markdown-fragment pre,
-.chat-bubble .markdown-fragment table {
+.chat-bubble .markdown-fragment table,
+.chat-tool-content .markdown-fragment pre,
+.chat-tool-content .markdown-fragment table {
   margin: 0;
 }
 
-.chat-bubble .markdown-fragment table {
+.chat-bubble .markdown-fragment table,
+.chat-tool-content .markdown-fragment table {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid var(--border);
 }
 
 .chat-bubble .markdown-fragment th,
-.chat-bubble .markdown-fragment td {
+.chat-bubble .markdown-fragment td,
+.chat-tool-content .markdown-fragment th,
+.chat-tool-content .markdown-fragment td {
   border: 1px solid var(--border);
   padding: 0.45em 0.55em;
 }
 
-.chat-bubble .markdown-fragment code {
+.chat-bubble .markdown-fragment code,
+.chat-tool-content .markdown-fragment code {
   white-space: break-spaces;
+}
+
+.chat-tool-content .markdown-fragment pre code {
+  border: none;
+  background: transparent;
+  color: var(--code-shell-text);
+  padding: 0;
 }
 
 .code-block-shell {
@@ -218,6 +244,80 @@
   align-self: stretch;
   max-width: 100%;
   background: var(--bg-panel-strong);
+}
+
+.chat-tool-entry {
+  align-self: stretch;
+  max-width: 100%;
+}
+
+.chat-tool-accordion {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-panel-strong) 90%, transparent);
+  overflow: hidden;
+}
+
+.chat-tool-accordion summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.chat-tool-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-tool-accordion summary::before {
+  content: '▸';
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform 140ms ease;
+}
+
+.chat-tool-accordion[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.chat-tool-summary-title {
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.chat-tool-summary-meta {
+  min-width: 0;
+  flex: 1;
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-tool-content {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.chat-tool-json {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--code-shell-bg);
+  color: var(--code-shell-text);
+  font: 11px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ai-chat-composer-shell {

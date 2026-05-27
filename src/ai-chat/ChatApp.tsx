@@ -146,6 +146,93 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function tryFormatJson(text: string): string | null {
+  if (typeof text !== 'string') {
+    return null
+  }
+
+  const trimmed = text.trim()
+
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return null
+  }
+
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2)
+  } catch {
+    return null
+  }
+}
+
+function isLikelyJsonLike(text: string): boolean {
+  if (typeof text !== 'string') {
+    return false
+  }
+
+  const trimmed = text.trim()
+  return trimmed.startsWith('{') || trimmed.startsWith('[')
+}
+
+function summarizeJsonLikeText(text: string): string | null {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== '{' && line !== '[' && line !== '}' && line !== ']' && line !== '...')
+
+  if (lines.length === 0) {
+    return null
+  }
+
+  const preview = lines[0].replace(/^[",'{[]+/, '')
+  return preview.length > 72 ? `${preview.slice(0, 72)}...` : preview
+}
+
+function summarizeJsonValue(text: string): string | null {
+  try {
+    const parsed = JSON.parse(text)
+
+    if (Array.isArray(parsed)) {
+      return parsed.length === 0 ? '[] empty array' : `[] ${parsed.length} items`
+    }
+
+    if (parsed && typeof parsed === 'object') {
+      const keys = Object.keys(parsed)
+      if (keys.length === 0) {
+        return '{} empty object'
+      }
+
+      const preview = keys.slice(0, 4).join(', ')
+      return keys.length > 4 ? `{ ${preview}, ... }` : `{ ${preview} }`
+    }
+
+    return String(parsed)
+  } catch {
+    return null
+  }
+}
+
+function summarizeToolMessage(content: string): string {
+  const trimmed = content.trim()
+
+  if (!trimmed) {
+    return 'Empty tool output'
+  }
+
+  const jsonPreview = tryFormatJson(trimmed)
+
+  if (jsonPreview) {
+    const jsonSummary = summarizeJsonValue(trimmed) || jsonPreview.split('\n', 1)[0]
+    return jsonSummary.length > 72 ? `${jsonSummary.slice(0, 72)}...` : jsonSummary
+  }
+
+  if (isLikelyJsonLike(trimmed)) {
+    return summarizeJsonLikeText(trimmed) || 'JSON output'
+  }
+
+  const firstLine = trimmed.split(/\r?\n/, 1)[0]
+  return firstLine.length > 96 ? `${firstLine.slice(0, 96)}...` : firstLine
+}
+
 function countLines(text: string): number {
   if (!text) {
     return 0
@@ -540,24 +627,49 @@ function ChatApp() {
       </header>
 
       <section ref={transcriptRef} className="ai-chat-transcript" aria-label="AI chat transcript">
-        {messages.map((message) => (
-          <article
-            key={message.id}
-            className={`chat-bubble ${message.role}`}
-          >
-            {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
-            {message.contextAttachments?.length ? (
-              <div className="chat-context-badges" aria-label="Attached context">
-                {message.contextAttachments.map((attachment) => (
-                  <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
-                    {attachment.compactLabel}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
-          </article>
-        ))}
+        {messages.map((message) => {
+          if (message.role === 'tool') {
+            const formattedJson = tryFormatJson(message.content)
+            const isJsonLike = formattedJson !== null || isLikelyJsonLike(message.content)
+
+            return (
+              <article key={message.id} className="chat-tool-entry">
+                <details className="chat-tool-accordion">
+                  <summary>
+                    <span className="chat-tool-summary-title">{message.title || 'Tool output'}</span>
+                    <span className="chat-tool-summary-meta">{summarizeToolMessage(message.content)}</span>
+                  </summary>
+                  <div className="chat-tool-content">
+                    {isJsonLike ? (
+                      <pre className="chat-tool-json">{formattedJson || message.content.trim()}</pre>
+                    ) : (
+                      <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
+                    )}
+                  </div>
+                </details>
+              </article>
+            )
+          }
+
+          return (
+            <article
+              key={message.id}
+              className={`chat-bubble ${message.role}`}
+            >
+              {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
+              {message.contextAttachments?.length ? (
+                <div className="chat-context-badges" aria-label="Attached context">
+                  {message.contextAttachments.map((attachment) => (
+                    <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
+                      {attachment.compactLabel}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
+            </article>
+          )
+        })}
       </section>
 
       <footer className="ai-chat-composer-shell">

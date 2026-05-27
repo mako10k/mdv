@@ -509,6 +509,18 @@
   color: var(--text);
 }
 
+.editor-panel .toastui-editor-contents pre code,
+.editor-panel .toastui-editor-md-preview pre code,
+.editor-panel .ProseMirror pre code,
+.markdown-fragment pre code {
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-family: var(--mono);
+}
+
 .markdown-fragment pre {
   display: none;
 }
