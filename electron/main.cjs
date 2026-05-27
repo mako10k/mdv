@@ -1909,6 +1909,206 @@ function formatToolEventContent(payload) {
   }
 }
 
+function summarizeSpanForLog(span) {
+  if (!span || typeof span !== 'object') {
+    return null
+  }
+
+  if (span.kind === 'point' && span.at) {
+    return {
+      kind: 'point',
+      at: span.at,
+    }
+  }
+
+  if (span.kind === 'line' && Number.isFinite(Number(span.line))) {
+    return {
+      kind: 'line',
+      line: Number(span.line),
+    }
+  }
+
+  if (span.kind === 'line-range' && Number.isFinite(Number(span.startLine)) && Number.isFinite(Number(span.endLine))) {
+    return {
+      kind: 'line-range',
+      startLine: Number(span.startLine),
+      endLine: Number(span.endLine),
+    }
+  }
+
+  if (span.kind === 'from-start' && span.end) {
+    return {
+      kind: 'from-start',
+      end: span.end,
+    }
+  }
+
+  if (span.kind === 'to-end' && span.start) {
+    return {
+      kind: 'to-end',
+      start: span.start,
+    }
+  }
+
+  if (span.start && span.end) {
+    const summary = {
+      start: span.start,
+      end: span.end,
+      isEmpty: span.isEmpty === true,
+    }
+
+    if (typeof span.kind === 'string') {
+      return {
+        kind: span.kind,
+        ...summary,
+      }
+    }
+
+    return summary
+  }
+
+  if (typeof span.kind === 'string') {
+    return { kind: span.kind }
+  }
+
+  return null
+}
+
+function summarizeTargetForLog(target) {
+  if (!target || typeof target !== 'object') {
+    return null
+  }
+
+  return {
+    editorId: typeof target.editorId === 'string' ? target.editorId : null,
+    span: summarizeSpanForLog(target.span),
+  }
+}
+
+function summarizeAiWriteSourcesForLog(sources) {
+  if (!Array.isArray(sources)) {
+    return []
+  }
+
+  return sources.map((source) => {
+    if (!source || typeof source !== 'object') {
+      return { type: 'unknown' }
+    }
+
+    if (typeof source.text === 'string') {
+      return {
+        type: 'text',
+        bytes: Buffer.byteLength(source.text, 'utf8'),
+      }
+    }
+
+    const legacyTarget = typeof source.editorId === 'string' && source.span && typeof source.span === 'object'
+      ? {
+          editorId: source.editorId,
+          span: source.span,
+        }
+      : null
+
+    return {
+      type: 'slice-ref',
+      target: summarizeTargetForLog(source.target || legacyTarget),
+    }
+  })
+}
+
+function summarizeAiToolArgsForLog(toolName, args) {
+  if (toolName === 'write_target') {
+    return {
+      destination: summarizeTargetForLog(args?.destination),
+      mode: args?.mode === 'insert' ? 'insert' : 'replace',
+      sourceCount: Array.isArray(args?.sources) ? args.sources.length : 0,
+      sources: summarizeAiWriteSourcesForLog(args?.sources),
+    }
+  }
+
+  if (toolName === 'read_target' || toolName === 'exact_search' || toolName === 'stats_slice' || toolName === 'semantic_search') {
+    return {
+      target: summarizeTargetForLog(args?.target ?? args),
+      query: typeof args?.query === 'string' ? args.query.slice(0, 160) : undefined,
+      cursor: args?.cursor ?? null,
+      maxTokens: Number.isFinite(Number(args?.maxTokens)) ? Number(args.maxTokens) : undefined,
+      maxResults: Number.isFinite(Number(args?.maxResults)) ? Number(args.maxResults) : undefined,
+      isRegexp: args?.isRegexp === true,
+      caseSensitive: args?.caseSensitive === true,
+    }
+  }
+
+  if (toolName === 'get_context') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+    }
+  }
+
+  if (toolName === 'list_buffers') {
+    return null
+  }
+
+  return args
+}
+
+function summarizeAiToolResultForLog(toolName, result) {
+  if (toolName === 'write_target') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      target: summarizeTargetForLog(result?.target),
+      pageTarget: summarizeTargetForLog(result?.pageTarget),
+      bytesWritten: Number.isFinite(Number(result?.bytesWritten)) ? Number(result.bytesWritten) : null,
+      created: result?.created === true,
+      mode: typeof result?.mode === 'string' ? result.mode : null,
+    }
+  }
+
+  if (toolName === 'read_target') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      target: summarizeTargetForLog(result?.target),
+      pageTarget: summarizeTargetForLog(result?.pageTarget),
+      estimatedTokens: Number.isFinite(Number(result?.estimatedTokens)) ? Number(result.estimatedTokens) : null,
+      truncated: result?.truncated === true,
+      nextCursor: result?.nextCursor ?? null,
+    }
+  }
+
+  if (toolName === 'exact_search' || toolName === 'semantic_search') {
+    return {
+      target: summarizeTargetForLog(result?.target),
+      resultCount: Array.isArray(result?.matches) ? result.matches.length : Array.isArray(result?.results) ? result.results.length : null,
+      bufferId: typeof result?.bufferId === 'string' ? result.bufferId : null,
+    }
+  }
+
+  if (toolName === 'stats_slice') {
+    return {
+      target: summarizeTargetForLog(result?.target),
+      characters: Number.isFinite(Number(result?.characters)) ? Number(result.characters) : null,
+      lines: Number.isFinite(Number(result?.lines)) ? Number(result.lines) : null,
+      estimatedTokens: Number.isFinite(Number(result?.estimatedTokens)) ? Number(result.estimatedTokens) : null,
+    }
+  }
+
+  if (toolName === 'get_context') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      textLength: Number.isFinite(Number(result?.textLength)) ? Number(result.textLength) : null,
+      selectionTextLength: Number.isFinite(Number(result?.selectionTextLength)) ? Number(result.selectionTextLength) : null,
+      activePanel: typeof result?.activePanel === 'string' ? result.activePanel : null,
+    }
+  }
+
+  if (toolName === 'list_buffers') {
+    return {
+      bufferCount: Array.isArray(result?.buffers) ? result.buffers.length : Array.isArray(result) ? result.length : null,
+    }
+  }
+
+  return result
+}
+
 function normalizeToolTarget(args) {
   const target = args?.target && typeof args.target === 'object' ? args.target : null
 
@@ -1919,84 +2119,95 @@ function normalizeToolTarget(args) {
 }
 
 async function executeAiToolCall(editorWindow, toolName, args) {
-  if (toolName === 'get_context') {
-    const requestedEditorId = typeof args?.editorId === 'string' && args.editorId.length > 0 ? args.editorId : null
+  writeLog('INFO', 'ai-tool', 'start', {
+    toolName,
+    args: summarizeAiToolArgsForLog(toolName, args),
+  })
 
-    if (!requestedEditorId || isActiveEditorAlias(requestedEditorId) || requestedEditorId === ensureEditorRuntimeState(editorWindow).editorId) {
-      return requestEditorContext(editorWindow)
+  try {
+    let result
+
+    if (toolName === 'get_context') {
+      const requestedEditorId = typeof args?.editorId === 'string' && args.editorId.length > 0 ? args.editorId : null
+
+      if (!requestedEditorId || isActiveEditorAlias(requestedEditorId) || requestedEditorId === ensureEditorRuntimeState(editorWindow).editorId) {
+        result = requestEditorContext(editorWindow)
+      } else {
+        const bufferRecord = getSessionBuffer(editorWindow, requestedEditorId)
+
+        if (!bufferRecord) {
+          throw new Error(`Unknown buffer for get_context: ${requestedEditorId}`)
+        }
+
+        result = {
+          editorId: bufferRecord.editorId,
+          currentFilePath: null,
+          title: bufferRecord.title,
+          activePanel: 'write',
+          textLength: bufferRecord.text.length,
+          selectionTextLength: 0,
+          tokenEstimate: estimateTokenCount(bufferRecord.text),
+          isDirty: false,
+        }
+      }
+    } else if (toolName === 'list_buffers') {
+      result = listAiBuffersForWindow(editorWindow)
+    } else if (toolName === 'read_target') {
+      result = readAiTargetForWindow(editorWindow, {
+        target: normalizeToolTarget(args),
+        cursor: args?.cursor ?? null,
+        maxTokens: args?.maxTokens,
+      })
+    } else if (toolName === 'write_target') {
+      result = writeAiTargetForWindow(editorWindow, {
+        destination: args?.destination && typeof args.destination === 'object'
+          ? {
+              editorId: typeof args.destination.editorId === 'string' && args.destination.editorId.length > 0 ? args.destination.editorId : 'editor:active',
+              span: normalizeAiSpanRef(args.destination.span),
+            }
+          : { editorId: 'editor:active', span: { kind: 'document' } },
+        sources: Array.isArray(args?.sources)
+          ? args.sources.map((source) => normalizeAiSliceRefSource(source))
+          : [],
+        mode: args?.mode === 'insert' ? 'insert' : 'replace',
+        title: typeof args?.title === 'string' ? args.title : undefined,
+      })
+    } else if (toolName === 'exact_search') {
+      result = exactSearchForWindow(editorWindow, {
+        target: normalizeToolTarget(args),
+        query: args?.query,
+        isRegexp: args?.isRegexp === true,
+        caseSensitive: args?.caseSensitive === true,
+        maxResults: args?.maxResults,
+      })
+    } else if (toolName === 'stats_slice') {
+      result = statsAiSliceForWindow(editorWindow, {
+        target: normalizeToolTarget(args),
+      })
+    } else if (toolName === 'semantic_search') {
+      result = semanticSearchForWindow(editorWindow, {
+        target: normalizeToolTarget(args),
+        query: args?.query,
+        maxResults: args?.maxResults,
+      })
+    } else {
+      throw new Error(`Unsupported AI tool: ${toolName}`)
     }
 
-    const bufferRecord = getSessionBuffer(editorWindow, requestedEditorId)
-
-    if (!bufferRecord) {
-      throw new Error(`Unknown buffer for get_context: ${requestedEditorId}`)
-    }
-
-    return {
-      editorId: bufferRecord.editorId,
-      currentFilePath: null,
-      title: bufferRecord.title,
-      activePanel: 'write',
-      textLength: bufferRecord.text.length,
-      selectionTextLength: 0,
-      tokenEstimate: estimateTokenCount(bufferRecord.text),
-      isDirty: false,
-    }
-  }
-
-  if (toolName === 'list_buffers') {
-    return listAiBuffersForWindow(editorWindow)
-  }
-
-  if (toolName === 'read_target') {
-    return readAiTargetForWindow(editorWindow, {
-      target: normalizeToolTarget(args),
-      cursor: args?.cursor ?? null,
-      maxTokens: args?.maxTokens,
+    const awaitedResult = await result
+    writeLog('INFO', 'ai-tool', 'completed', {
+      toolName,
+      result: summarizeAiToolResultForLog(toolName, awaitedResult),
     })
-  }
-
-  if (toolName === 'write_target') {
-    return writeAiTargetForWindow(editorWindow, {
-      destination: args?.destination && typeof args.destination === 'object'
-        ? {
-            editorId: typeof args.destination.editorId === 'string' && args.destination.editorId.length > 0 ? args.destination.editorId : 'editor:active',
-            span: normalizeAiSpanRef(args.destination.span),
-          }
-        : { editorId: 'editor:active', span: { kind: 'document' } },
-      sources: Array.isArray(args?.sources)
-        ? args.sources.map((source) => normalizeAiSliceRefSource(source))
-        : [],
-      mode: args?.mode === 'insert' ? 'insert' : 'replace',
-      title: typeof args?.title === 'string' ? args.title : undefined,
+    return awaitedResult
+  } catch (error) {
+    writeLog('ERROR', 'ai-tool', 'failed', {
+      toolName,
+      args: summarizeAiToolArgsForLog(toolName, args),
+      error: error instanceof Error ? error.message : String(error),
     })
+    throw error
   }
-
-  if (toolName === 'exact_search') {
-    return exactSearchForWindow(editorWindow, {
-      target: normalizeToolTarget(args),
-      query: args?.query,
-      isRegexp: args?.isRegexp === true,
-      caseSensitive: args?.caseSensitive === true,
-      maxResults: args?.maxResults,
-    })
-  }
-
-  if (toolName === 'stats_slice') {
-    return statsAiSliceForWindow(editorWindow, {
-      target: normalizeToolTarget(args),
-    })
-  }
-
-  if (toolName === 'semantic_search') {
-    return semanticSearchForWindow(editorWindow, {
-      target: normalizeToolTarget(args),
-      query: args?.query,
-      maxResults: args?.maxResults,
-    })
-  }
-
-  throw new Error(`Unsupported AI tool: ${toolName}`)
 }
 
 function mapAiChatMessageToOpenAiInput(message) {
@@ -2042,6 +2253,11 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 
   try {
     for (let iteration = 0; iteration < 12; iteration += 1) {
+      writeLog('INFO', 'ai-chat', 'OpenAI response iteration start', {
+        iteration,
+        previousResponseId,
+        inputCount: nextInput.length,
+      })
       const response = await client.responses.create({
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
@@ -2055,6 +2271,12 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
+      writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
+        iteration,
+        responseId: previousResponseId,
+        functionCallCount: functionCalls.length,
+        outputItemCount: outputItems.length,
+      })
 
       if (functionCalls.length === 0) {
         const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
@@ -2078,12 +2300,28 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
           ? JSON.parse(functionCall.arguments)
           : {}
 
+        writeLog('INFO', 'ai-chat', 'OpenAI function_call received', {
+          iteration,
+          responseId: previousResponseId,
+          toolName: functionCall.name,
+          callId: functionCall.call_id,
+          args: summarizeAiToolArgsForLog(functionCall.name, args),
+        })
+
         toolEvents.push({
           title: `${functionCall.name} call`,
           content: formatToolEventContent(args),
         })
 
         const result = await executeAiToolCall(editorWindow, functionCall.name, args)
+
+        writeLog('INFO', 'ai-chat', 'OpenAI function_call completed', {
+          iteration,
+          responseId: previousResponseId,
+          toolName: functionCall.name,
+          callId: functionCall.call_id,
+          result: summarizeAiToolResultForLog(functionCall.name, result),
+        })
 
         toolEvents.push({
           title: `${functionCall.name} result`,
@@ -2100,6 +2338,10 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 
     throw new Error('OpenAI tool orchestration exceeded the safety iteration limit')
   } catch (error) {
+    writeLog('ERROR', 'ai-chat', 'OpenAI chat orchestration failed', {
+      previousResponseId,
+      error: error instanceof Error ? error.message : String(error),
+    })
     if (error instanceof OpenAI.APIError) {
       throw new Error(`OpenAI request failed: ${error.message}`)
     }
@@ -3244,12 +3486,20 @@ ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
     model: settingsState.ai.openai.model,
   })
 
-  const result = await requestOpenAiChatResponse(editorWindow, payload?.messages)
-  writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
-    responseId: result.responseId,
-    model: result.model,
-  })
-  return result
+  try {
+    const result = await requestOpenAiChatResponse(editorWindow, payload?.messages)
+    writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
+      responseId: result.responseId,
+      model: result.model,
+    })
+    return result
+  } catch (error) {
+    writeLog('ERROR', 'ai-chat', 'OpenAI chat request failed', {
+      model: settingsState.ai.openai.model,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 })
 
 ipcMain.handle('mdv:open-external-link', async (event, href) => {
