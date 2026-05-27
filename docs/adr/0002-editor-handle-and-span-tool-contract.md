@@ -28,6 +28,8 @@ Status: Accepted
 - `read` の返却上限は inline transport と同程度の token budget に制限し、続きを取るための cursor を返す
 - `write` は複数 source を受けられるようにし、source は `literal` と `slice-ref` を混在可能にする
 - `active:document` や `active:selection` は compatibility alias として残し、main process で canonical target へ変換する
+- 各 tool は `help=true` を受け付け、schema、parameter rules、examples を構造化 payload で返せるようにする
+- tool の引数エラーと実行エラーは、reason、fix、help 導線を含む構造化 error payload として `function_call_output` へ返し、orchestration 全体はその場で abort しない
 
 ## Consequences
 
@@ -37,3 +39,5 @@ Status: Accepted
 - OpenAI system prompt には「hint を見たら必要箇所だけ read する」方針を明示する必要がある
 - OpenAI system prompt と tool descriptions には、`target` は follow-up 用、`pageTarget` は返却ページ再利用用という使い分けを明示する必要がある
 - write source が複合化するため、oversize source と破壊的 destination の validation を強化する必要がある
+- tool description と help payload の両方を維持する必要があり、schema 変更時は examples と error guidance も同期が必要になる
+- tool failure が会話終了ではなく追加の model 入力になるため、error payload は短くても自己修正に十分な情報量を持つ必要がある

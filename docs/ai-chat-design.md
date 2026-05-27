@@ -11,6 +11,8 @@
 注記:
 
 - 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
+- 各 tool は `help=true` で usage、parameter rules、examples を返せる
+- tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は allowlist、method/header allowlist、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 
 ## Target Goals
@@ -610,7 +612,7 @@ type WriteSource =
 
 ステータス:
 
-- 後続フェーズ
+- 現行実装済み
 
 用途:
 
@@ -632,22 +634,30 @@ type WriteSource =
 
 ```json
 {
+  "answer": "...",
   "results": [
     {
       "title": "...",
       "url": "https://...",
-      "snippet": "...",
+      "content": "...",
       "score": 0.91
     }
-  ]
+  ],
+  "bufferId": "buffer:web-search:...",
+  "target": {
+    "editorId": "buffer:web-search:...",
+    "span": {
+      "kind": "document"
+    }
+  }
 }
 ```
 
 設計方針:
 
 - Web 検索は Tavily API に限定する
-- 初期スコープでは title、url、snippet、score のみ扱う
-- URL fetch や本文抽出は別機能として後回しにする
+- 現行実装では answer と ranked result を返し、必要に応じて follow-up 読み出し用 temp buffer も返せる
+- URL fetch や本文抽出本体は `fetch_url` 側で扱い、web_search 自体は検索要約に留める
 - HTML サイズ制限、許可リスト、HTML タグ除去、危険 URL 回避などは fetch 機能側で別途設計する
 
 ## OpenAI Integration
