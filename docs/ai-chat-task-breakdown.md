@@ -310,7 +310,8 @@
 
 - main process で Tavily API を呼び出す
 - query、maxResults、searchDepth を受け取る
-- 結果を title、url、snippet、score へ正規化する
+- 結果を answer、title、url、content、score へ正規化する
+- 必要に応じて follow-up 読み出し用の temp buffer と target を返す
 
 完了条件:
 
@@ -319,7 +320,8 @@
 ### T6-6 Tavily result UX
 
 - Web 検索結果を tool-result bubble に出す
-- URL と snippet を読みやすく整形する
+- answer、URL、content を読みやすく整形する
+- temp buffer が返った場合は follow-up 読み出しの導線を維持する
 
 完了条件:
 
@@ -327,13 +329,34 @@
 
 ### T6-7 Fetch defer guardrail
 
-- Web fetch は初期スコープ外であることを docs と実装境界で明示する
-- HTML 本文取得や危険 URL 対策は別トラックへ分離する
-- 既存の `allowed-link-rules.json` は legacy の read-only 参照として維持し、fetch 用 allowlist 統合は後段へ送る
+- web_search は検索要約に留め、本文取得は fetch_url に分離する
+- HTML 本文取得、allowlist、危険 URL 対策、timeout は fetch_url 側で main process 強制とする
+- 既存の `allowed-link-rules.json` は legacy の read-only 参照として維持し、fetch allowlist 管理は dedicated settings 導線で扱う
 
 完了条件:
 
 - web_search が fetch を内包しないことが明確になる
+
+### T6-8 Guarded fetch tool contract
+
+- main process で fetch_url の allowlist、method/header 制約、timeout、redirect 再検証を強制する
+- 小さいレスポンスは inline 返却し、大きいレスポンスは temp buffer と target へ退避する
+- fetch permissions window から allowlist、allowed methods、allowed headers、timeout 群、auto-dispose、max response bytes を編集できる
+
+完了条件:
+
+- fetch_url tool が安全制約つきで本文取得を返せる
+
+### T6-9 Temp buffer lifecycle UX
+
+- web_search と fetch_url が返す temp buffer を follow-up read/write の入力として再利用できる
+- network 由来の temp buffer には autoDisposeAt が付き、自動破棄期限を返せる
+- 不要になった temp buffer を dispose_buffer で明示破棄できる
+- tool-result bubble 上でも buffer follow-up の前提が読み取れる
+
+完了条件:
+
+- 外部検索と fetch の結果が会話を壊さず段階利用できる
 
 ## Track 7: Safety and UX
 
@@ -373,6 +396,7 @@
 - theme source-of-truth migration start
 - provider configured state
 - legacy allowed-link-rules.json read-only 参照
+- fetch permissions window 導線
 
 成果:
 
@@ -427,10 +451,13 @@
 - T6-4
 - T6-5
 - T6-6
+- T6-7
+- T6-8
+- T6-9
 
 成果:
 
-- new editor、grep、Tavily web_search が成立する
+- new editor、grep、Tavily web_search、guarded fetch、buffer disposal が成立する
 
 ## Recommended First Engineering Slice
 

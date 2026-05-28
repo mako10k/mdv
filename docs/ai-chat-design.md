@@ -634,6 +634,7 @@ type WriteSource =
 
 ```json
 {
+  "query": "toast ui editor selection api",
   "answer": "...",
   "results": [
     {
@@ -643,22 +644,135 @@ type WriteSource =
       "score": 0.91
     }
   ],
-  "bufferId": "buffer:web-search:...",
+  "responseTime": 0.42,
+  "bufferId": "buffer:...",
   "target": {
-    "editorId": "buffer:web-search:...",
+    "editorId": "buffer:...",
     "span": {
       "kind": "document"
     }
-  }
+  },
+  "autoDisposeAt": "2026-05-28T12:34:56.000Z"
 }
 ```
 
 設計方針:
 
 - Web 検索は Tavily API に限定する
-- 現行実装では answer と ranked result を返し、必要に応じて follow-up 読み出し用 temp buffer も返せる
+- 現行実装では answer と ranked result を返し、必要に応じて follow-up 読み出し用 temp buffer と autoDisposeAt も返せる
 - URL fetch や本文抽出本体は `fetch_url` 側で扱い、web_search 自体は検索要約に留める
-- HTML サイズ制限、許可リスト、HTML タグ除去、危険 URL 回避などは fetch 機能側で別途設計する
+- HTML サイズ制限、許可リスト、危険 URL 回避、redirect 再検証、timeout は `fetch_url` 側で main process 強制にする
+
+### fetch_url
+
+ステータス:
+
+- 現行実装済み
+
+用途:
+
+- allowlist 済み URL の本文取得
+- 大きいレスポンスの temp buffer 退避
+- web_search 後の follow-up 読み出し
+
+入力:
+
+```json
+{
+  "url": "https://example.com/docs",
+  "method": "GET",
+  "headers": {
+    "accept": "text/html"
+  }
+}
+```
+
+出力:
+
+```json
+{
+  "url": "https://example.com/docs",
+  "method": "GET",
+  "status": 200,
+  "ok": true,
+  "statusText": "OK",
+  "contentType": "text/html; charset=utf-8",
+  "estimatedTokens": 1200,
+  "redirectTrail": [],
+  "responseHeaders": {
+    "content-type": "text/html; charset=utf-8"
+  },
+  "delivery": "inline",
+  "content": "..."
+}
+```
+
+大きいレスポンスでは次のように temp buffer へ退避する。
+
+```json
+{
+  "url": "https://example.com/docs",
+  "method": "GET",
+  "status": 200,
+  "ok": true,
+  "statusText": "OK",
+  "contentType": "text/html; charset=utf-8",
+  "estimatedTokens": 1200,
+  "redirectTrail": [],
+  "responseHeaders": {
+    "content-type": "text/html; charset=utf-8"
+  },
+  "delivery": "buffer",
+  "bufferId": "buffer:...",
+  "target": {
+    "editorId": "buffer:...",
+    "span": {
+      "kind": "document"
+    }
+  },
+  "preview": "...",
+  "autoDisposeAt": "2026-05-28T12:34:56.000Z"
+}
+```
+
+設計方針:
+
+- allowlist、allowed methods、allowed headers、request timeout、idle timeout、auto-dispose、max response bytes は fetch permissions window と main process の両方で制御する
+- redirect は各 hop で再検証し、private address、embedded credentials、危険 URL は block する
+- 小さい本文は inline 返却し、大きい本文は temp buffer へ退避する
+
+### dispose_buffer
+
+ステータス:
+
+- 現行実装済み
+
+用途:
+
+- 不要になった temp buffer の明示破棄
+- web_search / fetch_url の follow-up 後片付け
+
+入力:
+
+```json
+{
+  "editorId": "buffer:..."
+}
+```
+
+出力:
+
+```json
+{
+  "editorId": "buffer:...",
+  "disposed": true
+}
+```
+
+設計方針:
+
+- dispose_buffer は temp buffer のみを受け付け、live editor target には使わない
+- network 由来 buffer は autoDisposeAt でも期限切れになるが、不要時は明示破棄も許可する
 
 ## OpenAI Integration
 
@@ -807,9 +921,9 @@ model の context window を実測なしで過信すると、小さいつもり�
 
 fetch を同時に入れると、レスポンスサイズ制御、本文抽出、allowlist、危険 URL 回避、リダイレクト制御など論点が急増する。
 
-既存の `allowed-link-rules.json` は初期段階では legacy の read-only 参照として維持し、fetch 用 allowlist の統合は後段に分離する。
+既存の `allowed-link-rules.json` は legacy の read-only 参照として維持しつつ、fetch 用 allowlist、method/header、timeout、auto-dispose、max response bytes は dedicated settings 導線で main process 強制にする。
 
-そのため初期の Web 機能は Tavily による検索結果取得だけに限定する。
+そのため `web_search` は Tavily による検索結果取得だけに限定し、本文取得や follow-up 読み出しは `fetch_url` と temp buffer 経路へ分離する。network 由来 buffer は autoDisposeAt を持ち、自動破棄期限を返せる。
 
 ## Recommended Phases
 

@@ -435,7 +435,7 @@ window.mdvDesktop.settings = {
 ### Allowed Link Rules Migration
 
 - 現在の `allowed-link-rules.json` は safety 設定の一部として扱える
-- 初期段階では既存ファイルを維持し、設定画面からは read-only の注意表示だけを行う
+- 既存ファイルは legacy の read-only 参照として維持し、fetch 用 allowlist、allowed methods、allowed headers、timeout 群、auto-dispose、max response bytes は fetch permissions window から管理する
 - 後段で `settings.json` に統合してもよいが、今回の初期設計では急がない
 
 ## Recommended Implementation Order
