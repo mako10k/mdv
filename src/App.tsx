@@ -15,7 +15,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import mermaid from 'mermaid'
-import { clearLegacyThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme, type ThemeMode } from './shared/useDesktopTheme'
+import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import './App.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
@@ -31,6 +31,9 @@ type CodeBlockRenderer = (props: CodeBlockProps) => ReactElement
 type MarkdownSegment =
   | { type: 'markdown'; value: string }
   | { type: 'code'; language: string; code: string }
+
+type MarkdownPosTuple = [number, number]
+type MarkdownSelectionRange = [MarkdownPosTuple, MarkdownPosTuple]
 
 const initialDocument = `# MarkDownViewer
 
@@ -167,13 +170,27 @@ function toMarkdownPos(position: MdvAiMarkdownPos | [number, number]): MdvAiMark
   return position
 }
 
+function isMarkdownPosTuple(value: unknown): value is MarkdownPosTuple {
+  return Array.isArray(value)
+    && value.length === 2
+    && Number.isFinite(Number(value[0]))
+    && Number.isFinite(Number(value[1]))
+}
+
+function isMarkdownSelectionRange(value: unknown): value is MarkdownSelectionRange {
+  return Array.isArray(value)
+    && value.length === 2
+    && isMarkdownPosTuple(value[0])
+    && isMarkdownPosTuple(value[1])
+}
+
 function isMarkdownPosLike(value: unknown): value is MdvAiMarkdownPos {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && Number.isFinite(Number((value as MdvAiMarkdownPos).line))
-    && Number.isFinite(Number((value as MdvAiMarkdownPos).column)),
-  )
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return Number.isFinite(Number(Reflect.get(value, 'line')))
+    && Number.isFinite(Number(Reflect.get(value, 'column')))
 }
 
 function normalizeMarkdownPosRef(markdown: string, value: unknown): MdvAiMarkdownPos {
@@ -230,12 +247,18 @@ function normalizeSelectionToMarkdownSpan(editor: ToastUiEditor, markdown: strin
   let start: MdvAiMarkdownPos
   let end: MdvAiMarkdownPos
 
-  if (Array.isArray(selection[0])) {
-    const [markdownStart, markdownEnd] = selection as [[number, number], [number, number]]
+  if (isMarkdownSelectionRange(selection)) {
+    const [markdownStart, markdownEnd] = selection
     start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
     end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
   } else {
-    const [markdownStart, markdownEnd] = editor.convertPosToMatchEditorMode(selection[0], selection[1], 'markdown') as [[number, number], [number, number]]
+    const convertedSelection = editor.convertPosToMatchEditorMode(selection[0], selection[1], 'markdown')
+
+    if (!isMarkdownSelectionRange(convertedSelection)) {
+      throw new Error('Toast UI Editor returned an unexpected selection shape')
+    }
+
+    const [markdownStart, markdownEnd] = convertedSelection
     start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
     end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
   }
@@ -378,6 +401,8 @@ type EditorSurfaceProps = {
 
 function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfaceProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
+  const initialValueRef = useRef(value)
+  const editorInstanceRef = useRef<ToastUiEditor | null>(null)
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
 
@@ -397,7 +422,7 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
     const instance = new ToastUiEditor({
       el: hostRef.current,
       height: '100%',
-      initialValue: value,
+      initialValue: initialValueRef.current,
       initialEditType: 'markdown',
       previewStyle: 'tab',
       usageStatistics: false,
@@ -409,17 +434,19 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
       },
     })
 
+    editorInstanceRef.current = instance
     editorRef.current = instance
     onReadyRef.current?.(instance)
 
     return () => {
+      editorInstanceRef.current = null
       editorRef.current = null
       instance.destroy()
     }
-  }, [])
+  }, [editorRef])
 
   useEffect(() => {
-    const instance = editorRef.current
+    const instance = editorInstanceRef.current
     if (!instance) {
       return
     }
@@ -427,7 +454,7 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
     if (instance.getMarkdown() !== value) {
       instance.setMarkdown(value)
     }
-  }, [editorRef, value])
+  }, [value])
 
   return <div className="toast-editor-host" ref={hostRef} />
 }
@@ -577,6 +604,10 @@ type ToolbarButtonProps = {
 }
 
 type EditorSearchMode = 'exact' | 'semantic'
+
+function isEditorSearchMode(value: string): value is EditorSearchMode {
+  return value === 'exact' || value === 'semantic'
+}
 
 type EditorSearchResult = {
   id: string
@@ -735,6 +766,11 @@ function App() {
   const editorRef = useRef<ToastUiEditor | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const persistedMarkdownRef = useRef(initialDocument)
+  const shouldCanonicalizeLoadedBaselineRef = useRef(true)
+  const allowWindowCloseRef = useRef(false)
+  const confirmUnsavedChangesBeforeProceedRef = useRef<(proceedLabel: string) => Promise<boolean>>(async () => true)
+  const handleSaveRef = useRef<(forceDialog?: boolean) => Promise<boolean>>(async () => false)
+  const loadFilePayloadRef = useRef<(payload: MdvFilePayload | null) => void>(() => {})
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
@@ -858,6 +894,7 @@ function App() {
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
     invalidateEditorSearch()
+    shouldCanonicalizeLoadedBaselineRef.current = snapshot.markdownText === snapshot.persistedMarkdown
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath))
@@ -875,6 +912,7 @@ function App() {
     }
 
     invalidateEditorSearch()
+    shouldCanonicalizeLoadedBaselineRef.current = true
     replaceLoadedDocument(payload.content)
     setCurrentFilePath(payload.path)
     setDisplayTitle(basename(payload.path))
@@ -883,8 +921,13 @@ function App() {
     setStatusText(`Opened ${basename(payload.path)}`)
   }
 
+  useEffect(() => {
+    loadFilePayloadRef.current = loadFilePayload
+  })
+
   const loadDetachedFile = (fileName: string, content: string) => {
     invalidateEditorSearch()
+    shouldCanonicalizeLoadedBaselineRef.current = true
     replaceLoadedDocument(content)
     setCurrentFilePath(null)
     setDisplayTitle(fileName || 'Untitled.md')
@@ -893,8 +936,46 @@ function App() {
     setStatusText(`Loaded ${fileName || 'Untitled.md'}`)
   }
 
+  const buildLiveClientSnapshot = (): MdvClientSnapshot => {
+    const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+
+    return {
+      markdownText: liveMarkdown,
+      persistedMarkdown: persistedMarkdownRef.current,
+      currentFilePath,
+      displayTitle,
+      activePanel,
+    }
+  }
+
+  const confirmUnsavedChangesBeforeProceed = async (proceedLabel: string) => {
+    if (!hasUnsavedChanges || isPlaceholderDocument) {
+      return true
+    }
+
+    const result = await window.mdvDesktop?.confirmUnsavedChanges({
+      currentFilePath,
+      displayTitle,
+      proceedLabel,
+    })
+
+    if (!result || result.action === 'cancel') {
+      return false
+    }
+
+    if (result.action === 'save') {
+      return handleSaveRef.current(false)
+    }
+
+    return true
+  }
+
+  useEffect(() => {
+    confirmUnsavedChangesBeforeProceedRef.current = confirmUnsavedChangesBeforeProceed
+  })
+
   const handleOpen = async () => {
-    if (!canAbandonCurrentBufferRef.current('Open')) {
+    if (!await confirmUnsavedChangesBeforeProceed('開く')) {
       setStatusText('Open cancelled')
       return
     }
@@ -911,7 +992,7 @@ function App() {
     })
 
     if (!result) {
-      return
+      return false
     }
 
     setCurrentFilePath(result.path)
@@ -919,7 +1000,12 @@ function App() {
     persistedMarkdownRef.current = markdownText
     setPersistedMarkdown(markdownText)
     setStatusText(`Saved ${basename(result.path)}`)
+    return true
   }
+
+  useEffect(() => {
+    handleSaveRef.current = handleSave
+  })
 
   const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
     invalidateEditorSearch()
@@ -1091,6 +1177,19 @@ function App() {
         return
       }
 
+      if (request.type === 'get-close-state') {
+        const snapshot = buildLiveClientSnapshot()
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            snapshot,
+            isDirty: snapshot.markdownText !== snapshot.persistedMarkdown && !isPlaceholderDocument,
+          },
+        })
+        return
+      }
+
       if (request.type === 'read') {
         const editor = editorRef.current
         const resolvedOffsets = applyCursorToOffsets(
@@ -1241,6 +1340,10 @@ function App() {
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (allowWindowCloseRef.current) {
+        return
+      }
+
       if (canAbandonCurrentBufferRef.current('このまま閉じる')) {
         return
       }
@@ -1255,6 +1358,10 @@ function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
   }, [])
+
+  useEffect(() => window.mdvDesktop?.onWindowCloseApproved(() => {
+    allowWindowCloseRef.current = true
+  }), [])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1315,23 +1422,24 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
-      if (!canAbandonCurrentBufferRef.current('別のファイルを開く')) {
-        setStatusText('Open request cancelled')
-        return
-      }
-
-      const filePath = typeof request === 'string' ? request : request.filePath
-      const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
-
-      if (!filePath) {
-        if (initialPanel) {
-          setActivePanel(initialPanel)
+      void (async () => {
+        if (!await confirmUnsavedChangesBeforeProceedRef.current('開く')) {
+          setStatusText('Open request cancelled')
+          return
         }
 
-        return
-      }
+        const filePath = typeof request === 'string' ? request : request.filePath
+        const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
 
-      void window.mdvDesktop?.readFile(filePath).then((payload) => {
+        if (!filePath) {
+          if (initialPanel) {
+            setActivePanel(initialPanel)
+          }
+
+          return
+        }
+
+        const payload = await window.mdvDesktop?.readFile(filePath)
         if (initialPanel) {
           setActivePanel(initialPanel)
         }
@@ -1340,14 +1448,8 @@ function App() {
           return
         }
 
-        invalidateEditorSearch()
-        replaceLoadedDocument(payload.content)
-        setCurrentFilePath(payload.path)
-        setDisplayTitle(basename(payload.path))
-        persistedMarkdownRef.current = payload.content
-        setPersistedMarkdown(payload.content)
-        setStatusText(`Opened ${basename(payload.path)}`)
-      })
+        loadFilePayloadRef.current(payload)
+      })()
     })
 
     return () => {
@@ -1410,7 +1512,7 @@ function App() {
     event.preventDefault()
     setIsDraggingFile(false)
 
-    if (!canAbandonCurrentBufferRef.current('別のファイルを読み込む')) {
+    if (!await confirmUnsavedChangesBeforeProceed('開く')) {
       setStatusText('Drop cancelled')
       return
     }
@@ -1420,7 +1522,9 @@ function App() {
       return
     }
 
-    const nativePath = 'path' in droppedFile ? (droppedFile as File & { path?: string }).path : undefined
+    const nativePath = typeof Reflect.get(droppedFile, 'path') === 'string'
+      ? Reflect.get(droppedFile, 'path')
+      : undefined
     if (nativePath && window.mdvDesktop) {
       const payload = await window.mdvDesktop.readFile(nativePath)
       loadFilePayload(payload)
@@ -1437,7 +1541,7 @@ function App() {
   }
 
   const handleDragLeave = (event: DragEvent<HTMLElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) {
       return
     }
 
@@ -1474,7 +1578,12 @@ function App() {
                 aria-label="Search mode"
                 value={resolvedEditorSearchMode}
                 onChange={(event) => {
-                  const nextMode = event.target.value as EditorSearchMode
+                  const nextMode = event.currentTarget.value
+
+                  if (!isEditorSearchMode(nextMode)) {
+                    setStatusText('Invalid search mode')
+                    return
+                  }
 
                   if (nextMode === 'semantic' && !isSemanticSearchAvailable) {
                     setStatusText('Semantic search requires OpenAI to be enabled and configured')
@@ -1569,7 +1678,14 @@ function App() {
                 className="theme-select"
                 value={themeMode}
                 onChange={(event) => {
-                  void setThemeMode(event.target.value as ThemeMode)
+                  const nextThemeMode = event.currentTarget.value
+
+                  if (!isThemeMode(nextThemeMode)) {
+                    setStatusText('Invalid theme mode')
+                    return
+                  }
+
+                  void setThemeMode(nextThemeMode)
                 }}
               >
                 <option value="system">System</option>
@@ -1621,6 +1737,14 @@ function App() {
                 }}
                 editorRef={editorRef}
                 onReady={(editor) => {
+                  if (shouldCanonicalizeLoadedBaselineRef.current) {
+                    const canonicalMarkdown = editor.getMarkdown()
+                    shouldCanonicalizeLoadedBaselineRef.current = false
+                    persistedMarkdownRef.current = canonicalMarkdown
+                    setPersistedMarkdown(canonicalMarkdown)
+                    setMarkdownText(canonicalMarkdown)
+                  }
+
                   if (!pendingSearchJump) {
                     return
                   }

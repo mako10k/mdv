@@ -1,39 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
 	<defs>
-		<linearGradient id="mdv-page" x1="66" y1="34" x2="202" y2="222" gradientUnits="userSpaceOnUse">
-			<stop stop-color="#182235"/>
-			<stop offset="1" stop-color="#0B1220"/>
+		<linearGradient id="mdv-page" x1="60" y1="12" x2="214" y2="226" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#A5AFBC"/>
+			<stop offset="1" stop-color="#6F7B8D"/>
 		</linearGradient>
-		<linearGradient id="mdv-accent" x1="72" y1="150" x2="194" y2="224" gradientUnits="userSpaceOnUse">
-			<stop stop-color="#40D4FF"/>
-			<stop offset="1" stop-color="#1EA7FF"/>
+		<linearGradient id="mdv-page-stroke" x1="62" y1="20" x2="204" y2="218" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#DCE3EB" stop-opacity="0.9"/>
+			<stop offset="1" stop-color="#516070" stop-opacity="0.95"/>
 		</linearGradient>
-		<linearGradient id="mdv-warm" x1="58" y1="64" x2="180" y2="192" gradientUnits="userSpaceOnUse">
-			<stop stop-color="#FF8A3D"/>
-			<stop offset="1" stop-color="#FF5A36"/>
+		<linearGradient id="mdv-accent" x1="86" y1="142" x2="198" y2="210" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#6EC7FF"/>
+			<stop offset="1" stop-color="#3182F6"/>
 		</linearGradient>
-		<filter id="mdv-shadow" x="44" y="24" width="176" height="208" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+		<linearGradient id="mdv-warm" x1="56" y1="86" x2="146" y2="164" gradientUnits="userSpaceOnUse">
+			<stop stop-color="#F4AE64"/>
+			<stop offset="1" stop-color="#E87A52"/>
+		</linearGradient>
+		<filter id="mdv-shadow" x="30" y="4" width="198" height="232" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 			<feFlood flood-opacity="0" result="BackgroundImageFix"/>
 			<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-			<feOffset dy="10"/>
-			<feGaussianBlur stdDeviation="10"/>
+			<feOffset dy="8"/>
+			<feGaussianBlur stdDeviation="8"/>
 			<feComposite in2="hardAlpha" operator="out"/>
-			<feColorMatrix type="matrix" values="0 0 0 0 0.027451 0 0 0 0 0.070588 0 0 0 0 0.14902 0 0 0 0.28 0"/>
+			<feColorMatrix type="matrix" values="0 0 0 0 0.0901961 0 0 0 0 0.117647 0 0 0 0 0.180392 0 0 0 0.22 0"/>
 			<feBlend in2="BackgroundImageFix" result="effect1_dropShadow_0_1"/>
 			<feBlend in="SourceGraphic" in2="effect1_dropShadow_0_1" result="shape"/>
 		</filter>
 	</defs>
 	<g filter="url(#mdv-shadow)">
-		<path d="M74 36C74 29.373 79.373 24 86 24H155.029C158.212 24 161.265 25.264 163.515 27.515L197.485 61.485C199.736 63.735 201 66.788 201 69.971V196C201 202.627 195.627 208 189 208H86C79.373 208 74 202.627 74 196V36Z" fill="url(#mdv-page)"/>
-		<path d="M155 24V62C155 68.627 160.373 74 167 74H201" fill="#24324A"/>
-		<path d="M155.029 24C158.212 24 161.265 25.264 163.515 27.515L197.485 61.485C199.736 63.735 201 66.788 201 69.971V74H167C160.373 74 155 68.627 155 62V24H155.029Z" fill="#324666"/>
-		<rect x="95" y="90" width="73" height="12" rx="6" fill="#E8F0FF" fill-opacity="0.95"/>
-		<rect x="95" y="114" width="58" height="10" rx="5" fill="#90A4C2"/>
-		<rect x="95" y="133" width="66" height="10" rx="5" fill="#90A4C2"/>
-		<path d="M83 112L66 128L83 144" stroke="url(#mdv-warm)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-		<path d="M171 112L188 128L171 144" stroke="url(#mdv-accent)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-		<path d="M112 175H181" stroke="url(#mdv-accent)" stroke-width="16" stroke-linecap="round"/>
-		<circle cx="92" cy="175" r="20" fill="#F4F8FF"/>
-		<path d="M84 175L90 181L100 169" stroke="#0F172A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+		<path d="M52 24C52 15.163 59.163 8 68 8H157.059C162.363 8 167.449 10.107 171.201 13.858L210.142 52.799C213.893 56.551 216 61.637 216 66.941V204C216 212.837 208.837 220 200 220H68C59.163 220 52 212.837 52 204V24Z" fill="url(#mdv-page)"/>
+		<path d="M52 24C52 15.163 59.163 8 68 8H157.059C162.363 8 167.449 10.107 171.201 13.858L210.142 52.799C213.893 56.551 216 61.637 216 66.941V204C216 212.837 208.837 220 200 220H68C59.163 220 52 212.837 52 204V24Z" stroke="url(#mdv-page-stroke)" stroke-width="6"/>
+		<path d="M158 8V52C158 60.837 165.163 68 174 68H216" fill="#CBD4DE" fill-opacity="0.9"/>
+		<path d="M157.059 8C162.363 8 167.449 10.107 171.201 13.858L210.142 52.799C213.893 56.551 216 61.637 216 66.941V68H174C165.163 68 158 60.837 158 52V8H157.059Z" fill="#DAE1E8" fill-opacity="0.95"/>
+		<rect x="82" y="74" width="96" height="16" rx="8" fill="#F7FAFC" fill-opacity="0.98"/>
+		<rect x="84" y="102" width="72" height="12" rx="6" fill="#D7DEE7"/>
+		<rect x="84" y="124" width="84" height="12" rx="6" fill="#C8D1DC"/>
+		<path d="M74 104L54 128L74 152" stroke="url(#mdv-warm)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+		<path d="M180 104L200 128L180 152" stroke="url(#mdv-accent)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+		<path d="M108 178H188" stroke="url(#mdv-accent)" stroke-width="18" stroke-linecap="round"/>
+		<circle cx="86" cy="178" r="22" fill="#F8FAFC" fill-opacity="0.98"/>
+		<path d="M77 178L84 185L96 172" stroke="#58667A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
 	</g>
 </svg>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useDesktopTheme, type ThemeMode } from '../shared/useDesktopTheme'
+import { isThemeMode, useDesktopTheme, type ThemeMode } from '../shared/useDesktopTheme'
 
 const sections = ['General', 'AI Providers', 'Safety', 'Advanced'] as const
 
@@ -328,7 +328,19 @@ function SettingsApp() {
               <h2>General</h2>
               <label className="settings-field">
                 <span>Theme mode</span>
-                <select value={themeMode} onChange={(event) => handleThemeChange(event.target.value as ThemeMode)}>
+                <select
+                  value={themeMode}
+                  onChange={(event) => {
+                    const nextThemeMode = event.currentTarget.value
+
+                    if (!isThemeMode(nextThemeMode)) {
+                      setStatusText('Invalid theme mode')
+                      return
+                    }
+
+                    handleThemeChange(nextThemeMode)
+                  }}
+                >
                   <option value="system">System</option>
                   <option value="light">Light</option>
                   <option value="dark">Dark</option>

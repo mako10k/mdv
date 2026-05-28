@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const pendingOpenFileRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
+const windowCloseApprovedListeners = new Set()
 const settingsChangedListeners = new Set()
 const settingsBootstrap = ipcRenderer.sendSync('mdv:settings-bootstrap')
 
@@ -29,11 +30,18 @@ ipcRenderer.on('mdv:settings-changed', (_event, settings) => {
   }
 })
 
+ipcRenderer.on('mdv:window-close-approved', () => {
+  for (const listener of windowCloseApprovedListeners) {
+    listener()
+  }
+})
+
 contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
+  confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
@@ -111,6 +119,13 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
 
     return () => {
       aiEditorRequestListeners.delete(callback)
+    }
+  },
+  onWindowCloseApproved: (callback) => {
+    windowCloseApprovedListeners.add(callback)
+
+    return () => {
+      windowCloseApprovedListeners.delete(callback)
     }
   },
   sendAiEditorResponse: (payload) => ipcRenderer.send('mdv:ai-editor-response', payload),

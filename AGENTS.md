@@ -29,6 +29,7 @@
 - Treat type safety as a repo rule: do not paper over typing gaps with casual `any`, `as any`, or `as unknown as ...` casts. Fix the type boundary or model the shape explicitly instead.
 - Preserve existing packaging workarounds for WSL and Windows host builds; do not assume `electron-builder --win portable` is reliable on this Linux environment.
 - For debugging or RCA work, do not stop at the first symptom or mixed-representation explanation. Trace the controlling contract boundary, record hypothesis and disconfirming check, and fix the root contract or state-model mismatch rather than only adding surface guards.
+- Do not hide contract drift by broadening a helper to accept multiple payload shapes "for convenience". If a helper is being used with mixed representations, treat that as the bug: split the helper or tighten the caller contract so each path passes one explicit shape.
 - For AI tool contracts, state target-kind-specific validity rules explicitly. Do not imply that every SPAN kind is valid for every `editorId`; for example, `selection` is live-editor-only and non-editor targets must use `document`, `pageTarget`, or explicit ranges.
 
 ## Commit Workflow

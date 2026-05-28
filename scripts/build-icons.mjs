@@ -6,10 +6,12 @@ import sharp from 'sharp'
 
 const buildDir = path.resolve(import.meta.dirname, '..', 'build')
 const sourceIconPath = path.resolve(import.meta.dirname, '..', 'public', 'favicon.svg')
+const smallSourceIconPath = path.resolve(import.meta.dirname, '..', 'public', 'favicon-small.svg')
 const outputPngPath = path.join(buildDir, 'icon.png')
 const outputIconPath = path.join(buildDir, 'icon.ico')
 const tempDir = path.join(buildDir, '.icon-build')
 const sizes = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
+const compactIconMaxSize = 32
 
 await fs.mkdir(buildDir, { recursive: true })
 await fs.mkdir(tempDir, { recursive: true })
@@ -27,7 +29,8 @@ try {
 
   const pngBuffers = await Promise.all(
     sizes.map(async (size) => {
-      const buffer = await sharp(basePngBuffer)
+      const svgPath = size <= compactIconMaxSize ? smallSourceIconPath : sourceIconPath
+      const buffer = await sharp(svgPath, { density: 512 })
         .resize(size, size, {
           fit: 'contain',
           background: { r: 0, g: 0, b: 0, alpha: 0 },

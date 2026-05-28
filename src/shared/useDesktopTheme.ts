@@ -5,10 +5,14 @@ export type ResolvedTheme = 'light' | 'dark'
 
 const themeStorageKey = 'mdv-theme-mode'
 
+export function isThemeMode(value: string): value is ThemeMode {
+  return value === 'system' || value === 'light' || value === 'dark'
+}
+
 export function readLegacyThemeMode(): ThemeMode | null {
   const storedValue = window.localStorage.getItem(themeStorageKey)
 
-  if (storedValue === 'light' || storedValue === 'dark' || storedValue === 'system') {
+  if (storedValue && isThemeMode(storedValue)) {
     return storedValue
   }
 

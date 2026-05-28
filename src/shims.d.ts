@@ -1,8 +1,9 @@
 declare module '@toast-ui/editor' {
   export type MarkdownPos = [number, number]
   export type Sourcepos = [MarkdownPos, MarkdownPos]
-  export type SelectionPos = Sourcepos | [number, number]
   export type EditorPos = MarkdownPos | number
+  export type EditorSelection = [EditorPos, EditorPos]
+  export type SelectionPos = Sourcepos | EditorSelection
 
   export type EditorOptions = {
     el: HTMLElement
@@ -31,7 +32,7 @@ declare module '@toast-ui/editor' {
     changeMode(mode: 'markdown' | 'wysiwyg', withoutFocus?: boolean): void
     isMarkdownMode(): boolean
     isWysiwygMode(): boolean
-    convertPosToMatchEditorMode(start: EditorPos, end?: EditorPos, mode?: 'markdown' | 'wysiwyg'): EditorPos[]
+    convertPosToMatchEditorMode(start: EditorPos, end?: EditorPos, mode?: 'markdown' | 'wysiwyg'): EditorSelection
     destroy(): void
   }
 }
@@ -52,6 +53,10 @@ type MdvSavePayload = {
   path?: string | null
   content: string
   forceDialog?: boolean
+}
+
+type MdvUnsavedChangesDialogResult = {
+  action: 'save' | 'discard' | 'cancel'
 }
 
 type MdvExternalLinkResult = {
@@ -171,6 +176,15 @@ type MdvAiEditorRequest =
       requestId: string
       type: 'list-buffers'
     }
+  | {
+      requestId: string
+      type: 'get-close-state'
+    }
+
+type MdvEditorCloseStatePayload = {
+  snapshot: MdvClientSnapshot
+  isDirty: boolean
+}
 
 type MdvSettings = {
   version: 1
@@ -368,6 +382,7 @@ interface Window {
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
@@ -406,10 +421,11 @@ interface Window {
     onOpenFileRequested: (callback: (request: MdvLaunchRequest | string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     onAiEditorRequest: (callback: (request: MdvAiEditorRequest) => void | Promise<void>) => () => void
+    onWindowCloseApproved: (callback: () => void) => () => void
     sendAiEditorResponse: (payload: {
       requestId: string
       ok: boolean
-      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | MdvAiListBuffersPayload | MdvAiGrepSlicePayload | MdvAiStatsPayload | null
+      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | MdvAiListBuffersPayload | MdvAiGrepSlicePayload | MdvAiStatsPayload | MdvEditorCloseStatePayload | null
       error?: string
     }) => void
     log: (level: string, scope: string, message: string) => void
