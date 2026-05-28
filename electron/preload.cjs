@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
+  readRelativeAssetAsDataUrl: (payload) => ipcRenderer.invoke('mdv:read-relative-asset-data-url', payload),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   exportHtml: (payload) => ipcRenderer.invoke('mdv:export-html', payload),
   notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),

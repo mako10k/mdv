@@ -35,6 +35,10 @@ type MarkdownSegment =
 
 type MarkdownPosTuple = [number, number]
 type MarkdownSelectionRange = [MarkdownPosTuple, MarkdownPosTuple]
+type StatusToast = {
+  id: number
+  message: string
+}
 
 const markdownParser = new MarkdownIt({
   html: true,
@@ -779,6 +783,67 @@ function buildHtmlExportFileName(currentFilePath: string | null, displayTitle: s
   return `${withoutExtension || untitledTitle.replace(/\.[^.]+$/, '')}.html`
 }
 
+function isRelativeImageSource(source: string): boolean {
+  const normalizedSource = source.trim().toLowerCase()
+
+  if (!normalizedSource || normalizedSource.startsWith('#') || normalizedSource.startsWith('//') || normalizedSource.startsWith('data:')) {
+    return false
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(normalizedSource)) {
+    return false
+  }
+
+  return !normalizedSource.startsWith('/') && !/^[a-z]:[/\\]/i.test(normalizedSource)
+}
+
+function getImageSourceTail(source: string): string {
+  const markerIndex = source.search(/[?#]/)
+  return markerIndex >= 0 ? source.slice(markerIndex) : ''
+}
+
+async function inlineRelativeImagesForExport(
+  previewRoot: HTMLDivElement | null,
+  options: {
+    currentFilePath: string | null
+    requireSavedFileMessage: string
+    inlineFailedMessage: (source: string) => string
+  },
+): Promise<string> {
+  const exportRoot = previewRoot?.cloneNode(true)
+
+  if (!(exportRoot instanceof HTMLDivElement)) {
+    return ''
+  }
+
+  const images = Array.from(exportRoot.querySelectorAll('img[src]'))
+
+  await Promise.all(images.map(async (image) => {
+    const source = image.getAttribute('src')?.trim() ?? ''
+
+    if (!isRelativeImageSource(source)) {
+      return
+    }
+
+    if (!options.currentFilePath) {
+      throw new Error(options.requireSavedFileMessage)
+    }
+
+    const result = await window.mdvDesktop?.readRelativeAssetAsDataUrl({
+      baseFilePath: options.currentFilePath,
+      source,
+    })
+
+    if (!result?.dataUrl) {
+      throw new Error(options.inlineFailedMessage(source))
+    }
+
+    image.setAttribute('src', `${result.dataUrl}${getImageSourceTail(source)}`)
+  }))
+
+  return sanitizeExportHtmlFragment(exportRoot.innerHTML)
+}
+
 function sanitizeExportHtmlFragment(html: string): string {
   const parser = new DOMParser()
   const documentFragment = parser.parseFromString(`<div id="export-root">${html}</div>`, 'text/html')
@@ -1057,7 +1122,8 @@ function App() {
   })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
-  const [statusText, setStatusText] = useState<string>(t.common.ready)
+  const [statusText, setStatusTextState] = useState<string>(t.common.ready)
+  const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
@@ -1078,6 +1144,8 @@ function App() {
   const initialDocumentRef = useRef<string>(t.app.initialDocument)
   const untitledTitleRef = useRef<string>(t.app.untitledTitle)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
+  const toastIdRef = useRef(0)
+  const toastTimerRef = useRef<number | null>(null)
   const shouldCanonicalizeLoadedBaselineRef = useRef(true)
   const allowWindowCloseRef = useRef(false)
   const confirmUnsavedChangesBeforeProceedRef = useRef<(proceedLabel: string) => Promise<boolean>>(async () => true)
@@ -1104,10 +1172,37 @@ function App() {
     && markdownText === t.app.initialDocument
     && persistedMarkdown === t.app.initialDocument
 
+  const setStatusText = (message: string, options?: { toast?: boolean }) => {
+    setStatusTextState(message)
+
+    if (options?.toast === false) {
+      return
+    }
+
+    toastIdRef.current += 1
+    const toastId = toastIdRef.current
+
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+
+    setActiveToast({ id: toastId, message })
+    toastTimerRef.current = window.setTimeout(() => {
+      setActiveToast((currentToast) => (currentToast?.id === toastId ? null : currentToast))
+      toastTimerRef.current = null
+    }, 2600)
+  }
+
   const replaceLoadedDocument = (nextMarkdown: string) => {
     setMarkdownText(nextMarkdown)
     setEditorSessionKey((currentKey) => currentKey + 1)
   }
+
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
@@ -1136,7 +1231,7 @@ function App() {
 
       initialDocumentRef.current = nextTranslations.app.initialDocument
       untitledTitleRef.current = nextTranslations.app.untitledTitle
-      setStatusText(nextTranslations.common.ready)
+      setStatusText(nextTranslations.common.ready, { toast: false })
     })
 
     return () => {
@@ -1319,7 +1414,11 @@ function App() {
   const handleExportHtml = async () => {
     try {
       await waitForRenderedPreviewReady(previewRootRef.current)
-      const previewHtml = sanitizeExportHtmlFragment(previewRootRef.current?.innerHTML?.trim() ?? '')
+      const previewHtml = await inlineRelativeImagesForExport(previewRootRef.current, {
+        currentFilePath,
+        requireSavedFileMessage: t.app.exportRequiresSavedFileForRelativeImages,
+        inlineFailedMessage: t.app.exportInlineImageFailed,
+      })
       const result = await window.mdvDesktop?.exportHtml({
         content: buildExportHtmlDocument(displayTitle, previewHtml),
         defaultFileName: buildHtmlExportFileName(currentFilePath, displayTitle, t.app.untitledTitle),
@@ -1971,7 +2070,6 @@ function App() {
         <header className="topbar">
           <div className="title-strip">
             <h1>{displayTitle}</h1>
-            <span>{statusText}</span>
           </div>
 
           <div className="view-switch">
@@ -2225,8 +2323,15 @@ function App() {
 
         <div className="statusbar">
           <span>{t.app.statusbarHelp}</span>
+          <span className="statusbar-status">{statusText}</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
+
+        {activeToast ? (
+          <div className="status-toast-layer">
+            <div key={activeToast.id} className="status-toast" role="status">{activeToast.message}</div>
+          </div>
+        ) : null}
       </section>
     </main>
   )

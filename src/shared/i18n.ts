@@ -111,6 +111,8 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       copyRendered: 'レンダリング結果をコピー',
       printRendered: 'レンダリング結果を印刷',
       exportHtml: 'HTML を書き出し',
+      exportRequiresSavedFileForRelativeImages: '相対画像を含む HTML 書き出しには、先に Markdown ファイルを保存してください',
+      exportInlineImageFailed: (source: string) => `相対画像を inline 化できませんでした: ${source}`,
       statusbarHelp: '任意の場所へ .md または .txt ファイルをドロップして開けます。ショートカット: Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
       status: {
         opened: (name: string) => `${name} を開きました`,
@@ -405,6 +407,8 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       copyRendered: 'Copy rendered output',
       printRendered: 'Print rendered output',
       exportHtml: 'Export HTML',
+      exportRequiresSavedFileForRelativeImages: 'Save the Markdown file before exporting HTML with relative images',
+      exportInlineImageFailed: (source: string) => `Could not inline the relative image: ${source}`,
       statusbarHelp: 'Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
       status: {
         opened: (name: string) => `Opened ${name}`,

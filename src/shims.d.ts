@@ -49,6 +49,16 @@ type MdvFilePayload = {
   content: string
 }
 
+type MdvRelativeAssetDataUrlPayload = {
+  baseFilePath: string
+  source: string
+}
+
+type MdvRelativeAssetDataUrlResult = {
+  path: string
+  dataUrl: string
+}
+
 type MdvSavePayload = {
   path?: string | null
   content: string
@@ -385,6 +395,7 @@ interface Window {
     platform: string
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
+    readRelativeAssetAsDataUrl: (payload: MdvRelativeAssetDataUrlPayload) => Promise<MdvRelativeAssetDataUrlResult | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
     notifyInitialLaunchOpenHandled: () => void

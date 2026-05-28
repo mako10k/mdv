@@ -4550,6 +4550,73 @@ async function readUtf8File(filePath) {
   }
 }
 
+function getMimeTypeForFile(filePath) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.gif':
+      return 'image/gif'
+    case '.webp':
+      return 'image/webp'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.bmp':
+      return 'image/bmp'
+    case '.ico':
+      return 'image/x-icon'
+    case '.avif':
+      return 'image/avif'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+function isInlineExportImagePath(filePath) {
+  return getMimeTypeForFile(filePath).startsWith('image/')
+}
+
+async function readRelativeAssetAsDataUrl(baseFilePath, source) {
+  const normalizedBasePath = typeof baseFilePath === 'string' ? baseFilePath.trim() : ''
+  const normalizedSource = typeof source === 'string' ? source.trim() : ''
+
+  if (!normalizedBasePath || !normalizedSource || normalizedSource.startsWith('//')) {
+    return null
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(normalizedSource)) {
+    return null
+  }
+
+  const sourcePath = normalizedSource.split('#', 1)[0].split('?', 1)[0]
+  let decodedSourcePath = sourcePath
+
+  try {
+    decodedSourcePath = decodeURI(sourcePath)
+  } catch {
+    return null
+  }
+
+  if (!decodedSourcePath || path.posix.isAbsolute(decodedSourcePath) || path.win32.isAbsolute(decodedSourcePath)) {
+    return null
+  }
+
+  const resolvedPath = path.resolve(path.dirname(normalizedBasePath), decodedSourcePath)
+
+  if (!isInlineExportImagePath(resolvedPath)) {
+    return null
+  }
+
+  const content = await fsPromises.readFile(resolvedPath)
+
+  return {
+    path: resolvedPath,
+    dataUrl: `data:${getMimeTypeForFile(resolvedPath)};base64,${content.toString('base64')}`,
+  }
+}
+
 function attachWindowLogging(mainWindow, initialLaunchRequest = null) {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     writeLog('ERROR', 'webContents', 'did-fail-load', {
@@ -4803,6 +4870,19 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.handle('mdv:read-relative-asset-data-url', async (_event, payload) => {
+  const baseFilePath = typeof payload?.baseFilePath === 'string' ? payload.baseFilePath : ''
+  const source = typeof payload?.source === 'string' ? payload.source : ''
+
+  if (!baseFilePath || !source) {
+    writeLog('WARN', 'ipc', 'read-relative-asset-data-url received invalid payload', payload)
+    return null
+  }
+
+  writeLog('INFO', 'ipc', 'read-relative-asset-data-url', { baseFilePath, source })
+  return readRelativeAssetAsDataUrl(baseFilePath, source)
 })
 
 ipcMain.on('mdv:initial-launch-open-handled', (event) => {

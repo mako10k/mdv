@@ -29,7 +29,7 @@
 
 .title-strip {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
 }
@@ -40,14 +40,6 @@
   letter-spacing: 0;
   font-family: var(--sans);
   font-weight: 600;
-}
-
-.title-strip span {
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .view-switch,
@@ -601,6 +593,37 @@
   color: var(--text-muted);
 }
 
+.statusbar-status {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-toast-layer {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.status-toast {
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 88%, var(--bg-elevated));
+  color: var(--text);
+  box-shadow: 0 18px 36px rgba(17, 24, 39, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+  backdrop-filter: blur(18px);
+}
+
 @media print {
   html,
   body,
@@ -617,7 +640,8 @@
 
   .topbar,
   .editor-search-results,
-  .statusbar {
+  .statusbar,
+  .status-toast-layer {
     display: none !important;
   }
 
