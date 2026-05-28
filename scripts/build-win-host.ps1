@@ -3,6 +3,8 @@ param(
   [string]$NodeVersion = "v22.22.3",
   [ValidateSet('full', 'diff')]
   [string]$Mode = 'full',
+  [ValidateSet('all', 'portable', 'installer', 'none')]
+  [string]$PackageTargets = 'all',
   [switch]$RequireElevation
 )
 
@@ -25,7 +27,8 @@ function Restart-Elevated {
     [string]$ScriptPath,
     [string]$ResolvedSourceRoot,
     [string]$ResolvedNodeVersion,
-    [string]$ResolvedMode
+    [string]$ResolvedMode,
+    [string]$ResolvedPackageTargets
   )
 
   $argumentList = @(
@@ -35,6 +38,7 @@ function Restart-Elevated {
     '-SourceRoot', ('"{0}"' -f $ResolvedSourceRoot)
     '-NodeVersion', ('"{0}"' -f $ResolvedNodeVersion)
     '-Mode', ('"{0}"' -f $ResolvedMode)
+    '-PackageTargets', ('"{0}"' -f $ResolvedPackageTargets)
   )
 
   $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argumentList -Wait -PassThru
@@ -42,7 +46,7 @@ function Restart-Elevated {
 }
 
 if ($RequireElevation -and -not (Test-IsAdministrator)) {
-  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion -ResolvedMode $Mode
+  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion -ResolvedMode $Mode -ResolvedPackageTargets $PackageTargets
 }
 
 $workRoot = Join-Path $tempRoot 'mdv-winbuild'
@@ -268,6 +272,59 @@ function Stop-MarkDownViewerProcess {
   }
 }
 
+function Get-PackageBuildPlans {
+  param(
+    [string]$RequestedTargets
+  )
+
+  switch ($RequestedTargets) {
+    'portable' {
+      return @(@{
+        target = 'portable'
+        output = 'release\portable'
+        label = 'portable package'
+      })
+    }
+    'installer' {
+      return @(@{
+        target = 'nsis'
+        output = 'release\installer'
+        label = 'installer package'
+      })
+    }
+    'all' {
+      return @(
+        @{
+          target = 'portable'
+          output = 'release\portable'
+          label = 'portable package'
+        },
+        @{
+          target = 'nsis'
+          output = 'release\installer'
+          label = 'installer package'
+        }
+      )
+    }
+    default {
+      return @()
+    }
+  }
+}
+
+function Clear-PackageOutputDirectories {
+  param(
+    [string]$Root
+  )
+
+  foreach ($relativePath in @('release\portable', 'release\installer')) {
+    $targetPath = Join-Path $Root $relativePath
+    if (Test-Path $targetPath) {
+      Remove-DirectoryWithRetry -TargetPath $targetPath
+    }
+  }
+}
+
 if ($Mode -eq 'full' -and (Test-Path $workRoot)) {
   Remove-Item $workRoot -Recurse -Force
 }
@@ -293,6 +350,7 @@ if (-not (Test-Path $nodeRoot)) {
 $env:Path = "$nodeRoot;$nodeRoot\node_modules\npm\bin;" + $env:Path
 
 Set-Location $workRoot
+Clear-PackageOutputDirectories -Root $workRoot
 
 if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion) {
   if (Test-Path $buildStatePath) {
@@ -345,6 +403,15 @@ await rcedit(exePath, {
 & "$nodeRoot\node.exe" $rceditScriptPath $builtExe $iconPath
 if ($LASTEXITCODE -ne 0) {
   throw "rcedit failed with code $LASTEXITCODE"
+}
+
+$prepackagedPath = Join-Path $workRoot 'release\win-unpacked'
+foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
+  Write-Host "Building Windows $($plan.label)"
+  & "$nodeRoot\npm.cmd" exec electron-builder -- --prepackaged $prepackagedPath --win $plan.target "--config.directories.output=$($plan.output)" --config.win.signAndEditExecutable=false
+  if ($LASTEXITCODE -ne 0) {
+    throw "electron-builder --prepackaged --win $($plan.target) failed with code $LASTEXITCODE"
+  }
 }
 
 if ($Mode -eq 'full') {

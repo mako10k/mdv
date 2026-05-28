@@ -49,7 +49,7 @@ npm run build
 
 ## Windows 配布
 
-Linux / WSL での `electron-builder --win portable` は Wine を要求します。確実に Windows 配布物を作る場合は、Windows ホスト側の Node.js で実行してください。
+Linux / WSL での `electron-builder --win portable` や `electron-builder --win nsis` は Wine を要求します。確実に Windows 配布物を作る場合は、Windows ホスト側の Node.js で実行してください。
 
 Windows ホスト build 補助スクリプト:
 
@@ -57,7 +57,7 @@ Windows ホスト build 補助スクリプト:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w ./scripts/build-win-host.ps1)"
 ```
 
-`bash ./scripts/build-win-host.sh` 経由の full/diff は UAC 昇格を要求します。PowerShell スクリプト直呼びと `noadmin` 系コマンドは昇格なしで実行します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
+`bash ./scripts/build-win-host.sh` 経由の host build は、packaged/unpacked を問わず UAC 昇格を要求します。PowerShell スクリプト直呼びと `noadmin` 系コマンドは昇格なしで実行します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
 また、実行用コピーを Windows ローカルパス `%LOCALAPPDATA%\MarkDownViewer\latest` に配置します。`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
 
 Windows host build mode:
@@ -70,6 +70,18 @@ Windows host build mode:
 Portable build:
 
 ```bash
+npm run dist:win:portable
+```
+
+Installer build:
+
+```bash
+npm run dist:win:installer
+```
+
+Portable + installer build:
+
+```bash
 npm run dist:win
 ```
 
@@ -78,6 +90,8 @@ Windows host build from WSL:
 ```bash
 npm run dist:win:host
 ```
+
+既定の Windows host build は `win-unpacked` を作ったあと、その編集済み実行ファイルから portable と installer の両方を再パッケージします。
 
 明示的に full rebuild する場合:
 
@@ -104,6 +118,13 @@ npm run dist:win:host:noadmin:full
 npm run dist:win:host:noadmin:diff
 ```
 
+unpacked のみ欲しい場合:
+
+```bash
+npm run dist:win:host:unpacked
+npm run dist:win:host:noadmin:unpacked
+```
+
 unpacked build:
 
 ```bash
@@ -112,8 +133,11 @@ npm run dist:win:dir
 
 生成物:
 
-- portable: `release/*.exe`
+- portable: `release/portable/*.exe`
+- installer: `release/installer/*.exe`
 - unpacked: `release/win-unpacked/MarkDownViewer.exe`
+- Windows host portable: `release/windows-host/portable/*.exe`
+- Windows host installer: `release/windows-host/installer/*.exe`
 - Windows host recovered build: `release/windows-host/win-unpacked/MarkDownViewer.exe`
 - local runnable copy: `%LOCALAPPDATA%\MarkDownViewer\latest\MarkDownViewer.exe`
 - runtime log: `%APPDATA%\MarkDownViewer\logs\mdv.log`
@@ -121,6 +145,7 @@ npm run dist:win:dir
 注意:
 
 - portable の単一 EXE 化は、Windows 側で symlink 展開権限が無いと `winCodeSign` 展開時に失敗することがあります。
+- NSIS installer も Windows 側のパッケージング環境に依存するため、配布物が欠けるときはまず `release/windows-host/installer` の生成有無を確認してください。
 - その場合でも `win-unpacked` は生成されるため、standalone アプリとしては利用できます。
 - `\\wsl.localhost\...` の UNC パス上の exe は GPU subprocess 起動に失敗することがあるため、Windows ローカルへコピーされた exe を起動してください。
 - Windows の packaged binary は 2 回目以降の起動で既存 process を再利用しつつ、新しい editor window を追加で開きます。

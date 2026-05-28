@@ -16,11 +16,19 @@
     "dist:win:host": "npm run dist:win:host:full",
     "dist:win:host:full": "bash ./scripts/build-win-host.sh -Mode full",
     "dist:win:host:diff": "bash ./scripts/build-win-host.sh -Mode diff",
+    "dist:win:host:unpacked": "npm run dist:win:host:unpacked:full",
+    "dist:win:host:unpacked:full": "bash ./scripts/build-win-host.sh -Mode full -PackageTargets none",
+    "dist:win:host:unpacked:diff": "bash ./scripts/build-win-host.sh -Mode diff -PackageTargets none",
     "dist:win:host:noadmin": "npm run dist:win:host:noadmin:full",
     "dist:win:host:noadmin:full": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w ./scripts/build-win-host.ps1)\" -Mode full",
     "dist:win:host:noadmin:diff": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w ./scripts/build-win-host.ps1)\" -Mode diff",
+    "dist:win:host:noadmin:unpacked": "npm run dist:win:host:noadmin:unpacked:full",
+    "dist:win:host:noadmin:unpacked:full": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w ./scripts/build-win-host.ps1)\" -Mode full -PackageTargets none",
+    "dist:win:host:noadmin:unpacked:diff": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"$(wslpath -w ./scripts/build-win-host.ps1)\" -Mode diff -PackageTargets none",
     "dist:win:dir": "npm run build && electron-builder --win dir",
-    "dist:win": "npm run build && electron-builder --win portable",
+    "dist:win:portable": "npm run build && electron-builder --win portable --config.directories.output=release/portable",
+    "dist:win:installer": "npm run build && electron-builder --win nsis --config.directories.output=release/installer",
+    "dist:win": "npm run build && electron-builder --win portable --config.directories.output=release/portable && electron-builder --win nsis --config.directories.output=release/installer",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -39,10 +47,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "executableName": "MarkDownViewer",
-      "target": [
-        "portable"
-      ]
+      "executableName": "MarkDownViewer"
     }
   },
   "dependencies": {
