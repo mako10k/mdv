@@ -65,6 +65,8 @@ let settingsWindow = null
 let settingsWindowOwnerEditorId = null
 let fetchPermissionsWindow = null
 let fetchPermissionsWindowOwnerEditorId = null
+const approvedWindowCloseIds = new Set()
+const pendingWindowCloseIds = new Set()
 let settingsState = loadSettings()
 let secretsState = loadSecrets()
 let hasPersistedSettings = fs.existsSync(settingsPath)
@@ -4099,6 +4101,186 @@ async function openExternalLink(parentWindow, href) {
   return { status: 'opened' }
 }
 
+async function saveContentToPath(parentWindow, payload) {
+  const content = typeof payload?.content === 'string' ? payload.content : ''
+  const currentPath = typeof payload?.path === 'string' ? payload.path : ''
+  const forceDialog = payload?.forceDialog === true
+  const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
+    ? payload.defaultFileName.trim()
+    : 'document.md'
+
+  let targetPath = currentPath
+
+  if (!targetPath || forceDialog) {
+    const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+      defaultPath: currentPath || defaultFileName,
+      filters: [
+        { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    })
+
+    if (result.canceled || !result.filePath) {
+      writeLog('INFO', 'ipc', 'save-file cancelled')
+      return null
+    }
+
+    targetPath = result.filePath
+  }
+
+  await fsPromises.writeFile(targetPath, content, 'utf8')
+  writeLog('INFO', 'ipc', 'save-file wrote', targetPath)
+
+  return {
+    path: targetPath,
+  }
+}
+
+async function showUnsavedChangesDialog(window, payload) {
+  const currentFilePath = typeof payload?.currentFilePath === 'string' ? payload.currentFilePath : ''
+  const displayTitle = typeof payload?.displayTitle === 'string' && payload.displayTitle.trim().length > 0
+    ? payload.displayTitle.trim()
+    : 'Untitled.md'
+  const proceedLabel = typeof payload?.proceedLabel === 'string' && payload.proceedLabel.trim().length > 0
+    ? payload.proceedLabel.trim()
+    : '続行'
+  const detailLines = [
+    `ファイル: ${currentFilePath || displayTitle}`,
+    '未保存の変更があります。',
+  ]
+  const response = await dialog.showMessageBox(window ?? undefined, {
+    type: 'warning',
+    buttons: ['保存', 'キャンセル', proceedLabel],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: '保存されていない変更があります',
+    message: `このまま${proceedLabel}しますか？`,
+    detail: detailLines.join('\n'),
+  })
+
+  if (response.response === 0) {
+    return { action: 'save' }
+  }
+
+  if (response.response === 2) {
+    return { action: 'discard' }
+  }
+
+  return { action: 'cancel' }
+}
+
+async function showUnresponsiveCloseDialog(window) {
+  const response = await dialog.showMessageBox(window ?? undefined, {
+    type: 'warning',
+    buttons: ['キャンセル', '閉じる'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    title: 'ウィンドウを閉じる前に確認できませんでした',
+    message: 'エディタの状態を取得できませんでした。',
+    detail: '保存されていない変更がある場合は失われる可能性があります。閉じる場合はそのまま終了します。',
+  })
+
+  return response.response === 1
+}
+
+async function requestEditorCloseState(editorWindow) {
+  return requestEditorWindowData(editorWindow, {
+    type: 'get-close-state',
+  })
+}
+
+function closeAuxiliaryWindowsForEditor(editorWindow) {
+  const chatWindow = getAiChatWindowForEditorWindow(editorWindow)
+
+  if (chatWindow && !chatWindow.isDestroyed()) {
+    approvedWindowCloseIds.add(chatWindow.id)
+    chatWindow.close()
+  }
+
+  if (settingsWindowOwnerEditorId === editorWindow.id && settingsWindow && !settingsWindow.isDestroyed()) {
+    approvedWindowCloseIds.add(settingsWindow.id)
+    settingsWindow.close()
+  }
+
+  if (fetchPermissionsWindowOwnerEditorId === editorWindow.id && fetchPermissionsWindow && !fetchPermissionsWindow.isDestroyed()) {
+    approvedWindowCloseIds.add(fetchPermissionsWindow.id)
+    fetchPermissionsWindow.close()
+  }
+}
+
+function approveAndCloseWindow(window) {
+  approvedWindowCloseIds.add(window.id)
+  window.webContents.send('mdv:window-close-approved')
+  setImmediate(() => {
+    if (!window.isDestroyed()) {
+      window.close()
+    }
+  })
+}
+
+async function confirmEditorWindowClose(window) {
+  if (!window || window.isDestroyed()) {
+    return
+  }
+
+  let closeState = null
+
+  try {
+    closeState = await requestEditorCloseState(window)
+  } catch (error) {
+    writeLog('ERROR', 'main', 'Failed to request editor close state', error instanceof Error ? error.message : String(error))
+    const shouldForceClose = await showUnresponsiveCloseDialog(window)
+
+    if (!shouldForceClose) {
+      return
+    }
+
+    closeAuxiliaryWindowsForEditor(window)
+    approveAndCloseWindow(window)
+    return
+  }
+
+  if (!closeState?.isDirty) {
+    closeAuxiliaryWindowsForEditor(window)
+    approveAndCloseWindow(window)
+    return
+  }
+
+  const snapshot = closeState.snapshot || {
+    markdownText: '',
+    persistedMarkdown: '',
+    currentFilePath: null,
+    displayTitle: 'Untitled.md',
+    activePanel: 'write',
+  }
+  const response = await showUnsavedChangesDialog(window, {
+    currentFilePath: snapshot.currentFilePath,
+    displayTitle: snapshot.displayTitle,
+    proceedLabel: '閉じる',
+  })
+
+  if (response.action === 'cancel') {
+    return
+  }
+
+  if (response.action === 'save') {
+    const saveResult = await saveContentToPath(window, {
+      path: snapshot.currentFilePath,
+      content: snapshot.markdownText,
+      defaultFileName: snapshot.displayTitle || 'Untitled.md',
+    })
+
+    if (!saveResult) {
+      return
+    }
+  }
+
+  closeAuxiliaryWindowsForEditor(window)
+  approveAndCloseWindow(window)
+}
+
 async function postServerJson(routePath, payload) {
   if (!managedServerUrl) {
     return null
@@ -4359,8 +4541,31 @@ function createWindow(initialLaunchRequest = null) {
     initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
   })
 
+  mainWindow.on('close', (event) => {
+    if (approvedWindowCloseIds.delete(mainWindow.id)) {
+      return
+    }
+
+    event.preventDefault()
+
+    if (pendingWindowCloseIds.has(mainWindow.id)) {
+      return
+    }
+
+    pendingWindowCloseIds.add(mainWindow.id)
+    void confirmEditorWindowClose(mainWindow)
+      .catch((error) => {
+        writeLog('ERROR', 'main', 'Editor window close confirmation failed', error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        pendingWindowCloseIds.delete(mainWindow.id)
+      })
+  })
+
   attachWindowLogging(mainWindow, initialLaunchRequest)
   mainWindow.on('closed', () => {
+    approvedWindowCloseIds.delete(mainWindow.id)
+    pendingWindowCloseIds.delete(mainWindow.id)
     launchStateByWindowId.delete(mainWindow.id)
     if (settingsWindowOwnerEditorId === mainWindow.id) {
       settingsWindowOwnerEditorId = null
@@ -4682,36 +4887,13 @@ ipcMain.handle('mdv:open-external-link', async (event, href) => {
 })
 
 ipcMain.handle('mdv:save-file', async (_event, payload) => {
-  const content = typeof payload?.content === 'string' ? payload.content : ''
-  const currentPath = typeof payload?.path === 'string' ? payload.path : ''
-  const forceDialog = payload?.forceDialog === true
+  const window = BrowserWindow.getFocusedWindow()
+  return saveContentToPath(window ?? undefined, payload)
+})
 
-  let targetPath = currentPath
-
-  if (!targetPath || forceDialog) {
-    const window = BrowserWindow.getFocusedWindow()
-    const result = await dialog.showSaveDialog(window ?? undefined, {
-      defaultPath: currentPath || 'document.md',
-      filters: [
-        { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    })
-
-    if (result.canceled || !result.filePath) {
-      writeLog('INFO', 'ipc', 'save-file cancelled')
-      return null
-    }
-
-    targetPath = result.filePath
-  }
-
-  await fsPromises.writeFile(targetPath, content, 'utf8')
-  writeLog('INFO', 'ipc', 'save-file wrote', targetPath)
-
-  return {
-    path: targetPath,
-  }
+ipcMain.handle('mdv:confirm-unsaved-changes', async (event, payload) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  return showUnsavedChangesDialog(window ?? undefined, payload)
 })
 
 ipcMain.on('mdv:log', (_event, payload) => {
