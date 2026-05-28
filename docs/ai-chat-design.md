@@ -11,7 +11,7 @@
 注記:
 
 - 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
-- 各 tool は `help=true` で usage、parameter rules、examples を返せる
+- tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は allowlist、method/header allowlist、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 

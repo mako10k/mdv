@@ -1084,9 +1084,13 @@ function normalizedSpanToSpanRef(span) {
 }
 
 function buildAiTargetRef(editorId, span) {
+  const nextSpan = span && typeof span === 'object' && typeof span.kind === 'string'
+    ? normalizeAiSpanRef(span)
+    : normalizedSpanToSpanRef(span)
+
   return {
     editorId,
-    span: normalizedSpanToSpanRef(span),
+    span: nextSpan,
   }
 }
 
@@ -2051,41 +2055,96 @@ const aiSpanDescription = [
 const aiTargetDescription = `Target object as {"editorId":"editor:active","span":SPAN}. ${aiSpanDescription}`
 const aiDestinationDescription = `Destination object as {"editorId":"editor:active"|":new","span":SPAN}. ${aiSpanDescription}`
 const aiSliceRefSourceDescription = `Slice-ref source as either {"type":"slice-ref","target":{"editorId":"...","span":SPAN}} or {"type":"slice-ref","editorId":"...","span":SPAN}. ${aiSpanDescription}`
-const aiToolHelpFlagDescription = 'Set help=true to return usage guidance, parameter rules, and examples for this tool. When help=true, the other fields may be omitted.'
 
-function buildAiToolParameters(properties, required = []) {
-  const helpOnlySchema = {
-    type: 'object',
-    properties: {
-      help: { type: 'boolean', enum: [true], description: aiToolHelpFlagDescription },
-    },
-    required: ['help'],
-    additionalProperties: false,
+function buildRequiredAiToolParameter(definition) {
+  if (!definition || typeof definition !== 'object') {
+    return definition
   }
 
-  const callSchema = {
+  const baseDescription = typeof definition.description === 'string' && definition.description.length > 0
+    ? `${definition.description} `
+    : ''
+
+  return {
+    ...definition,
+    __mdvRequired: true,
+    description: `${baseDescription}Required.`,
+  }
+}
+
+function buildAiToolParameters(properties) {
+  const required = []
+  const normalizedProperties = {}
+
+  Object.entries(properties || {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const { __mdvRequired, ...propertyDefinition } = value
+      normalizedProperties[key] = propertyDefinition
+
+      if (__mdvRequired) {
+        required.push(key)
+      }
+
+      return
+    }
+
+    normalizedProperties[key] = value
+  })
+
+  const schema = {
     type: 'object',
-    properties: {
-      ...properties,
-      help: { type: 'boolean', description: aiToolHelpFlagDescription },
-    },
+    properties: normalizedProperties,
     additionalProperties: false,
   }
 
   if (required.length > 0) {
-    callSchema.required = required
+    schema.required = required
   }
 
-  return {
-    oneOf: [helpOnlySchema, callSchema],
+  return schema
+}
+
+const OPENAI_TOOL_SCHEMA_TOP_LEVEL_FORBIDDEN_KEYS = ['oneOf', 'anyOf', 'allOf', 'enum', 'not']
+
+function assertValidOpenAiToolDefinition(tool) {
+  if (!tool || typeof tool !== 'object' || typeof tool.name !== 'string') {
+    throw new Error('Invalid OpenAI tool definition: missing tool metadata')
   }
+
+  const parameters = tool.parameters
+
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) {
+    throw new Error(`Invalid OpenAI schema for function '${tool.name}': parameters must be a JSON object schema.`)
+  }
+
+  if (parameters.type !== 'object') {
+    throw new Error(`Invalid OpenAI schema for function '${tool.name}': top-level schema must have type 'object'.`)
+  }
+
+  const invalidKey = OPENAI_TOOL_SCHEMA_TOP_LEVEL_FORBIDDEN_KEYS.find((key) => Object.prototype.hasOwnProperty.call(parameters, key))
+  if (invalidKey) {
+    throw new Error(`Invalid OpenAI schema for function '${tool.name}': top-level schema must not include '${invalidKey}'. Enforce that rule in runtime validation instead.`)
+  }
+}
+
+function getValidatedOpenAiToolDefinitions() {
+  aiToolDefinitions.forEach(assertValidOpenAiToolDefinition)
+  return aiToolDefinitions
 }
 
 const aiToolDefinitions = [
   {
     type: 'function',
+    name: 'get_tool_help',
+    description: 'Return usage guidance, parameter rules, and examples for one AI tool.',
+    parameters: buildAiToolParameters({
+        toolName: buildRequiredAiToolParameter({ type: 'string', description: 'Exact tool name to describe.' }),
+      }),
+  },
+  {
+    type: 'function',
     name: 'get_context',
-    description: 'Get lightweight metadata about the active editor or a known buffer. Use help=true for usage guidance.',
+    description: 'Get lightweight metadata about the active editor or a known buffer.',
     parameters: buildAiToolParameters({
         editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor.' },
       }),
@@ -2093,92 +2152,101 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'list_buffers',
-    description: 'List the active editor and session temp buffers available to tools. Use help=true for usage guidance.',
+    description: 'List the active editor and session temp buffers available to tools.',
     parameters: buildAiToolParameters({}),
   },
   {
     type: 'function',
     name: 'read_target',
-    description: 'Read bounded text from an EditorID + SPAN target. Use nextCursor with the returned target for continuation. Use pageTarget when you need exactly the returned page as a new input target. Use help=true for usage guidance.',
+    description: 'Read bounded text from an EditorID + SPAN target. Use nextCursor with the returned target for continuation. Use pageTarget when you need exactly the returned page as a new input target.',
     parameters: buildAiToolParameters({
-        target: { type: 'object', description: aiTargetDescription },
+        target: buildRequiredAiToolParameter({ type: 'object', description: aiTargetDescription }),
         cursor: { type: 'object', description: 'Optional cursor returned by a previous read_target call.' },
         maxTokens: { type: 'number', description: 'Optional bounded token target.' },
-      }, ['target']),
+      }),
   },
   {
     type: 'function',
     name: 'write_target',
-    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window. Prefer target refs returned by earlier tools. Use help=true for usage guidance.',
+    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window. Prefer target refs returned by earlier tools.',
     parameters: buildAiToolParameters({
-        destination: { type: 'object', description: aiDestinationDescription },
-        sources: { type: 'array', description: `Array of literal sources like {"type":"literal","text":"..."} or slice-ref sources. ${aiSliceRefSourceDescription}` },
+        destination: buildRequiredAiToolParameter({ type: 'object', description: aiDestinationDescription }),
+        sources: buildRequiredAiToolParameter({ type: 'array', description: `Array of literal sources like {"type":"literal","text":"..."} or slice-ref sources. ${aiSliceRefSourceDescription}` }),
         mode: { type: 'string', enum: ['replace', 'insert'] },
         title: { type: 'string' },
-      }, ['destination', 'sources']),
+      }),
   },
   {
     type: 'function',
     name: 'exact_search',
-    description: 'Run an exact search inside an EditorID + SPAN target and return matching lines plus reusable target refs. Use help=true for usage guidance.',
+    description: 'Run an exact search inside an EditorID + SPAN target and return matching lines plus reusable target refs.',
     parameters: buildAiToolParameters({
-        target: { type: 'object', description: aiTargetDescription },
-        query: { type: 'string' },
+        target: buildRequiredAiToolParameter({ type: 'object', description: aiTargetDescription }),
+        query: buildRequiredAiToolParameter({ type: 'string' }),
         isRegexp: { type: 'boolean' },
         caseSensitive: { type: 'boolean' },
         maxResults: { type: 'number' },
-      }, ['target', 'query']),
+      }),
   },
   {
     type: 'function',
     name: 'stats_slice',
-    description: 'Return statistics for an EditorID + SPAN target and include a reusable target ref. Use help=true for usage guidance.',
+    description: 'Return statistics for an EditorID + SPAN target and include a reusable target ref.',
     parameters: buildAiToolParameters({
-        target: { type: 'object', description: aiTargetDescription },
-      }, ['target']),
+        target: buildRequiredAiToolParameter({ type: 'object', description: aiTargetDescription }),
+      }),
   },
   {
     type: 'function',
     name: 'semantic_search',
-    description: 'Run multi-layer semantic search over an EditorID + SPAN target using cached embeddings and return reusable target refs. Use help=true for usage guidance.',
+    description: 'Run multi-layer semantic search over an EditorID + SPAN target using cached embeddings and return reusable target refs.',
     parameters: buildAiToolParameters({
-        target: { type: 'object', description: aiTargetDescription },
-        query: { type: 'string' },
+        target: buildRequiredAiToolParameter({ type: 'object', description: aiTargetDescription }),
+        query: buildRequiredAiToolParameter({ type: 'string' }),
         maxResults: { type: 'number' },
-      }, ['target', 'query']),
+      }),
   },
   {
     type: 'function',
     name: 'web_search',
-    description: 'Run Tavily web search and return ranked results. A temp buffer may also be returned for deeper follow-up reads. Use help=true for usage guidance.',
+    description: 'Run Tavily web search and return ranked results. A temp buffer may also be returned for deeper follow-up reads.',
     parameters: buildAiToolParameters({
-        query: { type: 'string' },
+        query: buildRequiredAiToolParameter({ type: 'string' }),
         searchDepth: { type: 'string', enum: ['basic', 'advanced'] },
         maxResults: { type: 'number' },
-      }, ['query']),
+      }),
   },
   {
     type: 'function',
     name: 'fetch_url',
-    description: 'Fetch an allowlisted HTTP(S) URL with explicit method and header controls. Large responses are returned as temp buffers instead of inline text. Use help=true for usage guidance.',
+    description: 'Fetch an allowlisted HTTP(S) URL with explicit method and header controls. Large responses are returned as temp buffers instead of inline text.',
     parameters: buildAiToolParameters({
-        url: { type: 'string' },
+        url: buildRequiredAiToolParameter({ type: 'string' }),
         method: { type: 'string' },
         headers: { type: 'object', additionalProperties: { type: 'string' } },
         body: { type: 'string' },
-      }, ['url']),
+      }),
   },
   {
     type: 'function',
     name: 'dispose_buffer',
-    description: 'Dispose a temp buffer explicitly when it is no longer needed. Use help=true for usage guidance.',
+    description: 'Dispose a temp buffer explicitly when it is no longer needed.',
     parameters: buildAiToolParameters({
-        editorId: { type: 'string' },
-      }, ['editorId']),
+        editorId: buildRequiredAiToolParameter({ type: 'string' }),
+      }),
   },
 ]
 
 const aiToolHelpDocs = {
+  get_tool_help: {
+    summary: 'Return usage guidance, parameter rules, and examples for one registered AI tool.',
+    parameters: [
+      { name: 'toolName', required: true, type: 'string', description: 'Exact tool name to describe, such as read_target or web_search.' },
+    ],
+    examples: [
+      { description: 'Describe read_target', args: { toolName: 'read_target' } },
+    ],
+  },
   get_context: {
     summary: 'Inspect lightweight metadata for the active editor or one known temp buffer.',
     parameters: [
@@ -2335,10 +2403,7 @@ function buildAiToolHelpResult(toolName) {
       schema: definition.parameters,
       description: definition.description,
       summary: helpDoc.summary,
-      parameters: [
-        ...helpDoc.parameters,
-        { name: 'help', required: false, type: 'boolean', description: aiToolHelpFlagDescription },
-      ],
+      parameters: helpDoc.parameters,
       examples: helpDoc.examples,
       notes: [
         'Follow the parameter object schema exactly and avoid extra keys.',
@@ -2350,6 +2415,10 @@ function buildAiToolHelpResult(toolName) {
 
 function buildAiToolErrorResult(toolName, error) {
   const message = error instanceof Error ? error.message : String(error)
+  const helpCall = {
+    tool: 'get_tool_help',
+    args: { toolName },
+  }
 
   if (error instanceof AiToolUserError) {
     return {
@@ -2360,8 +2429,8 @@ function buildAiToolErrorResult(toolName, error) {
         reason: error.reason,
         fix: error.fix,
         help: {
-          call: { help: true },
-          note: `Call ${toolName} with {"help":true} for the exact schema and examples.`,
+          call: helpCall,
+          note: `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
         },
       },
     }
@@ -2375,8 +2444,8 @@ function buildAiToolErrorResult(toolName, error) {
       reason: message,
       fix: 'Adjust the arguments, retry a narrower operation, or inspect tool help before the next call.',
       help: {
-        call: { help: true },
-        note: `Call ${toolName} with {"help":true} for the exact schema and examples.`,
+        call: helpCall,
+        note: `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
       },
     },
   }
@@ -2418,6 +2487,11 @@ function validateAiToolArgs(toolName, args) {
   }
 
   if (isAiToolHelpRequest(args)) {
+    throw new AiToolUserError(toolName, 'help=true is no longer valid on action tools.', `Call get_tool_help with {"toolName":"${toolName}"} instead.`)
+  }
+
+  if (toolName === 'get_tool_help') {
+    requireStringArg(toolName, args, 'toolName', 'an exact registered tool name such as read_target')
     return
   }
 
@@ -3076,6 +3150,12 @@ function summarizeAiWriteSourcesForLog(sources) {
 }
 
 function summarizeAiToolArgsForLog(toolName, args) {
+  if (toolName === 'get_tool_help') {
+    return {
+      toolName: typeof args?.toolName === 'string' ? args.toolName : null,
+    }
+  }
+
   if (toolName === 'write_target') {
     return {
       destination: summarizeTargetForLog(args?.destination),
@@ -3235,18 +3315,11 @@ async function executeAiToolCall(editorWindow, toolName, args) {
   try {
     validateAiToolArgs(toolName, args)
 
-    if (isAiToolHelpRequest(args)) {
-      const helpResult = buildAiToolHelpResult(toolName)
-      writeLog('INFO', 'ai-tool', 'completed', {
-        toolName,
-        result: summarizeAiToolResultForLog(toolName, helpResult),
-      })
-      return helpResult
-    }
-
     let result
 
-    if (toolName === 'get_context') {
+    if (toolName === 'get_tool_help') {
+      result = buildAiToolHelpResult(args.toolName)
+    } else if (toolName === 'get_context') {
       const requestedEditorId = typeof args?.editorId === 'string' && args.editorId.length > 0 ? args.editorId : null
 
       if (!requestedEditorId || isActiveEditorAlias(requestedEditorId) || requestedEditorId === ensureEditorRuntimeState(editorWindow).editorId) {
@@ -3383,6 +3456,7 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
   }
 
   const client = createOpenAiClient()
+  const openAiTools = getValidatedOpenAiToolDefinitions()
   const toolEvents = []
   let nextInput = input
   let previousResponseId = null
@@ -3399,7 +3473,7 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         instructions: openAiChatInstructions,
         input: nextInput,
         previous_response_id: previousResponseId || undefined,
-        tools: aiToolDefinitions,
+        tools: openAiTools,
         store: true,
       })
 

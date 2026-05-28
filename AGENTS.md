@@ -30,6 +30,8 @@
 - Preserve existing packaging workarounds for WSL and Windows host builds; do not assume `electron-builder --win portable` is reliable on this Linux environment.
 - For debugging or RCA work, do not stop at the first symptom or mixed-representation explanation. Trace the controlling contract boundary, record hypothesis and disconfirming check, and fix the root contract or state-model mismatch rather than only adding surface guards.
 - Do not hide contract drift by broadening a helper to accept multiple payload shapes "for convenience". If a helper is being used with mixed representations, treat that as the bug: split the helper or tighten the caller contract so each path passes one explicit shape.
+- When a user says the RCA is shallow, treat that as a request to inspect the abstraction design itself, not just the failing value. Identify whether one API, schema, or helper is carrying multiple responsibilities, request modes, or semantic branches, and prefer separating those contracts over making the shared shape more permissive.
+- For AI tool work specifically, do not keep help/introspection requests, action requests, and runtime argument validation entangled in one schema or helper. If those concerns are fighting each other, treat the mixed contract as the root cause and split the protocol surface so OpenAI-facing schemas, help discovery, and runtime validation each have one explicit responsibility.
 - For AI tool contracts, state target-kind-specific validity rules explicitly. Do not imply that every SPAN kind is valid for every `editorId`; for example, `selection` is live-editor-only and non-editor targets must use `document`, `pageTarget`, or explicit ranges.
 
 ## Commit Workflow
