@@ -35,6 +35,7 @@ const editorToAiChatWindowId = new Map()
 const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
 const launchStateByWindowId = new Map()
+const hiddenLaunchRevealTimerByWindowId = new Map()
 const editorRuntimeStateByWindowId = new Map()
 const aiSessionBuffersByEditorWindowId = new Map()
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
@@ -102,6 +103,7 @@ const MAIN_I18N = {
     },
     fileDialog: {
       markdownFilter: 'Markdown',
+      htmlFilter: 'HTML',
       allFilesFilter: 'すべてのファイル',
     },
   },
@@ -145,6 +147,7 @@ const MAIN_I18N = {
     },
     fileDialog: {
       markdownFilter: 'Markdown',
+      htmlFilter: 'HTML',
       allFilesFilter: 'All Files',
     },
   },
@@ -3728,7 +3731,7 @@ function waitForWindowDidFinishLoad(targetWindow) {
 }
 
 async function createNewEditorWindowFromContent(content, title) {
-  const nextWindow = createWindow()
+  const nextWindow = await createWindow()
   await waitForWindowDidFinishLoad(nextWindow)
   const context = await requestEditorContext(nextWindow)
   const writeResult = await requestEditorWindowData(nextWindow, {
@@ -4068,6 +4071,7 @@ function dispatchOpenFileToWindow(targetWindow, launchRequest) {
   const resolvedLaunchRequest = {
     filePath: launchRequest?.filePath || null,
     initialPanel: resolveInitialPanelForLaunch(launchRequest),
+    isInitialLaunch: !targetWindow.isVisible() && Boolean(launchRequest?.filePath),
   }
 
   writeLog('INFO', 'main', 'Dispatch launch/open file request', resolvedLaunchRequest)
@@ -4241,6 +4245,33 @@ async function saveContentToPath(parentWindow, payload) {
 
   return {
     path: targetPath,
+  }
+}
+
+async function saveHtmlExportToPath(parentWindow, payload) {
+  const content = typeof payload?.content === 'string' ? payload.content : ''
+  const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
+    ? payload.defaultFileName.trim()
+    : 'document.html'
+  const messages = getMainI18n()
+  const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+    defaultPath: defaultFileName,
+    filters: [
+      { name: messages.fileDialog.htmlFilter, extensions: ['html', 'htm'] },
+      { name: messages.fileDialog.allFilesFilter, extensions: ['*'] },
+    ],
+  })
+
+  if (result.canceled || !result.filePath) {
+    writeLog('INFO', 'ipc', 'export-html cancelled')
+    return null
+  }
+
+  await fsPromises.writeFile(result.filePath, content, 'utf8')
+  writeLog('INFO', 'ipc', 'export-html wrote', result.filePath)
+
+  return {
+    path: result.filePath,
   }
 }
 
@@ -4633,12 +4664,13 @@ function createApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function createWindow(initialLaunchRequest = null) {
+async function createWindow(initialLaunchRequest = null) {
   const mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
     minWidth: 1200,
     minHeight: 760,
+    show: !Boolean(initialLaunchRequest?.filePath),
     backgroundColor: '#fffaf4',
     autoHideMenuBar: true,
     icon: windowIcon,
@@ -4675,7 +4707,30 @@ function createWindow(initialLaunchRequest = null) {
   })
 
   attachWindowLogging(mainWindow, initialLaunchRequest)
+
+  if (initialLaunchRequest?.filePath) {
+    const revealTimer = setTimeout(() => {
+      hiddenLaunchRevealTimerByWindowId.delete(mainWindow.id)
+
+      if (mainWindow.isDestroyed() || mainWindow.isVisible()) {
+        return
+      }
+
+      writeLog('WARN', 'main', 'Revealing hidden launch window after startup timeout', initialLaunchRequest.filePath)
+      mainWindow.show()
+      focusWindow(mainWindow)
+    }, 1500)
+
+    hiddenLaunchRevealTimerByWindowId.set(mainWindow.id, revealTimer)
+  }
+
   mainWindow.on('closed', () => {
+    const revealTimer = hiddenLaunchRevealTimerByWindowId.get(mainWindow.id)
+    if (revealTimer) {
+      clearTimeout(revealTimer)
+      hiddenLaunchRevealTimerByWindowId.delete(mainWindow.id)
+    }
+
     approvedWindowCloseIds.delete(mainWindow.id)
     pendingWindowCloseIds.delete(mainWindow.id)
     launchStateByWindowId.delete(mainWindow.id)
@@ -4748,6 +4803,28 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.on('mdv:initial-launch-open-handled', (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+
+  if (!window || window.isDestroyed() || window.isVisible()) {
+    return
+  }
+
+  const revealTimer = hiddenLaunchRevealTimerByWindowId.get(window.id)
+  if (revealTimer) {
+    clearTimeout(revealTimer)
+    hiddenLaunchRevealTimerByWindowId.delete(window.id)
+  }
+
+  window.show()
+  focusWindow(window)
+})
+
+ipcMain.handle('mdv:export-html', async (event, payload) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  return saveHtmlExportToPath(window ?? undefined, payload)
 })
 
 ipcMain.handle('mdv:open-ai-chat', async (event) => {
@@ -5081,8 +5158,11 @@ app.on('second-instance', (_event, argv) => {
   const shouldOpenAdditionalWindow = Boolean(launchRequest.filePath) && !isManagedClient()
 
   if (shouldOpenAdditionalWindow) {
-    const nextWindow = createWindow(launchRequest)
-    focusWindow(nextWindow)
+    void createWindow(launchRequest).then((nextWindow) => {
+      focusWindow(nextWindow)
+    }).catch((error) => {
+      writeLog('ERROR', 'main', 'Failed to create additional window', error instanceof Error ? error.message : String(error))
+    })
     return
   }
 
@@ -5102,11 +5182,15 @@ app.whenReady().then(() => {
   createApplicationMenu()
   const initialLaunchRequest = pendingLaunchRequest
   pendingLaunchRequest = null
-  createWindow(initialLaunchRequest)
+  void createWindow(initialLaunchRequest).catch((error) => {
+    writeLog('ERROR', 'main', 'Failed to create initial window', error instanceof Error ? error.message : String(error))
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      void createWindow().catch((error) => {
+        writeLog('ERROR', 'main', 'Failed to recreate window on activate', error instanceof Error ? error.message : String(error))
+      })
     }
   })
 })

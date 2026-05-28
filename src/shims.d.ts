@@ -264,6 +264,7 @@ type MdvInitialPanel = 'write' | 'preview'
 type MdvLaunchRequest = {
   filePath: string | null
   initialPanel: MdvInitialPanel
+  isInitialLaunch?: boolean
 }
 
 type MdvSettingsBootstrap = {
@@ -385,6 +386,8 @@ interface Window {
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
+    notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>

@@ -379,10 +379,15 @@
 
 .preview-scroll {
   overflow: auto;
-  padding: 0;
+  padding: 28px clamp(18px, 4vw, 40px) 40px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.preview-scroll > * {
+  width: min(100%, 980px);
+  margin-inline: auto;
 }
 
 .compact-preview {
@@ -594,6 +599,52 @@
   background: var(--bg-status);
   font-size: 11px;
   color: var(--text-muted);
+}
+
+@media print {
+  html,
+  body,
+  .shell,
+  .workspace,
+  .single-panel,
+  .panel,
+  .preview-panel,
+  .full-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .topbar,
+  .editor-search-results,
+  .statusbar {
+    display: none !important;
+  }
+
+  .workspace,
+  .single-panel,
+  .panel,
+  .preview-panel,
+  .preview-scroll {
+    background: #fff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .single-panel {
+    padding: 0 !important;
+  }
+
+  .preview-scroll {
+    overflow: visible !important;
+    padding: 0 !important;
+    gap: 14px;
+  }
+
+  .preview-scroll > * {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 @media (max-width: 1100px) {

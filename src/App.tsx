@@ -478,6 +478,7 @@ function MermaidBlock({ code, theme }: CodeBlockProps) {
   return (
     <div
       className="mermaid-block"
+      data-render-state={svg ? 'ready' : 'loading'}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
@@ -718,12 +719,340 @@ function ResultsIcon() {
   )
 }
 
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function PrintIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M7 8V4.5h10V8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M7 17H5.5A1.5 1.5 0 0 1 4 15.5v-5A1.5 1.5 0 0 1 5.5 9h13A1.5 1.5 0 0 1 20 10.5v5a1.5 1.5 0 0 1-1.5 1.5H17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M7 14h10v5.5H7z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ExportIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M6 4.5h8l4 4v11A1.5 1.5 0 0 1 16.5 21h-10A1.5 1.5 0 0 1 5 19.5v-13A1.5 1.5 0 0 1 6.5 5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M14 4.5V9h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12 11v5M9.5 13.5 12 11l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  const didCopy = document.execCommand('copy')
+  textarea.remove()
+
+  if (!didCopy) {
+    throw new Error('Clipboard copy command was rejected')
+  }
+}
+
+function buildHtmlExportFileName(currentFilePath: string | null, displayTitle: string, untitledTitle: string): string {
+  if (currentFilePath) {
+    return currentFilePath.replace(/\.(md|markdown|txt|html?)$/i, '') + '.html'
+  }
+
+  const sourceName = basename(currentFilePath, displayTitle || untitledTitle)
+  const withoutExtension = sourceName.replace(/\.(md|markdown|txt|html?)$/i, '')
+  return `${withoutExtension || untitledTitle.replace(/\.[^.]+$/, '')}.html`
+}
+
+function sanitizeExportHtmlFragment(html: string): string {
+  const parser = new DOMParser()
+  const documentFragment = parser.parseFromString(`<div id="export-root">${html}</div>`, 'text/html')
+  const root = documentFragment.getElementById('export-root')
+
+  if (!root) {
+    return ''
+  }
+
+  root.querySelectorAll('script, link, base, iframe, object, embed, form, input, button, textarea, select, meta[http-equiv="refresh"]').forEach((element) => {
+    element.remove()
+  })
+
+  root.querySelectorAll('style').forEach((element) => {
+    if (element.namespaceURI !== 'http://www.w3.org/2000/svg') {
+      element.remove()
+    }
+  })
+
+  root.querySelectorAll('.katex').forEach((element) => {
+    const mathml = element.querySelector('.katex-mathml')
+
+    if (!mathml) {
+      return
+    }
+
+    const replacement = documentFragment.createElement('span')
+    replacement.className = 'katex-export-mathml'
+    replacement.innerHTML = mathml.innerHTML
+    element.replaceWith(replacement)
+  })
+
+  root.querySelectorAll('*').forEach((element) => {
+    for (const attributeName of element.getAttributeNames()) {
+      const attributeValue = element.getAttribute(attributeName) ?? ''
+      const normalizedName = attributeName.toLowerCase()
+      const normalizedValue = Array.from(attributeValue)
+        .filter((char) => {
+          const code = char.charCodeAt(0)
+          return !((code >= 0 && code <= 32) || (code >= 127 && code <= 159))
+        })
+        .join('')
+        .toLowerCase()
+
+      if (normalizedName.startsWith('on')) {
+        element.removeAttribute(attributeName)
+        continue
+      }
+
+      if (normalizedName === 'style' && element.namespaceURI !== 'http://www.w3.org/2000/svg') {
+        element.removeAttribute(attributeName)
+        continue
+      }
+
+      if (normalizedName === 'srcset' || normalizedName === 'poster') {
+        element.removeAttribute(attributeName)
+        continue
+      }
+
+      if (normalizedName === 'href') {
+        if (element.namespaceURI === 'http://www.w3.org/2000/svg') {
+          if (!normalizedValue.startsWith('#')) {
+            element.removeAttribute(attributeName)
+          }
+
+          continue
+        }
+
+        const schemeMatch = normalizedValue.match(/^([a-z][a-z0-9+.-]*):/i)
+        const scheme = schemeMatch?.[1] ?? null
+
+        if (normalizedValue.startsWith('//')) {
+          element.removeAttribute(attributeName)
+          continue
+        }
+
+        if (scheme && !['http', 'https', 'mailto', 'tel'].includes(scheme)) {
+          element.removeAttribute(attributeName)
+        }
+
+        continue
+      }
+
+      if (normalizedName === 'src') {
+        const schemeMatch = normalizedValue.match(/^([a-z][a-z0-9+.-]*):/i)
+        const scheme = schemeMatch?.[1] ?? null
+        const isSafeLocalReference = normalizedValue.startsWith('#')
+          || normalizedValue.startsWith('data:image/')
+          || (!scheme && !normalizedValue.startsWith('//'))
+
+        if (!isSafeLocalReference) {
+          element.removeAttribute(attributeName)
+        }
+
+        continue
+      }
+
+      if (normalizedName === 'xlink:href') {
+        if (!normalizedValue.startsWith('#')) {
+          element.removeAttribute(attributeName)
+        }
+      }
+    }
+  })
+
+  return root.innerHTML
+}
+
+function buildExportHtmlDocument(title: string, bodyHtml: string): string {
+  const rootStyles = getComputedStyle(document.documentElement)
+  const readVar = (name: string, fallback: string) => rootStyles.getPropertyValue(name).trim() || fallback
+  const background = readVar('--bg-elevated', '#f6f1e8')
+  const surface = readVar('--bg-panel', '#ffffff')
+  const surfaceStrong = readVar('--bg-panel-strong', '#f3eee3')
+  const text = readVar('--text', '#222222')
+  const textMuted = readVar('--text-muted', '#5c5c5c')
+  const textHeading = readVar('--text-h', text)
+  const border = readVar('--border', '#d6cfbf')
+  const link = readVar('--link', '#0b5bd3')
+  const codeBg = readVar('--code-bg', '#f4f0e8')
+  const codeBorder = readVar('--code-border', border)
+  const mono = readVar('--mono', "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace")
+  const sans = readVar('--sans', "'Segoe UI', 'Noto Sans JP', sans-serif")
+  const safeTitle = title.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char))
+
+  return `<!doctype html>
+<html lang="${document.documentElement.lang || 'en'}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${safeTitle}</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        background: ${background};
+        color: ${text};
+        font: 14px/1.75 ${sans};
+      }
+      .export-shell {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 40px 32px 56px;
+      }
+      .export-shell > * {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .markdown-fragment h1,
+      .markdown-fragment h2,
+      .markdown-fragment h3,
+      .markdown-fragment h4 {
+        color: ${textHeading};
+        line-height: 1.18;
+        margin: 1.4em 0 0.6em;
+      }
+      .markdown-fragment h1 { font-size: 1.9rem; }
+      .markdown-fragment h2 { font-size: 1.45rem; }
+      .markdown-fragment h3 { font-size: 1.15rem; }
+      .markdown-fragment p,
+      .markdown-fragment ul,
+      .markdown-fragment ol,
+      .markdown-fragment blockquote { line-height: 1.75; }
+      .markdown-fragment a { color: ${link}; }
+      .markdown-fragment blockquote {
+        margin: 1em 0;
+        padding: 0.7em 1em;
+        border-left: 3px solid ${link};
+        background: ${surfaceStrong};
+        color: ${textMuted};
+      }
+      .markdown-fragment table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid ${border};
+        margin: 1em 0;
+        overflow: hidden;
+        border-radius: 10px;
+      }
+      .markdown-fragment th,
+      .markdown-fragment td {
+        border: 1px solid ${border};
+        padding: 0.65em 0.75em;
+        background: ${surface};
+      }
+      .markdown-fragment th {
+        background: ${surfaceStrong};
+        color: ${textHeading};
+      }
+      .markdown-fragment code {
+        background: ${codeBg};
+        border: 1px solid ${codeBorder};
+        padding: 0.1em 0.35em;
+        border-radius: 6px;
+      }
+      .code-block-shell {
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid ${border};
+        background: ${surfaceStrong};
+      }
+      .code-block-header {
+        padding: 6px 8px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        background: rgba(0, 0, 0, 0.04);
+      }
+      .code-block-shell pre {
+        margin: 0;
+        padding: 12px 14px;
+        overflow: auto;
+        font: 12px/1.6 ${mono};
+      }
+      .code-block-shell code {
+        background: transparent;
+        border: none;
+        padding: 0;
+        border-radius: 0;
+      }
+      .mermaid-block {
+        border-radius: 12px;
+        border: 1px solid ${border};
+        background: ${surface};
+        padding: 14px;
+      }
+      .mermaid-block svg {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      .katex-export-mathml math {
+        font-size: 1.05em;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="export-shell">${bodyHtml}</main>
+  </body>
+</html>`
+}
+
+async function waitForRenderedPreviewReady(previewRoot: HTMLDivElement | null) {
+  if (!previewRoot) {
+    return
+  }
+
+  const deadline = performance.now() + 1500
+
+  while (performance.now() < deadline) {
+    const hasPendingMermaidRender = previewRoot.querySelector('.mermaid-block[data-render-state="loading"]') !== null
+
+    if (!hasPendingMermaidRender) {
+      return
+    }
+
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve())
+    })
+  }
+
+  throw new Error('Rendered preview is still updating. Retry once rendering completes.')
+}
+
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const { t } = useI18n()
+  const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
   const [markdownText, setMarkdownText] = useState<string>(() => t.app.initialDocument)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>(() => {
-    const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
     return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
   })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
@@ -743,6 +1072,7 @@ function App() {
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
+  const previewRootRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const persistedMarkdownRef = useRef<string>(t.app.initialDocument)
   const initialDocumentRef = useRef<string>(t.app.initialDocument)
@@ -762,7 +1092,7 @@ function App() {
     persistedMarkdown: t.app.initialDocument,
     currentFilePath: null,
     displayTitle: t.app.untitledTitle,
-    activePanel: 'preview',
+    activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
   }))
   const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
   const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
@@ -954,6 +1284,55 @@ function App() {
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
     setStatusText(t.app.status.loaded(fileName || i18nRef.current.app.untitledTitle))
+  }
+
+  const handleCopyDocument = async () => {
+    try {
+      await copyTextToClipboard(markdownText)
+      setStatusText(t.app.status.copiedDocument)
+    } catch (error) {
+      setStatusText(t.app.status.copyFailed(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const handleCopyRendered = async () => {
+    try {
+      await waitForRenderedPreviewReady(previewRootRef.current)
+      const previewText = previewRootRef.current?.innerText?.trim() ?? ''
+      await copyTextToClipboard(previewText || markdownText)
+      setStatusText(t.app.status.copiedRendered)
+    } catch (error) {
+      setStatusText(t.app.status.copyFailed(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const handlePrintRendered = async () => {
+    try {
+      await waitForRenderedPreviewReady(previewRootRef.current)
+      setStatusText(t.app.status.openedPrintDialog)
+      window.print()
+    } catch (error) {
+      setStatusText(t.app.status.printFailed(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const handleExportHtml = async () => {
+    try {
+      await waitForRenderedPreviewReady(previewRootRef.current)
+      const previewHtml = sanitizeExportHtmlFragment(previewRootRef.current?.innerHTML?.trim() ?? '')
+      const result = await window.mdvDesktop?.exportHtml({
+        content: buildExportHtmlDocument(displayTitle, previewHtml),
+        defaultFileName: buildHtmlExportFileName(currentFilePath, displayTitle, t.app.untitledTitle),
+      })
+
+      if (!result) {
+        return
+      }
+
+      setStatusText(t.app.status.exportedHtml(basename(result.path)))
+    } catch (error) {
+      setStatusText(t.app.status.exportHtmlFailed(error instanceof Error ? error.message : String(error)))
+    }
   }
 
   const buildLiveClientSnapshot = (): MdvClientSnapshot => {
@@ -1448,32 +1827,40 @@ function App() {
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
       void (async () => {
-        if (!await confirmUnsavedChangesBeforeProceedRef.current(i18nRef.current.common.open)) {
-          setStatusText(i18nRef.current.app.status.openRequestCancelled)
-          return
-        }
+        const isInitialLaunch = typeof request !== 'string' && request.isInitialLaunch === true
 
-        const filePath = typeof request === 'string' ? request : request.filePath
-        const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
+        try {
+          if (!await confirmUnsavedChangesBeforeProceedRef.current(i18nRef.current.common.open)) {
+            setStatusText(i18nRef.current.app.status.openRequestCancelled)
+            return
+          }
 
-        if (!filePath) {
+          const filePath = typeof request === 'string' ? request : request.filePath
+          const initialPanel = typeof request === 'string' ? undefined : request.initialPanel
+
+          if (!filePath) {
+            if (initialPanel) {
+              setActivePanel(initialPanel)
+            }
+
+            return
+          }
+
+          const payload = await window.mdvDesktop?.readFile(filePath)
           if (initialPanel) {
             setActivePanel(initialPanel)
           }
 
-          return
-        }
+          if (!payload) {
+            return
+          }
 
-        const payload = await window.mdvDesktop?.readFile(filePath)
-        if (initialPanel) {
-          setActivePanel(initialPanel)
+          loadFilePayloadRef.current(payload)
+        } finally {
+          if (isInitialLaunch) {
+            window.mdvDesktop?.notifyInitialLaunchOpenHandled()
+          }
         }
-
-        if (!payload) {
-          return
-        }
-
-        loadFilePayloadRef.current(payload)
       })()
     })
 
@@ -1727,6 +2114,26 @@ function App() {
             <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
+                <CopyIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
+                <CopyIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
+                <PrintIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
+                <ExportIcon />
+              </ToolbarButton>
+            ) : null}
             <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
               <SettingsIcon />
             </ToolbarButton>
@@ -1785,7 +2192,7 @@ function App() {
         {activePanel === 'preview' ? (
           <div className="single-panel">
             <div className="panel preview-panel full-panel">
-              <div className="preview-scroll compact-preview">
+              <div ref={previewRootRef} className="preview-scroll compact-preview">
                 {segments.map((segment, index) => {
                   if (segment.type === 'markdown') {
                     return (

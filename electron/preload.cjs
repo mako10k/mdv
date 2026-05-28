@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
+  exportHtml: (payload) => ipcRenderer.invoke('mdv:export-html', payload),
+  notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
