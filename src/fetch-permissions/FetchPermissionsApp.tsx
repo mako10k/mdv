@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
+import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 
 type FetchDraft = MdvSettings['ai']['fetch']
 
@@ -16,9 +17,19 @@ function parseMultilineText(value: string): string[] {
 
 function FetchPermissionsApp() {
   useDesktopTheme()
+  const { t } = useI18n()
+  const i18nRef = useRef(t)
   const [settings, setSettings] = useState<MdvSettings | null>(null)
-  const [statusText, setStatusText] = useState('Loading fetch permissions')
+  const [statusText, setStatusText] = useState<string>(t.fetchPermissions.loading)
   const [draft, setDraft] = useState<FetchDraft | null>(null)
+
+  useEffect(() => {
+    i18nRef.current = t
+  })
+
+  useEffect(() => {
+    document.title = `MDV ${t.fetchPermissions.title}`
+  }, [t])
 
   useEffect(() => {
     let active = true
@@ -27,9 +38,13 @@ function FetchPermissionsApp() {
         return
       }
 
+      const nextTranslations = isLocale(nextSettings.general.locale)
+        ? getTranslations(nextSettings.general.locale)
+        : i18nRef.current
+
       setSettings(nextSettings)
       setDraft(nextSettings.ai.fetch)
-      setStatusText('Fetch permissions updated')
+      setStatusText(nextTranslations.fetchPermissions.updated)
     })
 
     void window.mdvDesktop?.settings.getSettings()
@@ -40,7 +55,7 @@ function FetchPermissionsApp() {
 
         setSettings(nextSettings)
         setDraft(nextSettings.ai.fetch)
-        setStatusText('Fetch permissions ready')
+        setStatusText(i18nRef.current.fetchPermissions.ready)
       })
       .catch((error: unknown) => {
         if (!active) {
@@ -61,7 +76,7 @@ function FetchPermissionsApp() {
       return
     }
 
-    setStatusText('Saving fetch permissions')
+    setStatusText(t.fetchPermissions.saving)
     void window.mdvDesktop?.settings.updateSettings({
       ai: {
         fetch: {
@@ -78,7 +93,7 @@ function FetchPermissionsApp() {
       .then((updatedSettings) => {
         setSettings(updatedSettings)
         setDraft(updatedSettings.ai.fetch)
-        setStatusText('Fetch permissions saved')
+        setStatusText(t.fetchPermissions.saved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -89,18 +104,18 @@ function FetchPermissionsApp() {
     <main className="settings-shell fetch-permissions-shell">
       <header className="settings-header">
         <div>
-          <p className="settings-eyebrow">MDV Fetch Guardrails</p>
-          <h1>Fetch Permissions</h1>
-          <p className="settings-subtitle">Configure allowlisted URL rules, explicit methods and headers, and network safety timeouts for fetch_url.</p>
+          <p className="settings-eyebrow">{t.fetchPermissions.eyebrow}</p>
+          <h1>{t.fetchPermissions.title}</h1>
+          <p className="settings-subtitle">{t.fetchPermissions.subtitle}</p>
         </div>
         <span className="settings-status">{statusText}</span>
       </header>
 
       <section className="settings-content">
         <section className="settings-card fetch-permissions-card">
-          <h2>Allowlist</h2>
+          <h2>{t.fetchPermissions.allowlist}</h2>
           <label className="settings-field settings-field-wide">
-            <span>Allowed URL rules</span>
+            <span>{t.fetchPermissions.allowedUrlRules}</span>
             <textarea
               className="fetch-permissions-textarea"
               value={toMultilineText(draft?.allowedUrlRules ?? [])}
@@ -113,10 +128,10 @@ function FetchPermissionsApp() {
               }}
             />
           </label>
-          <p className="settings-note">One rule per line. Reuse patterns from the existing external-link allowlist manually when you want the same host to be fetchable.</p>
+          <p className="settings-note">{t.fetchPermissions.allowlistNote}</p>
 
           <label className="settings-field settings-field-wide">
-            <span>Allowed methods</span>
+            <span>{t.fetchPermissions.allowedMethods}</span>
             <textarea
               className="fetch-permissions-textarea fetch-permissions-textarea-compact"
               value={toMultilineText(draft?.allowedMethods ?? [])}
@@ -131,7 +146,7 @@ function FetchPermissionsApp() {
           </label>
 
           <label className="settings-field settings-field-wide">
-            <span>Allowed headers</span>
+            <span>{t.fetchPermissions.allowedHeaders}</span>
             <textarea
               className="fetch-permissions-textarea fetch-permissions-textarea-compact"
               value={toMultilineText(draft?.allowedHeaders ?? [])}
@@ -147,9 +162,9 @@ function FetchPermissionsApp() {
         </section>
 
         <section className="settings-card fetch-permissions-card">
-          <h2>Timeouts And Limits</h2>
+          <h2>{t.fetchPermissions.timeoutsAndLimits}</h2>
           <label className="settings-field">
-            <span>Total request timeout (ms)</span>
+            <span>{t.fetchPermissions.totalRequestTimeout}</span>
             <input
               type="number"
               min={1000}
@@ -165,7 +180,7 @@ function FetchPermissionsApp() {
             />
           </label>
           <label className="settings-field">
-            <span>Idle timeout (ms)</span>
+            <span>{t.fetchPermissions.idleTimeout}</span>
             <input
               type="number"
               min={1000}
@@ -181,7 +196,7 @@ function FetchPermissionsApp() {
             />
           </label>
           <label className="settings-field">
-            <span>Auto-dispose temp buffers (ms)</span>
+            <span>{t.fetchPermissions.autoDisposeBuffers}</span>
             <input
               type="number"
               min={10000}
@@ -197,7 +212,7 @@ function FetchPermissionsApp() {
             />
           </label>
           <label className="settings-field">
-            <span>Max response bytes</span>
+            <span>{t.fetchPermissions.maxResponseBytes}</span>
             <input
               type="number"
               min={16384}
@@ -214,30 +229,30 @@ function FetchPermissionsApp() {
           </label>
           <div className="settings-actions">
             <button type="button" className="settings-primary-button" onClick={handleSave} disabled={!draft}>
-              Save fetch permissions
+              {t.fetchPermissions.save}
             </button>
           </div>
-          <p className="settings-note">Unsafe targets such as localhost, private IP space, embedded credentials, and disallowed redirects are still blocked in main process even when a rule matches.</p>
+          <p className="settings-note">{t.fetchPermissions.safetyNote}</p>
         </section>
 
         <section className="settings-card fetch-permissions-card">
-          <h2>Current State</h2>
+          <h2>{t.fetchPermissions.currentState}</h2>
           <dl className="settings-facts">
             <div>
-              <dt>fetch_url enabled</dt>
-              <dd>{settings?.ai.toolPermissions.fetchUrl ? 'yes' : 'no'}</dd>
+              <dt>{t.fetchPermissions.fetchUrlEnabled}</dt>
+              <dd>{settings?.ai.toolPermissions.fetchUrl ? t.common.yes : t.common.no}</dd>
             </div>
             <div>
-              <dt>Allowlisted URL rules</dt>
+              <dt>{t.fetchPermissions.allowlistedUrlRules}</dt>
               <dd>{settings?.ai.fetch.allowedUrlRules.length ?? 0}</dd>
             </div>
             <div>
-              <dt>Allowed methods</dt>
-              <dd>{settings?.ai.fetch.allowedMethods.join(', ') || '(none)'}</dd>
+              <dt>{t.fetchPermissions.allowedMethods}</dt>
+              <dd>{settings?.ai.fetch.allowedMethods.join(', ') || t.fetchPermissions.none}</dd>
             </div>
             <div>
-              <dt>Allowed headers</dt>
-              <dd className="settings-break">{settings?.ai.fetch.allowedHeaders.join(', ') || '(none)'}</dd>
+              <dt>{t.fetchPermissions.allowedHeaders}</dt>
+              <dd className="settings-break">{settings?.ai.fetch.allowedHeaders.join(', ') || t.fetchPermissions.none}</dd>
             </div>
           </dl>
         </section>

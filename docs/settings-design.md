@@ -138,6 +138,9 @@ Target categories after expansion:
   - `system`
   - `light`
   - `dark`
+- Display Language
+  - `ja`
+  - `en`
 - Default Start Panel
   - `write`
   - `preview`
@@ -148,6 +151,7 @@ Target categories after expansion:
 備考:
 
 - 既存の `mdv-theme-mode` localStorage はここへ統合し、将来は settings store から配布する
+- locale は renderer 文言だけでなく main process の menu / dialog と preload bootstrap にも反映される設定として扱う
 
 ### 2. Editor
 

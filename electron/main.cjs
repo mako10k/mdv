@@ -61,6 +61,103 @@ const SEMANTIC_LAYERS = [
   { name: 'medium', maxChars: 2800, overlapChars: 560, weight: 0.97 },
   { name: 'coarse', maxChars: 7200, overlapChars: 1200, weight: 0.94 },
 ]
+const MAIN_I18N = {
+  ja: {
+    untitledTitle: '無題.md',
+    menu: {
+      file: 'ファイル',
+      open: '開く',
+      save: '保存',
+      saveAs: '名前を付けて保存',
+      settings: '設定',
+      view: '表示',
+      aiChat: 'AI Chat',
+      editor: 'エディタ',
+      renderedPreview: 'レンダリングプレビュー',
+    },
+    buttons: {
+      continue: '続行',
+      cancel: 'キャンセル',
+      save: '保存',
+      close: '閉じる',
+      open: '開く',
+    },
+    unsaved: {
+      file: 'ファイル',
+      hasUnsavedChanges: '未保存の変更があります。',
+      title: '保存されていない変更があります',
+      message: (proceedLabel) => `このまま${proceedLabel}しますか？`,
+    },
+    closeFallback: {
+      title: 'ウィンドウを閉じる前に確認できませんでした',
+      message: 'エディタの状態を取得できませんでした。',
+      detail: '保存されていない変更がある場合は失われる可能性があります。閉じる場合はそのまま終了します。',
+    },
+    externalLink: {
+      title: '未許可の外部サイトです',
+      message: '未許可の外部サイトを開こうとしています。',
+      allowAndRemember: '許可リストに登録して表示',
+      openOnce: '今回のみ表示',
+      suggestedRuleLabel: '登録候補',
+    },
+    fileDialog: {
+      markdownFilter: 'Markdown',
+      allFilesFilter: 'すべてのファイル',
+    },
+  },
+  en: {
+    untitledTitle: 'Untitled.md',
+    menu: {
+      file: 'File',
+      open: 'Open',
+      save: 'Save',
+      saveAs: 'Save As',
+      settings: 'Settings',
+      view: 'View',
+      aiChat: 'AI Chat',
+      editor: 'Editor',
+      renderedPreview: 'Rendered Preview',
+    },
+    buttons: {
+      continue: 'Continue',
+      cancel: 'Cancel',
+      save: 'Save',
+      close: 'Close',
+      open: 'Open',
+    },
+    unsaved: {
+      file: 'File',
+      hasUnsavedChanges: 'You have unsaved changes.',
+      title: 'Unsaved changes',
+      message: (proceedLabel) => `Do you want to ${proceedLabel.toLowerCase()} without saving?`,
+    },
+    closeFallback: {
+      title: 'Unable to confirm before closing',
+      message: 'The editor state could not be retrieved.',
+      detail: 'If there are unsaved changes, they may be lost. Closing will exit immediately.',
+    },
+    externalLink: {
+      title: 'Untrusted external site',
+      message: 'You are about to open an untrusted external site.',
+      allowAndRemember: 'Allow and remember',
+      openOnce: 'Open once',
+      suggestedRuleLabel: 'Suggested allow rule',
+    },
+    fileDialog: {
+      markdownFilter: 'Markdown',
+      allFilesFilter: 'All Files',
+    },
+  },
+}
+
+function getMainLocale() {
+  return settingsState?.general?.locale === 'ja' ? 'ja' : 'en'
+}
+
+function getMainI18n() {
+  return MAIN_I18N[getMainLocale()]
+}
+
 let settingsWindow = null
 let settingsWindowOwnerEditorId = null
 let fetchPermissionsWindow = null
@@ -1584,9 +1681,10 @@ function focusWindow(window) {
 }
 
 async function confirmAiWriteAction(parentWindow, options) {
+  const messages = getMainI18n()
   const response = await dialog.showMessageBox(parentWindow ?? undefined, {
     type: 'warning',
-    buttons: ['Continue', 'Cancel'],
+    buttons: [messages.buttons.continue, messages.buttons.cancel],
     defaultId: 1,
     cancelId: 1,
     title: options.title,
@@ -1602,6 +1700,7 @@ function createDefaultSettings() {
   return {
     version: 1,
     general: {
+      locale: normalizeLocale(app.getLocale()),
       themeMode: 'system',
       defaultStartPanel: 'write',
       openLinksBehavior: 'confirm-if-untrusted',
@@ -1677,6 +1776,10 @@ function mergePlainObjects(base, patch) {
 
 function normalizeThemeMode(value) {
   return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+}
+
+function normalizeLocale(value) {
+  return typeof value === 'string' && value.toLowerCase().startsWith('ja') ? 'ja' : 'en'
 }
 
 function normalizeStartPanel(value) {
@@ -1798,6 +1901,7 @@ function sanitizeSettings(candidate) {
   return {
     version: 1,
     general: {
+      locale: normalizeLocale(merged.general?.locale),
       themeMode: normalizeThemeMode(merged.general?.themeMode),
       defaultStartPanel: normalizeStartPanel(merged.general?.defaultStartPanel),
       openLinksBehavior: normalizeOpenLinksBehavior(merged.general?.openLinksBehavior),
@@ -3399,6 +3503,8 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 }
 
 function broadcastSettingsChanged() {
+  createApplicationMenu()
+
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) {
       continue
@@ -4040,15 +4146,16 @@ function registerAllowedLinkRule(rule) {
 }
 
 async function confirmExternalNavigation(parentWindow, targetUrl) {
+  const messages = getMainI18n()
   const suggestedRule = createAllowedLinkRule(targetUrl)
   const response = await dialog.showMessageBox(parentWindow ?? undefined, {
     type: 'warning',
-    buttons: ['許可リストに登録して表示', '今回のみ表示', '表示しない'],
+    buttons: [messages.externalLink.allowAndRemember, messages.externalLink.openOnce, messages.buttons.cancel],
     defaultId: 1,
     cancelId: 2,
-    title: '未許可の外部サイトです',
-    message: '未許可の外部サイトを開こうとしています。',
-    detail: `URL: ${targetUrl.href}\n登録候補: ${suggestedRule}`,
+    title: messages.externalLink.title,
+    message: messages.externalLink.message,
+    detail: `URL: ${targetUrl.href}\n${messages.externalLink.suggestedRuleLabel}: ${suggestedRule}`,
     noLink: true,
   })
 
@@ -4112,11 +4219,12 @@ async function saveContentToPath(parentWindow, payload) {
   let targetPath = currentPath
 
   if (!targetPath || forceDialog) {
+    const messages = getMainI18n()
     const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
       defaultPath: currentPath || defaultFileName,
       filters: [
-        { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
-        { name: 'All Files', extensions: ['*'] },
+        { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
+        { name: messages.fileDialog.allFilesFilter, extensions: ['*'] },
       ],
     })
 
@@ -4137,25 +4245,26 @@ async function saveContentToPath(parentWindow, payload) {
 }
 
 async function showUnsavedChangesDialog(window, payload) {
+  const messages = getMainI18n()
   const currentFilePath = typeof payload?.currentFilePath === 'string' ? payload.currentFilePath : ''
   const displayTitle = typeof payload?.displayTitle === 'string' && payload.displayTitle.trim().length > 0
     ? payload.displayTitle.trim()
-    : 'Untitled.md'
+    : messages.untitledTitle
   const proceedLabel = typeof payload?.proceedLabel === 'string' && payload.proceedLabel.trim().length > 0
     ? payload.proceedLabel.trim()
-    : '続行'
+    : messages.buttons.continue
   const detailLines = [
-    `ファイル: ${currentFilePath || displayTitle}`,
-    '未保存の変更があります。',
+    `${messages.unsaved.file}: ${currentFilePath || displayTitle}`,
+    messages.unsaved.hasUnsavedChanges,
   ]
   const response = await dialog.showMessageBox(window ?? undefined, {
     type: 'warning',
-    buttons: ['保存', 'キャンセル', proceedLabel],
+    buttons: [messages.buttons.save, messages.buttons.cancel, proceedLabel],
     defaultId: 0,
     cancelId: 1,
     noLink: true,
-    title: '保存されていない変更があります',
-    message: `このまま${proceedLabel}しますか？`,
+    title: messages.unsaved.title,
+    message: messages.unsaved.message(proceedLabel),
     detail: detailLines.join('\n'),
   })
 
@@ -4171,15 +4280,16 @@ async function showUnsavedChangesDialog(window, payload) {
 }
 
 async function showUnresponsiveCloseDialog(window) {
+  const messages = getMainI18n()
   const response = await dialog.showMessageBox(window ?? undefined, {
     type: 'warning',
-    buttons: ['キャンセル', '閉じる'],
+    buttons: [messages.buttons.cancel, messages.buttons.close],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    title: 'ウィンドウを閉じる前に確認できませんでした',
-    message: 'エディタの状態を取得できませんでした。',
-    detail: '保存されていない変更がある場合は失われる可能性があります。閉じる場合はそのまま終了します。',
+    title: messages.closeFallback.title,
+    message: messages.closeFallback.message,
+    detail: messages.closeFallback.detail,
   })
 
   return response.response === 1
@@ -4248,17 +4358,18 @@ async function confirmEditorWindowClose(window) {
     return
   }
 
+  const messages = getMainI18n()
   const snapshot = closeState.snapshot || {
     markdownText: '',
     persistedMarkdown: '',
     currentFilePath: null,
-    displayTitle: 'Untitled.md',
+    displayTitle: messages.untitledTitle,
     activePanel: 'write',
   }
   const response = await showUnsavedChangesDialog(window, {
     currentFilePath: snapshot.currentFilePath,
     displayTitle: snapshot.displayTitle,
-    proceedLabel: '閉じる',
+    proceedLabel: messages.buttons.close,
   })
 
   if (response.action === 'cancel') {
@@ -4269,7 +4380,7 @@ async function confirmEditorWindowClose(window) {
     const saveResult = await saveContentToPath(window, {
       path: snapshot.currentFilePath,
       content: snapshot.markdownText,
-      defaultFileName: snapshot.displayTitle || 'Untitled.md',
+      defaultFileName: snapshot.displayTitle || messages.untitledTitle,
     })
 
     if (!saveResult) {
@@ -4459,31 +4570,32 @@ function sendMenuAction(action) {
 }
 
 function createApplicationMenu() {
+  const messages = getMainI18n().menu
   const template = [
     ...(process.platform === 'darwin'
       ? [{ role: 'appMenu' }]
       : []),
     {
-      label: 'File',
+      label: messages.file,
       submenu: [
         {
-          label: 'Open',
+          label: messages.open,
           accelerator: 'CmdOrCtrl+O',
           click: () => sendMenuAction('open'),
         },
         {
-          label: 'Save',
+          label: messages.save,
           accelerator: 'CmdOrCtrl+S',
           click: () => sendMenuAction('save'),
         },
         {
-          label: 'Save As',
+          label: messages.saveAs,
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => sendMenuAction('save-as'),
         },
         { type: 'separator' },
         {
-          label: 'Settings',
+          label: messages.settings,
           accelerator: 'CmdOrCtrl+,',
           click: () => openSettingsWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
         },
@@ -4492,21 +4604,21 @@ function createApplicationMenu() {
       ],
     },
     {
-      label: 'View',
+      label: messages.view,
       submenu: [
         {
-          label: 'AI Chat',
+          label: messages.aiChat,
           accelerator: 'CmdOrCtrl+I',
           click: () => openAiChatWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
         },
         { type: 'separator' },
         {
-          label: 'Editor',
+          label: messages.editor,
           accelerator: 'CmdOrCtrl+1',
           click: () => sendMenuAction('show-editor'),
         },
         {
-          label: 'Rendered Preview',
+          label: messages.renderedPreview,
           accelerator: 'CmdOrCtrl+2',
           click: () => sendMenuAction('show-preview'),
         },
@@ -4610,11 +4722,12 @@ if (!hasSingleInstanceLock) {
 
 ipcMain.handle('mdv:open-file', async () => {
   const window = BrowserWindow.getFocusedWindow()
+  const messages = getMainI18n()
   const result = await dialog.showOpenDialog(window ?? undefined, {
     properties: ['openFile'],
     filters: [
-      { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
-      { name: 'All Files', extensions: ['*'] },
+      { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
+      { name: messages.fileDialog.allFilesFilter, extensions: ['*'] },
     ],
   })
 

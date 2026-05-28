@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isThemeMode, useDesktopTheme, type ThemeMode } from '../shared/useDesktopTheme'
+import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 
 const sections = ['General', 'AI Providers', 'Safety', 'Advanced'] as const
 
@@ -20,6 +21,7 @@ type TavilyDraft = {
 function updateSettingsWithStatus(
   patch: MdvSettingsPatch,
   statusMessage: string,
+  successMessage: string,
   setStatusText: (value: string) => void,
   setSettings: (value: MdvSettings) => void,
 ) {
@@ -28,7 +30,7 @@ function updateSettingsWithStatus(
   void window.mdvDesktop?.settings.updateSettings(patch)
     .then((updatedSettings) => {
       setSettings(updatedSettings)
-      setStatusText('Settings saved')
+      setStatusText(successMessage)
     })
     .catch((error: unknown) => {
       setStatusText(error instanceof Error ? error.message : String(error))
@@ -37,6 +39,8 @@ function updateSettingsWithStatus(
 
 function SettingsApp() {
   const { themeMode, setThemeMode } = useDesktopTheme()
+  const { t } = useI18n()
+  const i18nRef = useRef(t)
   const [activeSection, setActiveSection] = useState<SectionName>('General')
   const [settings, setSettings] = useState<MdvSettings | null>(null)
   const [providerStatus, setProviderStatus] = useState<MdvProviderStatus | null>(null)
@@ -56,8 +60,16 @@ function SettingsApp() {
   const [isSavingOpenAiApiKey, setIsSavingOpenAiApiKey] = useState(false)
   const [isSavingTavily, setIsSavingTavily] = useState(false)
   const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false)
-  const [logPath, setLogPath] = useState('Loading log path...')
-  const [statusText, setStatusText] = useState('Loading settings')
+  const [logPath, setLogPath] = useState<string>(t.settings.loadingLogPath)
+  const [statusText, setStatusText] = useState<string>(t.settings.loadingSettings)
+
+  useEffect(() => {
+    i18nRef.current = t
+  })
+
+  useEffect(() => {
+    document.title = `MDV ${t.settings.title}`
+  }, [t])
 
   const syncOpenAiDraft = (nextSettings: MdvSettings) => {
     setOpenAiDraft({
@@ -81,7 +93,8 @@ function SettingsApp() {
       setSettings(nextSettings)
       syncOpenAiDraft(nextSettings)
       syncTavilyDraft(nextSettings)
-      setStatusText('Settings updated')
+      const nextTranslations = getTranslations(nextSettings.general.locale)
+      setStatusText(nextTranslations.settings.settingsUpdated)
     })
 
     void Promise.all([
@@ -100,8 +113,8 @@ function SettingsApp() {
           syncTavilyDraft(nextSettings)
         }
         setProviderStatus(nextProviderStatus ?? null)
-        setLogPath(nextLogPath ?? 'Unavailable')
-        setStatusText('Settings ready')
+        setLogPath(nextLogPath ?? i18nRef.current.common.unavailable)
+        setStatusText(i18nRef.current.settings.settingsReady)
       })
       .catch((error: unknown) => {
         if (!active) {
@@ -118,11 +131,28 @@ function SettingsApp() {
   }, [])
 
   const handleThemeChange = (nextThemeMode: ThemeMode) => {
-    setStatusText('Saving theme')
+    setStatusText(t.settings.savingTheme)
 
     void setThemeMode(nextThemeMode)
       .then(() => {
-        setStatusText('Theme saved')
+        setStatusText(t.settings.themeSaved)
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+  }
+
+  const handleLocaleChange = (nextLocale: MdvLocale) => {
+    setStatusText(getTranslations(nextLocale).settings.savingLocale)
+
+    void window.mdvDesktop?.settings.updateSettings({
+      general: {
+        locale: nextLocale,
+      },
+    })
+      .then((updatedSettings) => {
+        setSettings(updatedSettings)
+        setStatusText(getTranslations(updatedSettings.general.locale).settings.localeSaved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -131,7 +161,7 @@ function SettingsApp() {
 
   const handleOpenAiSave = () => {
     setIsSavingOpenAi(true)
-    setStatusText('Saving OpenAI settings')
+    setStatusText(t.settings.status.savingOpenAiSettings)
 
     void window.mdvDesktop?.settings.updateSettings({
       ai: {
@@ -145,7 +175,7 @@ function SettingsApp() {
       .then((updatedSettings) => {
         setSettings(updatedSettings)
         syncOpenAiDraft(updatedSettings)
-        setStatusText('OpenAI settings saved')
+        setStatusText(t.settings.status.openAiSettingsSaved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -159,18 +189,18 @@ function SettingsApp() {
     const trimmedApiKey = openAiApiKeyDraft.trim()
 
     if (!trimmedApiKey) {
-      setStatusText('OpenAI API key cannot be empty')
+      setStatusText(t.settings.status.openAiApiKeyEmpty)
       return
     }
 
     setIsSavingOpenAiApiKey(true)
-    setStatusText('Saving OpenAI API key')
+    setStatusText(t.settings.status.savingOpenAiApiKey)
 
     void window.mdvDesktop?.settings.saveOpenAiApiKey(trimmedApiKey)
       .then((nextProviderStatus) => {
         setProviderStatus(nextProviderStatus)
         setOpenAiApiKeyDraft('')
-        setStatusText('OpenAI API key saved')
+        setStatusText(t.settings.status.openAiApiKeySaved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -182,13 +212,13 @@ function SettingsApp() {
 
   const handleOpenAiApiKeyClear = () => {
     setIsSavingOpenAiApiKey(true)
-    setStatusText('Clearing OpenAI API key')
+    setStatusText(t.settings.status.clearingOpenAiApiKey)
 
     void window.mdvDesktop?.settings.clearOpenAiApiKey()
       .then((nextProviderStatus) => {
         setProviderStatus(nextProviderStatus)
         setOpenAiApiKeyDraft('')
-        setStatusText('OpenAI API key cleared')
+        setStatusText(t.settings.status.openAiApiKeyCleared)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -200,7 +230,7 @@ function SettingsApp() {
 
   const handleTavilySave = () => {
     setIsSavingTavily(true)
-    setStatusText('Saving Tavily settings')
+    setStatusText(t.settings.status.savingTavilySettings)
 
     void window.mdvDesktop?.settings.updateSettings({
       ai: {
@@ -214,7 +244,7 @@ function SettingsApp() {
       .then((updatedSettings) => {
         setSettings(updatedSettings)
         syncTavilyDraft(updatedSettings)
-        setStatusText('Tavily settings saved')
+        setStatusText(t.settings.status.tavilySettingsSaved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -228,18 +258,18 @@ function SettingsApp() {
     const trimmedApiKey = tavilyApiKeyDraft.trim()
 
     if (!trimmedApiKey) {
-      setStatusText('Tavily API key cannot be empty')
+      setStatusText(t.settings.status.tavilyApiKeyEmpty)
       return
     }
 
     setIsSavingTavilyApiKey(true)
-    setStatusText('Saving Tavily API key')
+    setStatusText(t.settings.status.savingTavilyApiKey)
 
     void window.mdvDesktop?.settings.saveTavilyApiKey(trimmedApiKey)
       .then((nextProviderStatus) => {
         setProviderStatus(nextProviderStatus)
         setTavilyApiKeyDraft('')
-        setStatusText('Tavily API key saved')
+        setStatusText(t.settings.status.tavilyApiKeySaved)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -251,13 +281,13 @@ function SettingsApp() {
 
   const handleTavilyApiKeyClear = () => {
     setIsSavingTavilyApiKey(true)
-    setStatusText('Clearing Tavily API key')
+    setStatusText(t.settings.status.clearingTavilyApiKey)
 
     void window.mdvDesktop?.settings.clearTavilyApiKey()
       .then((nextProviderStatus) => {
         setProviderStatus(nextProviderStatus)
         setTavilyApiKeyDraft('')
-        setStatusText('Tavily API key cleared')
+        setStatusText(t.settings.status.tavilyApiKeyCleared)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -274,7 +304,7 @@ function SettingsApp() {
           [key]: value,
         },
       },
-    }, 'Saving AI permission', setStatusText, setSettings)
+    }, t.settings.status.savingAiPermission, t.settings.settingsSaved, setStatusText, setSettings)
   }
 
   const handleSafetyChange = (key: keyof MdvSettings['safety'], value: boolean) => {
@@ -282,15 +312,15 @@ function SettingsApp() {
       safety: {
         [key]: value,
       },
-    }, 'Saving safety setting', setStatusText, setSettings)
+    }, t.settings.status.savingSafetySetting, t.settings.settingsSaved, setStatusText, setSettings)
   }
 
   const handleOpenFetchPermissionsWindow = () => {
-    setStatusText('Opening fetch permissions')
+    setStatusText(t.settings.status.openingFetchPermissions)
 
     void window.mdvDesktop?.openFetchPermissionsWindow()
       .then(() => {
-        setStatusText('Fetch permissions opened')
+        setStatusText(t.settings.status.fetchPermissionsOpened)
       })
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
@@ -301,15 +331,15 @@ function SettingsApp() {
     <main className="settings-shell">
       <header className="settings-header">
         <div>
-          <p className="settings-eyebrow">MDV Configuration</p>
-          <h1>Settings</h1>
-          <p className="settings-subtitle">Main-process settings store scaffold with synchronized theme and provider status.</p>
+          <p className="settings-eyebrow">{t.settings.eyebrow}</p>
+          <h1>{t.settings.title}</h1>
+          <p className="settings-subtitle">{t.settings.subtitle}</p>
         </div>
         <span className="settings-status">{statusText}</span>
       </header>
 
       <section className="settings-layout">
-        <nav className="settings-sidebar" aria-label="Settings sections">
+        <nav className="settings-sidebar" aria-label={t.settings.sectionsAriaLabel}>
           {sections.map((section) => (
             <button
               key={section}
@@ -317,7 +347,13 @@ function SettingsApp() {
               className={`settings-nav-item${activeSection === section ? ' active' : ''}`}
               onClick={() => setActiveSection(section)}
             >
-              {section}
+              {section === 'General'
+                ? t.settings.sections.general
+                : section === 'AI Providers'
+                  ? t.settings.sections.aiProviders
+                  : section === 'Safety'
+                    ? t.settings.sections.safety
+                    : t.settings.sections.advanced}
             </button>
           ))}
         </nav>
@@ -325,40 +361,58 @@ function SettingsApp() {
         <div className="settings-content">
           {activeSection === 'General' ? (
             <section className="settings-card">
-              <h2>General</h2>
+              <h2>{t.settings.sections.general}</h2>
               <label className="settings-field">
-                <span>Theme mode</span>
+                <span>{t.settings.general.language}</span>
+                <select
+                  value={settings?.general.locale ?? 'en'}
+                  onChange={(event) => {
+                    const nextLocale = event.currentTarget.value
+
+                    if (!isLocale(nextLocale)) {
+                      return
+                    }
+
+                    handleLocaleChange(nextLocale)
+                  }}
+                >
+                  <option value="ja">{t.common.japanese}</option>
+                  <option value="en">{t.common.english}</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>{t.settings.general.themeMode}</span>
                 <select
                   value={themeMode}
                   onChange={(event) => {
                     const nextThemeMode = event.currentTarget.value
 
                     if (!isThemeMode(nextThemeMode)) {
-                      setStatusText('Invalid theme mode')
+                      setStatusText(t.common.invalidThemeMode)
                       return
                     }
 
                     handleThemeChange(nextThemeMode)
                   }}
                 >
-                  <option value="system">System</option>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
+                  <option value="system">{t.common.system}</option>
+                  <option value="light">{t.common.light}</option>
+                  <option value="dark">{t.common.dark}</option>
                 </select>
               </label>
               <dl className="settings-facts">
                 <div>
-                  <dt>Open links behavior</dt>
+                  <dt>{t.settings.general.openLinksBehavior}</dt>
                   <dd>{settings?.general.openLinksBehavior ?? 'confirm-if-untrusted'}</dd>
                 </div>
               </dl>
-              <p className="settings-note">Theme is wired live. Open links behavior is enforced in main process. Additional General defaults will surface here after their editor boot wiring lands.</p>
+              <p className="settings-note">{t.settings.general.note}</p>
             </section>
           ) : null}
 
           {activeSection === 'AI Providers' ? (
             <section className="settings-card">
-              <h2>AI Providers</h2>
+              <h2>{t.settings.aiProviders.title}</h2>
               <label className="settings-toggle">
                 <input
                   type="checkbox"
@@ -370,10 +424,10 @@ function SettingsApp() {
                     }))
                   }}
                 />
-                <span>Enable OpenAI chat</span>
+                <span>{t.settings.aiProviders.enableOpenAiChat}</span>
               </label>
               <label className="settings-field">
-                <span>OpenAI model</span>
+                <span>{t.settings.aiProviders.openAiModel}</span>
                 <input
                   type="text"
                   value={openAiDraft.model}
@@ -387,7 +441,7 @@ function SettingsApp() {
                 />
               </label>
               <label className="settings-field settings-field-wide">
-                <span>OpenAI base URL</span>
+                <span>{t.settings.aiProviders.openAiBaseUrl}</span>
                 <input
                   type="url"
                   value={openAiDraft.baseUrl}
@@ -401,7 +455,7 @@ function SettingsApp() {
                 />
               </label>
               <label className="settings-field settings-field-wide">
-                <span>OpenAI API key</span>
+                <span>{t.settings.aiProviders.openAiApiKey}</span>
                 <input
                   type="password"
                   value={openAiApiKeyDraft}
@@ -414,42 +468,42 @@ function SettingsApp() {
               </label>
               <div className="settings-actions">
                 <button type="button" className="settings-primary-button" onClick={handleOpenAiSave} disabled={isSavingOpenAi}>
-                  {isSavingOpenAi ? 'Saving…' : 'Save OpenAI settings'}
+                  {isSavingOpenAi ? t.common.saving : t.settings.aiProviders.saveOpenAiSettings}
                 </button>
                 <button type="button" className="settings-secondary-button" onClick={handleOpenAiApiKeySave} disabled={isSavingOpenAiApiKey}>
-                  {isSavingOpenAiApiKey ? 'Saving key…' : 'Save API key'}
+                  {isSavingOpenAiApiKey ? t.common.saving : t.settings.aiProviders.saveApiKey}
                 </button>
                 <button type="button" className="settings-secondary-button" onClick={handleOpenAiApiKeyClear} disabled={isSavingOpenAiApiKey}>
-                  Clear stored key
+                  {t.settings.aiProviders.clearStoredKey}
                 </button>
               </div>
               <dl className="settings-facts">
                 <div>
-                  <dt>OpenAI enabled</dt>
-                  <dd>{settings?.ai.openai.enabled ? 'yes' : 'no'}</dd>
+                  <dt>{t.settings.aiProviders.openAiEnabled}</dt>
+                  <dd>{settings?.ai.openai.enabled ? t.common.yes : t.common.no}</dd>
                 </div>
                 <div>
-                  <dt>OpenAI configured</dt>
-                  <dd>{providerStatus?.openaiConfigured ? 'yes' : 'no'}</dd>
+                  <dt>{t.settings.aiProviders.openAiConfigured}</dt>
+                  <dd>{providerStatus?.openaiConfigured ? t.common.yes : t.common.no}</dd>
                 </div>
                 <div>
-                  <dt>OpenAI model</dt>
+                  <dt>{t.settings.aiProviders.openAiModel}</dt>
                   <dd>{settings?.ai.openai.model ?? 'gpt-5.4-mini'}</dd>
                 </div>
                 <div>
-                  <dt>OpenAI base URL</dt>
-                  <dd className="settings-break">{settings?.ai.openai.baseUrl ?? 'https://api.openai.com/v1 (fallback)'}</dd>
+                  <dt>{t.settings.aiProviders.openAiBaseUrl}</dt>
+                  <dd className="settings-break">{settings?.ai.openai.baseUrl ?? t.settings.aiProviders.openAiBaseUrlFallback}</dd>
                 </div>
                 <div>
-                  <dt>Tavily enabled</dt>
-                  <dd>{settings?.ai.tavily.enabled ? 'yes' : 'no'}</dd>
+                  <dt>{t.settings.aiProviders.tavilyEnabled}</dt>
+                  <dd>{settings?.ai.tavily.enabled ? t.common.yes : t.common.no}</dd>
                 </div>
                 <div>
-                  <dt>Tavily configured</dt>
-                  <dd>{providerStatus?.tavilyConfigured ? 'yes' : 'no'}</dd>
+                  <dt>{t.settings.aiProviders.tavilyConfigured}</dt>
+                  <dd>{providerStatus?.tavilyConfigured ? t.common.yes : t.common.no}</dd>
                 </div>
               </dl>
-              <p className="settings-note">Secrets stay in main process. API key values are sent one-way for storage and are never read back into the renderer. If no stored key exists, OPENAI_API_KEY remains a fallback.</p>
+              <p className="settings-note">{t.settings.aiProviders.openAiNote}</p>
 
               <hr className="settings-divider" />
 
@@ -464,10 +518,10 @@ function SettingsApp() {
                     }))
                   }}
                 />
-                <span>Enable Tavily web search</span>
+                <span>{t.settings.aiProviders.enableTavily}</span>
               </label>
               <label className="settings-field">
-                <span>Tavily search depth</span>
+                <span>{t.settings.aiProviders.tavilySearchDepth}</span>
                 <select
                   value={tavilyDraft.defaultSearchDepth}
                   onChange={(event) => {
@@ -477,12 +531,12 @@ function SettingsApp() {
                     }))
                   }}
                 >
-                  <option value="basic">Basic</option>
-                  <option value="advanced">Advanced</option>
+                  <option value="basic">{t.settings.aiProviders.basic}</option>
+                  <option value="advanced">{t.settings.aiProviders.advanced}</option>
                 </select>
               </label>
               <label className="settings-field">
-                <span>Tavily max results</span>
+                <span>{t.settings.aiProviders.tavilyMaxResults}</span>
                 <input
                   type="number"
                   min={1}
@@ -498,7 +552,7 @@ function SettingsApp() {
                 />
               </label>
               <label className="settings-field settings-field-wide">
-                <span>Tavily API key</span>
+                <span>{t.settings.aiProviders.tavilyApiKey}</span>
                 <input
                   type="password"
                   value={tavilyApiKeyDraft}
@@ -511,105 +565,105 @@ function SettingsApp() {
               </label>
               <div className="settings-actions">
                 <button type="button" className="settings-primary-button" onClick={handleTavilySave} disabled={isSavingTavily}>
-                  {isSavingTavily ? 'Saving…' : 'Save Tavily settings'}
+                  {isSavingTavily ? t.common.saving : t.settings.aiProviders.saveTavilySettings}
                 </button>
                 <button type="button" className="settings-secondary-button" onClick={handleTavilyApiKeySave} disabled={isSavingTavilyApiKey}>
-                  {isSavingTavilyApiKey ? 'Saving key…' : 'Save Tavily key'}
+                  {isSavingTavilyApiKey ? t.common.saving : t.settings.aiProviders.saveTavilyKey}
                 </button>
                 <button type="button" className="settings-secondary-button" onClick={handleTavilyApiKeyClear} disabled={isSavingTavilyApiKey}>
-                  Clear Tavily key
+                  {t.settings.aiProviders.clearTavilyKey}
                 </button>
               </div>
-              <p className="settings-note">Tavily search uses the same main-process secret boundary as OpenAI. Fetch URL permissions are edited in a dedicated window because the allowlist may grow large.</p>
+              <p className="settings-note">{t.settings.aiProviders.tavilyNote}</p>
             </section>
           ) : null}
 
           {activeSection === 'Safety' ? (
             <section className="settings-card">
-              <h2>Safety</h2>
+              <h2>{t.settings.safety.title}</h2>
               <div className="settings-subsection">
-                <h3>AI Tool Permissions</h3>
+                <h3>{t.settings.safety.aiToolPermissions}</h3>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.readActiveDocument ?? true} onChange={(event) => handleToolPermissionChange('readActiveDocument', event.target.checked)} />
-                  <span>Read active document</span>
+                  <span>{t.settings.safety.readActiveDocument}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.readActiveSelection ?? true} onChange={(event) => handleToolPermissionChange('readActiveSelection', event.target.checked)} />
-                  <span>Read active selection</span>
+                  <span>{t.settings.safety.readActiveSelection}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.writeActiveDocument ?? true} onChange={(event) => handleToolPermissionChange('writeActiveDocument', event.target.checked)} />
-                  <span>Write active document</span>
+                  <span>{t.settings.safety.writeActiveDocument}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.writeActiveSelection ?? true} onChange={(event) => handleToolPermissionChange('writeActiveSelection', event.target.checked)} />
-                  <span>Write active selection</span>
+                  <span>{t.settings.safety.writeActiveSelection}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.writeNewDocument ?? true} onChange={(event) => handleToolPermissionChange('writeNewDocument', event.target.checked)} />
-                  <span>Create new document</span>
+                  <span>{t.settings.safety.createNewDocument}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.sliceSearch ?? true} onChange={(event) => handleToolPermissionChange('sliceSearch', event.target.checked)} />
-                  <span>AI exact / semantic / stats slice tools</span>
+                  <span>{t.settings.safety.sliceTools}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.workspaceGrep ?? true} onChange={(event) => handleToolPermissionChange('workspaceGrep', event.target.checked)} />
-                  <span>AI workspace grep</span>
+                  <span>{t.settings.safety.workspaceGrep}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.tavilyWebSearch ?? true} onChange={(event) => handleToolPermissionChange('tavilyWebSearch', event.target.checked)} />
-                  <span>Tavily web search</span>
+                  <span>{t.settings.safety.tavilyWebSearch}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.ai.toolPermissions.fetchUrl ?? true} onChange={(event) => handleToolPermissionChange('fetchUrl', event.target.checked)} />
-                  <span>Allow guarded fetch_url</span>
+                  <span>{t.settings.safety.allowFetchUrl}</span>
                 </label>
                 <div className="settings-actions">
                   <button type="button" className="settings-secondary-button" onClick={handleOpenFetchPermissionsWindow}>
-                    Open fetch permissions window
+                    {t.settings.safety.openFetchPermissionsWindow}
                   </button>
                 </div>
               </div>
               <div className="settings-subsection">
-                <h3>Confirmations</h3>
+                <h3>{t.settings.safety.confirmations}</h3>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.safety.confirmBeforeFullDocumentOverwrite ?? true} onChange={(event) => handleSafetyChange('confirmBeforeFullDocumentOverwrite', event.target.checked)} />
-                  <span>Confirm full document overwrite</span>
+                  <span>{t.settings.safety.confirmFullOverwrite}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.safety.confirmBeforeNewDocumentFromAi ?? true} onChange={(event) => handleSafetyChange('confirmBeforeNewDocumentFromAi', event.target.checked)} />
-                  <span>Confirm new AI document creation</span>
+                  <span>{t.settings.safety.confirmNewAiDocument}</span>
                 </label>
                 <label className="settings-toggle">
                   <input type="checkbox" checked={settings?.safety.confirmBeforeExternalUrlOpen ?? true} onChange={(event) => handleSafetyChange('confirmBeforeExternalUrlOpen', event.target.checked)} />
-                  <span>Confirm external URL open</span>
+                  <span>{t.settings.safety.confirmExternalUrlOpen}</span>
                 </label>
               </div>
               <dl className="settings-facts">
                 <div>
-                  <dt>External URL confirm</dt>
-                  <dd>{settings?.safety.confirmBeforeExternalUrlOpen ? 'enabled' : 'disabled'}</dd>
+                  <dt>{t.settings.safety.externalUrlConfirm}</dt>
+                  <dd>{settings?.safety.confirmBeforeExternalUrlOpen ? t.common.enabled : t.common.disabled}</dd>
                 </div>
               </dl>
-              <p className="settings-note">AI exact / semantic slice search is enforced independently from future workspace grep. AI full-document overwrite and new-document creation confirmations are enforced from the main process.</p>
+              <p className="settings-note">{t.settings.safety.note}</p>
             </section>
           ) : null}
 
           {activeSection === 'Advanced' ? (
             <section className="settings-card">
-              <h2>Advanced</h2>
+              <h2>{t.settings.advancedSection.title}</h2>
               <dl className="settings-facts">
                 <div>
-                  <dt>Schema version</dt>
+                  <dt>{t.settings.advancedSection.schemaVersion}</dt>
                   <dd>{settings?.version ?? 1}</dd>
                 </div>
                 <div>
-                  <dt>Log path</dt>
+                  <dt>{t.settings.advancedSection.logPath}</dt>
                   <dd className="settings-break">{logPath}</dd>
                 </div>
               </dl>
-              <p className="settings-note">This window is auxiliary and excluded from editor routing and managed snapshot ownership.</p>
+              <p className="settings-note">{t.settings.advancedSection.note}</p>
             </section>
           ) : null}
         </div>

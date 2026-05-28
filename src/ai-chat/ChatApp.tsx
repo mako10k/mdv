@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
+import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 import ChatMarkdown from './ChatMarkdown'
 
 type ContextAttachmentKind = 'editor' | 'document' | 'selection'
@@ -18,6 +19,7 @@ type ContextAttachment = {
   label: string
   compactLabel: string
   detail: string
+  detailContext?: MdvAiContextPayload | null
   target: MdvAiEditorTarget | null
   pageTarget: MdvAiEditorTarget | null
   span: MdvAiNormalizedSpan | null
@@ -39,15 +41,17 @@ type ExternalAnchor = {
   hostname: string
 }
 
-const initialMessages: Message[] = [
-  {
-    id: 'assistant-welcome',
-    role: 'assistant',
-    content: 'Attach explicit context with the buttons below, then send your request from the bottom composer.',
-  },
-]
+function createInitialMessages(welcome: string): Message[] {
+  return [
+    {
+      id: 'assistant-welcome',
+      role: 'assistant',
+      content: welcome,
+    },
+  ]
+}
 
-function buildMessageContent(message: Message): string {
+function buildMessageContent(message: Message, chatText: ReturnType<typeof useI18n>['t']['chat']): string {
   if (!message.contextAttachments?.length) {
     return message.content
   }
@@ -57,11 +61,11 @@ function buildMessageContent(message: Message): string {
       ? `PageTargetRef: ${JSON.stringify(attachment.pageTarget)}`
       : null
     const attachmentHeaderLines = [
-      attachment.transport === 'inline' && attachment.inlineText ? `Attached context: ${attachment.label}` : `Attached context hint: ${attachment.label}`,
-      attachment.target ? `TargetRef: ${JSON.stringify(attachment.target)}` : 'This attachment is metadata-only and cannot be re-read via read_target.',
+      attachment.transport === 'inline' && attachment.inlineText ? `${chatText.attachedContextLabel}: ${attachment.label}` : `${chatText.attachedContextHintLabel}: ${attachment.label}`,
+      attachment.target ? `TargetRef: ${JSON.stringify(attachment.target)}` : chatText.metadataOnlyAttachment,
       ...(pageTargetLine ? [pageTargetLine] : []),
-      `Resolved span: ${formatSpanLabel(attachment.span)}`,
-      `Estimated tokens: ${attachment.estimatedTokens}`,
+      `${chatText.resolvedSpan}: ${formatSpanLabel(attachment.span, chatText)}`,
+      `${chatText.estimatedTokens}: ${attachment.estimatedTokens}`,
     ]
 
     if (attachment.transport === 'inline' && attachment.inlineText) {
@@ -70,12 +74,12 @@ function buildMessageContent(message: Message): string {
 
     const hintLines = [
       ...attachmentHeaderLines,
-      `Preview: ${attachment.previewText || '(empty)'}`,
-      attachment.target ? 'Use read_target when more detail is needed.' : 'Use this metadata as descriptive context only.',
+      `${chatText.preview}: ${attachment.previewText || chatText.empty}`,
+      attachment.target ? chatText.useReadTarget : chatText.useMetadataOnly,
     ]
 
     if (attachment.truncated) {
-      hintLines.splice(4, 0, 'Attachment was truncated before queueing.')
+      hintLines.splice(4, 0, chatText.attachmentTruncated)
     }
 
     return hintLines.join('\n')
@@ -84,12 +88,12 @@ function buildMessageContent(message: Message): string {
   return [...attachments, message.content].join('\n\n')
 }
 
-function toModelMessages(messages: Message[]): MdvAiChatMessage[] {
+function toModelMessages(messages: Message[], chatText: ReturnType<typeof useI18n>['t']['chat']): MdvAiChatMessage[] {
   return messages
     .filter((message) => !message.excludeFromModel && message.id !== 'assistant-welcome')
     .map((message) => ({
       role: message.role,
-      content: buildMessageContent(message),
+      content: buildMessageContent(message, chatText),
       title: message.title,
     }))
 }
@@ -127,19 +131,44 @@ function resolveExternalAnchor(target: EventTarget | null): ExternalAnchor | nul
   }
 }
 
-function formatContext(context: MdvAiContextPayload | null): string {
+function formatContext(context: MdvAiContextPayload | null, chatText: ReturnType<typeof useI18n>['t']['chat'], commonText: ReturnType<typeof useI18n>['t']['common']): string {
   if (!context) {
-    return 'No editor context available.'
+    return chatText.noEditorContext
   }
 
   return [
-    `Title: ${context.title}`,
-    `Path: ${context.currentFilePath ?? '(untitled)'}`,
-    `Panel: ${context.activePanel}`,
-    `Text length: ${context.textLength}`,
-    `Selection length: ${context.selectionTextLength}`,
-    `Dirty: ${context.isDirty ? 'yes' : 'no'}`,
+    `${chatText.titleLabel}: ${context.title}`,
+    `${chatText.pathLabel}: ${context.currentFilePath ?? chatText.untitledPath}`,
+    `${chatText.panelLabel}: ${context.activePanel}`,
+    `${chatText.textLengthLabel}: ${context.textLength}`,
+    `${chatText.selectionLengthLabel}: ${context.selectionTextLength}`,
+    `${chatText.dirtyLabel}: ${context.isDirty ? commonText.yes : commonText.no}`,
   ].join('\n')
+}
+
+function relocalizeAttachment(
+  attachment: ContextAttachment,
+  chatText: ReturnType<typeof useI18n>['t']['chat'],
+  commonText: ReturnType<typeof useI18n>['t']['common'],
+  inlineAttachmentTokenBudget: number,
+): ContextAttachment {
+  if (attachment.kind !== 'editor') {
+    return attachment
+  }
+
+  const nextDetail = formatContext(attachment.detailContext ?? null, chatText, commonText)
+  const estimatedTokens = attachment.detailContext?.tokenEstimate ?? estimateTokens(nextDetail)
+  const truncated = attachment.truncated === true
+  const transport: AttachmentTransport = !truncated && estimatedTokens <= inlineAttachmentTokenBudget ? 'inline' : 'hint'
+
+  return {
+    ...attachment,
+    detail: nextDetail,
+    estimatedTokens,
+    transport,
+    inlineText: transport === 'inline' ? nextDetail : null,
+    previewText: createPreviewText(nextDetail),
+  }
 }
 
 function toErrorMessage(error: unknown): string {
@@ -211,11 +240,11 @@ function summarizeJsonValue(text: string): string | null {
   }
 }
 
-function summarizeToolMessage(content: string): string {
+function summarizeToolMessage(content: string, chatText: ReturnType<typeof useI18n>['t']['chat']): string {
   const trimmed = content.trim()
 
   if (!trimmed) {
-    return 'Empty tool output'
+    return chatText.emptyToolOutput
   }
 
   const jsonPreview = tryFormatJson(trimmed)
@@ -226,7 +255,7 @@ function summarizeToolMessage(content: string): string {
   }
 
   if (isLikelyJsonLike(trimmed)) {
-    return summarizeJsonLikeText(trimmed) || 'JSON output'
+    return summarizeJsonLikeText(trimmed) || chatText.jsonOutput
   }
 
   const firstLine = trimmed.split(/\r?\n/, 1)[0]
@@ -261,9 +290,9 @@ function formatLineBadge(text: string, span: MdvAiNormalizedSpan | null): string
   return `${countLines(text)}L`
 }
 
-function formatSpanLabel(span: MdvAiNormalizedSpan | null): string {
+function formatSpanLabel(span: MdvAiNormalizedSpan | null, chatText: ReturnType<typeof useI18n>['t']['chat']): string {
   if (!span) {
-    return 'metadata'
+    return chatText.metadata
   }
 
   return `${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}`
@@ -310,6 +339,7 @@ function createAttachmentPageTarget(editorId: string, span: MdvAiNormalizedSpan 
 
 function createContextAttachment(kind: ContextAttachmentKind, payload: {
   detail: string
+  detailContext?: MdvAiContextPayload | null
   editorId: string
   span?: MdvAiNormalizedSpan | null
   target?: MdvAiEditorTarget | null
@@ -328,6 +358,7 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
     label: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
     compactLabel: `${compactPrefix} ${formatLineBadge(payload.detail, payload.span ?? null)}`,
     detail: payload.detail,
+    detailContext: payload.detailContext,
     target: payload.target ?? createAttachmentTarget(kind, payload.editorId, payload.span ?? null),
     pageTarget: payload.pageTarget ?? createAttachmentPageTarget(payload.editorId, payload.span ?? null),
     span: payload.span ?? null,
@@ -341,15 +372,28 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
 
 function ChatApp() {
   const { resolvedTheme } = useDesktopTheme()
+  const { t } = useI18n()
+  const i18nRef = useRef(t)
   const transcriptRef = useRef<HTMLElement | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const forceScrollOnNextRenderRef = useRef(false)
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
   const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
-  const [statusText, setStatusText] = useState('Scaffold + IPC')
+  const [statusText, setStatusText] = useState<string>(t.chat.statusBase)
   const [isSending, setIsSending] = useState(false)
   const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
+  const inlineAttachmentTokenBudgetRef = useRef(inlineAttachmentTokenBudget)
+  const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
+
+  useEffect(() => {
+    i18nRef.current = t
+    inlineAttachmentTokenBudgetRef.current = inlineAttachmentTokenBudget
+  })
+
+  useEffect(() => {
+    document.title = `MDV ${t.chat.title}`
+  }, [t])
 
   useEffect(() => {
     let active = true
@@ -362,6 +406,20 @@ function ChatApp() {
       }
 
       applyBudgetFromSettings(nextSettings)
+
+      if (!isLocale(nextSettings.general.locale) || nextSettings.general.locale === localeRef.current) {
+        return
+      }
+
+      localeRef.current = nextSettings.general.locale
+      const nextTranslations = getTranslations(nextSettings.general.locale)
+      setStatusText(nextTranslations.chat.statusBase)
+      setMessages((currentMessages) => currentMessages.map((message) => ({
+        ...message,
+        content: message.id === 'assistant-welcome' ? nextTranslations.chat.welcome : message.content,
+        contextAttachments: message.contextAttachments?.map((attachment) => relocalizeAttachment(attachment, nextTranslations.chat, nextTranslations.common, inlineAttachmentTokenBudgetRef.current)),
+      })))
+      setPendingContexts((currentContexts) => currentContexts.map((attachment) => relocalizeAttachment(attachment, nextTranslations.chat, nextTranslations.common, inlineAttachmentTokenBudgetRef.current)))
     })
 
     void window.mdvDesktop?.settings.getSettings().then((nextSettings) => {
@@ -388,7 +446,7 @@ function ChatApp() {
       const nextContexts = currentContexts.filter((item) => item.kind !== attachment.kind)
       return [...nextContexts, attachment]
     })
-    setStatusText(`Context queued: ${attachment.label}`)
+    setStatusText(t.chat.status.contextQueued(attachment.label))
   }
 
   const removePendingContext = (attachmentId: string) => {
@@ -398,7 +456,7 @@ function ChatApp() {
     })
 
     if (hasTarget) {
-      setStatusText('Pending context removed')
+      setStatusText(t.chat.status.pendingContextRemoved)
     }
   }
 
@@ -408,7 +466,7 @@ function ChatApp() {
     }
 
     setPendingContexts([])
-    setStatusText('Pending context cleared')
+    setStatusText(t.chat.status.pendingContextCleared)
   }
 
   useEffect(() => {
@@ -422,16 +480,16 @@ function ChatApp() {
       event.preventDefault()
       void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
         if (!result || result.status === 'opened') {
-          setStatusText(`Opened link: ${anchor.hostname}`)
+          setStatusText(i18nRef.current.chat.status.openedLink(anchor.hostname))
           return
         }
 
         if (result.status === 'cancelled') {
-          setStatusText('Cancelled external link')
+          setStatusText(i18nRef.current.chat.status.cancelledExternalLink)
           return
         }
 
-        setStatusText('Blocked external link')
+        setStatusText(i18nRef.current.chat.status.blockedExternalLink)
       })
     }
 
@@ -481,18 +539,19 @@ function ChatApp() {
   }, [])
 
   const handleRefreshContext = () => {
-    setStatusText('Reading editor context')
+    setStatusText(t.chat.status.readingEditorContext)
     void window.mdvDesktop?.getAiChatContext()
       .then((context) => {
         queueContextAttachment(createContextAttachment('editor', {
-          detail: formatContext(context ?? null),
+          detail: formatContext(context ?? null, t.chat, t.common),
+          detailContext: context ?? null,
           editorId: context?.editorId ?? 'editor:active',
           span: null,
-          estimatedTokens: context?.tokenEstimate ?? estimateTokens(formatContext(context ?? null)),
+          estimatedTokens: context?.tokenEstimate ?? estimateTokens(formatContext(context ?? null, t.chat, t.common)),
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
-        setStatusText('Context failed')
+        setStatusText(t.chat.status.contextFailed)
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -504,7 +563,7 @@ function ChatApp() {
   }
 
   const handleReadDocument = () => {
-    setStatusText('Reading active document')
+    setStatusText(t.chat.status.readingActiveDocument)
     void window.mdvDesktop?.readAiActiveDocument()
       .then((payload) => {
         queueContextAttachment(createContextAttachment('document', {
@@ -525,12 +584,12 @@ function ChatApp() {
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText('Read failed')
+        setStatusText(t.chat.status.readFailed)
       })
   }
 
   const handleReadSelection = () => {
-    setStatusText('Reading selection')
+    setStatusText(t.chat.status.readingSelection)
     void window.mdvDesktop?.readAiActiveSelection()
       .then((payload) => {
         queueContextAttachment(createContextAttachment('selection', {
@@ -551,7 +610,7 @@ function ChatApp() {
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText('Selection failed')
+        setStatusText(t.chat.status.selectionFailed)
       })
   }
 
@@ -579,10 +638,10 @@ function ChatApp() {
     setComposerText('')
     setPendingContexts([])
     setIsSending(true)
-    setStatusText('Sending to OpenAI')
+    setStatusText(t.chat.status.sendingToOpenAi)
 
     void window.mdvDesktop?.sendAiChatMessage({
-      messages: toModelMessages(nextMessages),
+      messages: toModelMessages(nextMessages, t.chat),
     })
       .then((response) => {
         response.toolEvents?.forEach((toolEvent) => {
@@ -599,7 +658,7 @@ function ChatApp() {
           title: response.model,
           content: response.reply,
         })
-        setStatusText(`Assistant replied with ${response.model}`)
+        setStatusText(t.chat.status.assistantReplied(response.model))
       })
       .catch((error: unknown) => {
         appendMessage({
@@ -609,7 +668,7 @@ function ChatApp() {
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText('OpenAI request failed')
+        setStatusText(t.chat.status.openAiRequestFailed)
       })
       .finally(() => {
         setIsSending(false)
@@ -637,16 +696,16 @@ function ChatApp() {
     <main className="ai-chat-shell">
       <header className="ai-chat-header">
         <div>
-          <p className="ai-chat-eyebrow">MDV Assistant</p>
-          <h1>AI Chat</h1>
-          <p className="ai-chat-subtitle">Attach explicit context, keep typing at the bottom, and let the transcript scroll independently above.</p>
+          <p className="ai-chat-eyebrow">{t.chat.eyebrow}</p>
+          <h1>{t.chat.title}</h1>
+          <p className="ai-chat-subtitle">{t.chat.subtitle}</p>
         </div>
         <div className="ai-chat-header-actions">
           <span className="ai-chat-status">{statusText}</span>
         </div>
       </header>
 
-      <section ref={transcriptRef} className="ai-chat-transcript" aria-label="AI chat transcript">
+      <section ref={transcriptRef} className="ai-chat-transcript" aria-label={t.chat.transcript}>
         {messages.map((message) => {
           if (message.role === 'tool') {
             const formattedJson = tryFormatJson(message.content)
@@ -656,8 +715,8 @@ function ChatApp() {
               <article key={message.id} className="chat-tool-entry">
                 <details className="chat-tool-accordion">
                   <summary>
-                    <span className="chat-tool-summary-title">{message.title || 'Tool output'}</span>
-                    <span className="chat-tool-summary-meta">{summarizeToolMessage(message.content)}</span>
+                    <span className="chat-tool-summary-title">{message.title || t.chat.toolOutput}</span>
+                    <span className="chat-tool-summary-meta">{summarizeToolMessage(message.content, t.chat)}</span>
                   </summary>
                   <div className="chat-tool-content">
                     {isJsonLike ? (
@@ -678,7 +737,7 @@ function ChatApp() {
             >
               {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
               {message.contextAttachments?.length ? (
-                <div className="chat-context-badges" aria-label="Attached context">
+                <div className="chat-context-badges" aria-label={t.chat.attachedContext}>
                   {message.contextAttachments.map((attachment) => (
                     <span key={attachment.id} className="chat-context-badge" title={attachment.detail}>
                       {attachment.compactLabel}
@@ -686,7 +745,7 @@ function ChatApp() {
                   ))}
                 </div>
               ) : null}
-              <ChatMarkdown markdown={message.content} theme={resolvedTheme} />
+              <ChatMarkdown markdown={message.id === 'assistant-welcome' ? t.chat.welcome : message.content} theme={resolvedTheme} />
             </article>
           )
         })}
@@ -694,21 +753,21 @@ function ChatApp() {
 
       <footer className="ai-chat-composer-shell">
         <div className="ai-chat-context-row">
-          <span className="ai-chat-composer-label">Context</span>
+          <span className="ai-chat-composer-label">{t.chat.context}</span>
           <div className="ai-chat-actions">
-            <button type="button" className="ai-chat-icon-button" onClick={handleRefreshContext} title="Queue current editor context" aria-label="Queue current editor context">
+            <button type="button" className="ai-chat-icon-button" onClick={handleRefreshContext} title={t.chat.queueEditorContext} aria-label={t.chat.queueEditorContext}>
               <span aria-hidden="true">◫</span>
             </button>
-            <button type="button" className="ai-chat-icon-button" onClick={handleReadDocument} title="Queue whole document" aria-label="Queue whole document">
+            <button type="button" className="ai-chat-icon-button" onClick={handleReadDocument} title={t.chat.queueWholeDocument} aria-label={t.chat.queueWholeDocument}>
               <span aria-hidden="true">▤</span>
             </button>
-            <button type="button" className="ai-chat-icon-button" onClick={handleReadSelection} title="Queue selection" aria-label="Queue selection">
+            <button type="button" className="ai-chat-icon-button" onClick={handleReadSelection} title={t.chat.queueSelection} aria-label={t.chat.queueSelection}>
               <span aria-hidden="true">✂</span>
             </button>
           </div>
         </div>
         {pendingContexts.length ? (
-          <div className="chat-context-badges ai-chat-pending-contexts" aria-label="Pending context">
+          <div className="chat-context-badges ai-chat-pending-contexts" aria-label={t.chat.pendingContext}>
             {pendingContexts.map((attachment) => (
               <span key={attachment.id} className="chat-context-badge chat-context-badge-pending" title={attachment.detail}>
                 <span>{attachment.compactLabel}</span>
@@ -716,32 +775,32 @@ function ChatApp() {
                   type="button"
                   className="chat-context-badge-remove"
                   onClick={() => removePendingContext(attachment.id)}
-                  aria-label={`Remove pending context ${attachment.compactLabel}`}
-                  title="Remove pending context"
+                  aria-label={t.chat.removePendingContext(attachment.compactLabel)}
+                  title={t.chat.removePendingContextShort}
                 >
                   <span aria-hidden="true">×</span>
                 </button>
               </span>
             ))}
             <button type="button" className="ai-chat-clear-contexts" onClick={clearPendingContexts}>
-              Clear all
+              {t.chat.clearAll}
             </button>
           </div>
         ) : null}
         <textarea
           id="ai-chat-input"
           className="ai-chat-composer"
-          placeholder="Message the assistant"
+          placeholder={t.chat.messagePlaceholder}
           value={composerText}
           onChange={(event) => setComposerText(event.target.value)}
           onKeyDown={handleComposerKeyDown}
           disabled={isSending}
         />
         <div className="ai-chat-footer-row">
-          <span>Enter sends. Shift+Enter inserts a newline.</span>
+          <span>{t.chat.sendHint}</span>
           <div className="ai-chat-actions">
             <button type="button" className="ai-chat-send" onClick={handleSendMessage} disabled={isSending || composerText.trim().length === 0}>
-              {isSending ? 'Sending…' : 'Send'}
+              {isSending ? t.chat.sending : t.common.send}
             </button>
           </div>
         </div>

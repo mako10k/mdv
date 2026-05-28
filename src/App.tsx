@@ -16,6 +16,7 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import mermaid from 'mermaid'
 import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
+import { getTranslations, isLocale, useI18n } from './shared/i18n'
 import './App.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
@@ -34,29 +35,6 @@ type MarkdownSegment =
 
 type MarkdownPosTuple = [number, number]
 type MarkdownSelectionRange = [MarkdownPosTuple, MarkdownPosTuple]
-
-const initialDocument = `# MarkDownViewer
-
-Windows 向けの Markdown ワークベンチです。
-
-- WYSIWYG と Markdown ソースの切り替え
-- CodeBlock renderer registry による拡張
-
-:::note
-右側の preview は Markdown-it ベースなので、code block renderer を React コンポーネントとして差し替えられます。
-:::
-
-\`\`\`mermaid
-flowchart LR
-  Editor[Editor] --> Preview[Rendered Preview]
-  Preview --> Blocks[Custom Code Blocks]
-\`\`\`
-
-\`\`\`ts
-registerCodeBlockRenderer('sql', SqlBlock)
-registerCodeBlockRenderer('mermaid', MermaidBlock)
-\`\`\`
-`
 
 const markdownParser = new MarkdownIt({
   html: true,
@@ -515,15 +493,15 @@ function renderMarkdownSegment(value: string): string {
   return markdownParser.render(value)
 }
 
-function basename(filePath: string | null): string {
+function basename(filePath: string | null, fallback = 'Untitled.md'): string {
   if (!filePath) {
-    return 'Untitled.md'
+    return fallback
   }
 
   const normalized = filePath.replaceAll('\\', '/')
   const parts = normalized.split('/')
 
-  return parts.at(-1) || 'Untitled.md'
+  return parts.at(-1) || fallback
 }
 
 function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
@@ -742,14 +720,15 @@ function ResultsIcon() {
 
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
-  const [markdownText, setMarkdownText] = useState(initialDocument)
+  const { t } = useI18n()
+  const [markdownText, setMarkdownText] = useState<string>(() => t.app.initialDocument)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>(() => {
     const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
     return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
   })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
-  const [displayTitle, setDisplayTitle] = useState('Untitled.md')
-  const [statusText, setStatusText] = useState('Ready')
+  const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
+  const [statusText, setStatusText] = useState<string>(t.common.ready)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
@@ -762,22 +741,27 @@ function App() {
   const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
-  const [persistedMarkdown, setPersistedMarkdown] = useState(initialDocument)
+  const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const persistedMarkdownRef = useRef(initialDocument)
+  const persistedMarkdownRef = useRef<string>(t.app.initialDocument)
+  const initialDocumentRef = useRef<string>(t.app.initialDocument)
+  const untitledTitleRef = useRef<string>(t.app.untitledTitle)
+  const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
   const shouldCanonicalizeLoadedBaselineRef = useRef(true)
   const allowWindowCloseRef = useRef(false)
   const confirmUnsavedChangesBeforeProceedRef = useRef<(proceedLabel: string) => Promise<boolean>>(async () => true)
   const handleSaveRef = useRef<(forceDialog?: boolean) => Promise<boolean>>(async () => false)
   const loadFilePayloadRef = useRef<(payload: MdvFilePayload | null) => void>(() => {})
+  const focusEditorSearchRef = useRef<() => void>(() => {})
+  const i18nRef = useRef(t)
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
-    markdownText: initialDocument,
-    persistedMarkdown: initialDocument,
+    markdownText: t.app.initialDocument,
+    persistedMarkdown: t.app.initialDocument,
     currentFilePath: null,
-    displayTitle: 'Untitled.md',
+    displayTitle: t.app.untitledTitle,
     activePanel: 'preview',
   }))
   const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
@@ -786,9 +770,9 @@ function App() {
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
   const hasUnsavedChanges = markdownText !== persistedMarkdown
   const isPlaceholderDocument = currentFilePath === null
-    && displayTitle === 'Untitled.md'
-    && markdownText === initialDocument
-    && persistedMarkdown === initialDocument
+    && displayTitle === t.app.untitledTitle
+    && markdownText === t.app.initialDocument
+    && persistedMarkdown === t.app.initialDocument
 
   const replaceLoadedDocument = (nextMarkdown: string) => {
     setMarkdownText(nextMarkdown)
@@ -796,12 +780,48 @@ function App() {
   }
 
   useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
+      if (!isLocale(nextSettings.general.locale) || nextSettings.general.locale === localeRef.current) {
+        return
+      }
+
+      localeRef.current = nextSettings.general.locale
+      const nextTranslations = getTranslations(nextSettings.general.locale)
+      const previousInitialDocument = initialDocumentRef.current
+      const previousUntitledTitle = untitledTitleRef.current
+
+      if (currentFilePath === null && displayTitle === previousUntitledTitle) {
+        setDisplayTitle(nextTranslations.app.untitledTitle)
+      }
+
+      if (
+        currentFilePath === null
+        && markdownText === previousInitialDocument
+        && persistedMarkdown === previousInitialDocument
+      ) {
+        replaceLoadedDocument(nextTranslations.app.initialDocument)
+        setPersistedMarkdown(nextTranslations.app.initialDocument)
+        persistedMarkdownRef.current = nextTranslations.app.initialDocument
+      }
+
+      initialDocumentRef.current = nextTranslations.app.initialDocument
+      untitledTitleRef.current = nextTranslations.app.untitledTitle
+      setStatusText(nextTranslations.common.ready)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [currentFilePath, displayTitle, markdownText, persistedMarkdown])
+
+  useEffect(() => {
     canAbandonCurrentBufferRef.current = (nextActionLabel: string) => {
       if (!hasUnsavedChanges || isPlaceholderDocument) {
         return true
       }
 
-      return window.confirm(`未保存の変更があります。${nextActionLabel}と現在の変更は失われます。続行しますか？`)
+      const currentT = i18nRef.current
+      return window.confirm(currentT.common.beforeUnloadConfirm(nextActionLabel))
     }
   }, [hasUnsavedChanges, isPlaceholderDocument])
 
@@ -897,7 +917,7 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = snapshot.markdownText === snapshot.persistedMarkdown
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
-    setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath))
+    setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
     const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
       ? snapshot.persistedMarkdown
@@ -918,7 +938,7 @@ function App() {
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
-    setStatusText(`Opened ${basename(payload.path)}`)
+    setStatusText(t.app.status.opened(basename(payload.path)))
   }
 
   useEffect(() => {
@@ -930,10 +950,10 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     replaceLoadedDocument(content)
     setCurrentFilePath(null)
-    setDisplayTitle(fileName || 'Untitled.md')
+    setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
-    setStatusText(`Loaded ${fileName || 'Untitled.md'}`)
+    setStatusText(t.app.status.loaded(fileName || i18nRef.current.app.untitledTitle))
   }
 
   const buildLiveClientSnapshot = (): MdvClientSnapshot => {
@@ -975,8 +995,8 @@ function App() {
   })
 
   const handleOpen = async () => {
-    if (!await confirmUnsavedChangesBeforeProceed('開く')) {
-      setStatusText('Open cancelled')
+    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
+      setStatusText(t.app.status.openCancelled)
       return
     }
 
@@ -999,7 +1019,7 @@ function App() {
     setDisplayTitle(basename(result.path))
     persistedMarkdownRef.current = markdownText
     setPersistedMarkdown(markdownText)
-    setStatusText(`Saved ${basename(result.path)}`)
+    setStatusText(t.app.status.saved(basename(result.path)))
     return true
   }
 
@@ -1017,14 +1037,19 @@ function App() {
   const focusEditorSearch = () => {
     searchInputRef.current?.focus()
     searchInputRef.current?.select()
-    setStatusText('Focused editor search')
+    setStatusText(t.app.status.focusedEditorSearch)
   }
+
+  useEffect(() => {
+    focusEditorSearchRef.current = focusEditorSearch
+    i18nRef.current = t
+  })
 
   const jumpToEditorSearchResult = (result: EditorSearchResult, index: number) => {
     setSelectedSearchResultIndex(index)
     setPendingSearchJump(result.span)
     setActivePanel('write')
-    setStatusText(`Jumped to search result ${index + 1}/${Math.max(editorSearchResults.length, index + 1)}`)
+    setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(editorSearchResults.length, index + 1)))
   }
 
   const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
@@ -1038,7 +1063,7 @@ function App() {
       setSelectedSearchResultIndex(-1)
       setEditorSearchError(null)
       setIsEditorSearchResultsVisible(false)
-      setStatusText('Cleared editor search')
+      setStatusText(t.app.status.clearedEditorSearch)
       return
     }
 
@@ -1075,7 +1100,7 @@ function App() {
         if (results.length > 0) {
           jumpToEditorSearchResult(results[0], 0)
         } else {
-          setStatusText(`No exact matches for "${query}"`)
+          setStatusText(t.app.status.noExactMatches(query))
         }
 
         return
@@ -1109,7 +1134,7 @@ function App() {
       if (results.length > 0) {
         jumpToEditorSearchResult(results[0], 0)
       } else {
-        setStatusText(`No semantic matches for "${query}"`)
+        setStatusText(t.app.status.noSemanticMatches(query))
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1117,7 +1142,7 @@ function App() {
       setEditorSearchResults([])
       setSelectedSearchResultIndex(-1)
       setIsEditorSearchResultsVisible(true)
-      setStatusText(`Search failed: ${message}`)
+      setStatusText(t.app.status.searchFailed(message))
     } finally {
       setIsRunningEditorSearch(false)
     }
@@ -1125,7 +1150,7 @@ function App() {
 
   const hideEditorSearchResults = () => {
     setIsEditorSearchResultsVisible(false)
-    setStatusText('Search results hidden')
+    setStatusText(t.app.status.searchResultsHidden)
   }
 
   const showEditorSearchResults = () => {
@@ -1134,7 +1159,7 @@ function App() {
     }
 
     setIsEditorSearchResultsVisible(true)
-    setStatusText('Search results shown')
+    setStatusText(t.app.status.searchResultsShown)
   }
 
   const moveEditorSearchSelection = (delta: number) => {
@@ -1153,7 +1178,7 @@ function App() {
         const selectedText = editorRef.current?.getSelectedText() ?? ''
         const contextSummary = [
           `Title: ${displayTitle}`,
-          `Path: ${currentFilePath ?? '(untitled)'}`,
+          `Path: ${currentFilePath ?? i18nRef.current.app.untitledPath}`,
           `Panel: ${activePanel}`,
           `Text length: ${markdownText.length}`,
           `Selection length: ${selectedText.length}`,
@@ -1251,7 +1276,7 @@ function App() {
           setDisplayTitle(request.title.trim())
         }
 
-        applyMarkdownContent(updatedMarkdown, request.mode === 'insert' ? 'AI inserted content' : 'AI updated document')
+        applyMarkdownContent(updatedMarkdown, request.mode === 'insert' ? i18nRef.current.app.status.aiInsertedContent : i18nRef.current.app.status.aiUpdatedDocument)
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,
@@ -1291,7 +1316,7 @@ function App() {
   const runDesktopAction = (action: MdvMenuAction) => {
     if (action === 'redo') {
       editorRef.current?.exec('redo')
-      setStatusText('Redid last edit')
+      setStatusText(t.app.status.redidLastEdit)
       return
     }
 
@@ -1312,26 +1337,26 @@ function App() {
 
     if (action === 'open-settings') {
       void window.mdvDesktop?.openSettingsWindow().then(() => {
-        setStatusText('Opened settings')
+        setStatusText(t.app.status.openedSettings)
       })
       return
     }
 
     if (action === 'open-ai-chat') {
       void window.mdvDesktop?.openAiChat().then(() => {
-        setStatusText('Opened AI chat')
+        setStatusText(t.app.status.openedAiChat)
       })
       return
     }
 
     if (action === 'show-editor') {
       setActivePanel('write')
-      setStatusText('Switched to editor')
+      setStatusText(t.app.status.switchedToEditor)
       return
     }
 
     setActivePanel('preview')
-    setStatusText('Switched to preview')
+    setStatusText(t.app.status.switchedToPreview)
   }
 
   useEffect(() => {
@@ -1344,7 +1369,7 @@ function App() {
         return
       }
 
-      if (canAbandonCurrentBufferRef.current('このまま閉じる')) {
+      if (canAbandonCurrentBufferRef.current(i18nRef.current.common.close)) {
         return
       }
 
@@ -1367,7 +1392,7 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
-        focusEditorSearch()
+        focusEditorSearchRef.current()
         return
       }
 
@@ -1392,7 +1417,7 @@ function App() {
     const unsubscribe = window.mdvDesktop?.onServerCommand((command) => {
       if (command.type === 'suspend') {
         const snapshot = buildClientSnapshotRef.current()
-        setStatusText('Suspending for update')
+        setStatusText(i18nRef.current.app.status.suspendingForUpdate)
         window.mdvDesktop?.sendServerCommandResult({
           requestId: command.requestId,
           type: 'suspend',
@@ -1406,7 +1431,7 @@ function App() {
         applyClientSnapshotRef.current(command.snapshot)
       }
 
-      setStatusText('Resumed from server state')
+      setStatusText(i18nRef.current.app.status.resumedFromServerState)
       window.mdvDesktop?.sendServerCommandResult({
         requestId: command.requestId,
         type: 'resume',
@@ -1423,8 +1448,8 @@ function App() {
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
       void (async () => {
-        if (!await confirmUnsavedChangesBeforeProceedRef.current('開く')) {
-          setStatusText('Open request cancelled')
+        if (!await confirmUnsavedChangesBeforeProceedRef.current(i18nRef.current.common.open)) {
+          setStatusText(i18nRef.current.app.status.openRequestCancelled)
           return
         }
 
@@ -1488,16 +1513,16 @@ function App() {
       event.preventDefault()
       void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
         if (!result || result.status === 'opened') {
-          setStatusText(`Opened link: ${anchor.hostname}`)
+          setStatusText(i18nRef.current.app.status.openedLink(anchor.hostname))
           return
         }
 
         if (result.status === 'cancelled') {
-          setStatusText('Cancelled external link')
+          setStatusText(i18nRef.current.app.status.cancelledExternalLink)
           return
         }
 
-        setStatusText('Blocked external link')
+        setStatusText(i18nRef.current.app.status.blockedExternalLink)
       })
     }
 
@@ -1512,8 +1537,8 @@ function App() {
     event.preventDefault()
     setIsDraggingFile(false)
 
-    if (!await confirmUnsavedChangesBeforeProceed('開く')) {
-      setStatusText('Drop cancelled')
+    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
+      setStatusText(t.app.status.dropCancelled)
       return
     }
 
@@ -1563,10 +1588,10 @@ function App() {
           </div>
 
           <div className="view-switch">
-            <ToolbarButton label="Editor (Ctrl/Cmd+1)" active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
+            <ToolbarButton label={`${t.app.editor} (Ctrl/Cmd+1)`} active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
               <EditorIcon />
             </ToolbarButton>
-            <ToolbarButton label="Rendered (Ctrl/Cmd+2)" active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
+            <ToolbarButton label={`${t.app.rendered} (Ctrl/Cmd+2)`} active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
               <RenderedIcon />
             </ToolbarButton>
           </div>
@@ -1575,18 +1600,18 @@ function App() {
             <div className="editor-search-shell" role="search">
               <select
                 className="editor-search-mode"
-                aria-label="Search mode"
+                aria-label={t.app.searchMode}
                 value={resolvedEditorSearchMode}
                 onChange={(event) => {
                   const nextMode = event.currentTarget.value
 
                   if (!isEditorSearchMode(nextMode)) {
-                    setStatusText('Invalid search mode')
+                    setStatusText(t.common.invalidSearchMode)
                     return
                   }
 
                   if (nextMode === 'semantic' && !isSemanticSearchAvailable) {
-                    setStatusText('Semantic search requires OpenAI to be enabled and configured')
+                    setStatusText(t.app.semanticSearchRequiresOpenAi)
                     setEditorSearchMode('exact')
                     return
                   }
@@ -1594,14 +1619,14 @@ function App() {
                   setEditorSearchMode(nextMode)
                 }}
               >
-                <option value="exact">Exact</option>
-                <option value="semantic" disabled={!isSemanticSearchAvailable}>Semantic</option>
+                <option value="exact">{t.app.exact}</option>
+                <option value="semantic" disabled={!isSemanticSearchAvailable}>{t.app.semantic}</option>
               </select>
               <input
                 ref={searchInputRef}
                 className="editor-search-input"
                 type="search"
-                placeholder="Search in editor"
+                placeholder={t.app.searchInEditor}
                 value={editorSearchQuery}
                 onChange={(event) => setEditorSearchQuery(event.target.value)}
                 onKeyDown={(event) => {
@@ -1632,8 +1657,8 @@ function App() {
                 className="editor-search-icon-button"
                 onClick={() => void handleRunEditorSearch()}
                 disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}
-                aria-label={isRunningEditorSearch ? 'Searching' : 'Run search'}
-                title={isRunningEditorSearch ? 'Searching' : 'Run search'}
+                aria-label={isRunningEditorSearch ? t.common.searching : t.app.runSearch}
+                title={isRunningEditorSearch ? t.common.searching : t.app.runSearch}
               >
                 {isRunningEditorSearch ? '...' : <SearchIcon />}
               </button>
@@ -1642,8 +1667,8 @@ function App() {
                 className="editor-search-icon-button"
                 onClick={() => moveEditorSearchSelection(-1)}
                 disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
-                aria-label="Previous result"
-                title="Previous result"
+                aria-label={t.app.previousResult}
+                title={t.app.previousResult}
               >
                 <PrevIcon />
               </button>
@@ -1652,8 +1677,8 @@ function App() {
                 className="editor-search-icon-button"
                 onClick={() => moveEditorSearchSelection(1)}
                 disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
-                aria-label="Next result"
-                title="Next result"
+                aria-label={t.app.nextResult}
+                title={t.app.nextResult}
               >
                 <NextIcon />
               </button>
@@ -1665,15 +1690,15 @@ function App() {
                   type="button"
                   className="editor-search-icon-button"
                   onClick={isEditorSearchResultsVisible ? hideEditorSearchResults : showEditorSearchResults}
-                  aria-label={isEditorSearchResultsVisible ? 'Hide search results' : 'Show search results'}
-                  title={isEditorSearchResultsVisible ? 'Hide search results' : 'Show search results'}
+                  aria-label={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
+                  title={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
                 >
                   {isEditorSearchResultsVisible ? <CloseIcon /> : <ResultsIcon />}
                 </button>
               ) : null}
             </div>
-            <label className="theme-select-shell" title="Theme">
-              <span>Theme</span>
+            <label className="theme-select-shell" title={t.common.theme}>
+              <span>{t.common.theme}</span>
               <select
                 className="theme-select"
                 value={themeMode}
@@ -1681,35 +1706,35 @@ function App() {
                   const nextThemeMode = event.currentTarget.value
 
                   if (!isThemeMode(nextThemeMode)) {
-                    setStatusText('Invalid theme mode')
+                    setStatusText(t.common.invalidThemeMode)
                     return
                   }
 
                   void setThemeMode(nextThemeMode)
                 }}
               >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
+                <option value="system">{t.common.system}</option>
+                <option value="light">{t.common.light}</option>
+                <option value="dark">{t.common.dark}</option>
               </select>
             </label>
-            <ToolbarButton label="Open (Ctrl/Cmd+O)" onClick={handleOpen}>
+            <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
               <OpenIcon />
             </ToolbarButton>
-            <ToolbarButton label="Save (Ctrl/Cmd+S)" onClick={() => void handleSave(false)}>
+            <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} onClick={() => void handleSave(false)}>
               <SaveIcon />
             </ToolbarButton>
-            <ToolbarButton label="Save As (Ctrl/Cmd+Shift+S)" onClick={() => void handleSave(true)}>
+            <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
-            <ToolbarButton label="Settings (Ctrl/Cmd+,)" onClick={() => runDesktopAction('open-settings')}>
+            <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
               <SettingsIcon />
             </ToolbarButton>
           </div>
         </header>
 
         {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
-          <section className="editor-search-results" aria-label="Editor search results">
+          <section className="editor-search-results" aria-label={t.app.searchResults}>
             {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
             {editorSearchResults.map((result, index) => (
               <button
@@ -1792,7 +1817,7 @@ function App() {
         ) : null}
 
         <div className="statusbar">
-          <span>Drop a .md or .txt file anywhere to open it. Shortcuts: Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2</span>
+          <span>{t.app.statusbarHelp}</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
       </section>

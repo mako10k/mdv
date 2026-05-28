@@ -63,6 +63,8 @@ type MdvExternalLinkResult = {
   status: 'opened' | 'cancelled' | 'blocked'
 }
 
+type MdvLocale = 'ja' | 'en'
+
 type MdvClientSnapshot = {
   markdownText: string
   persistedMarkdown: string
@@ -189,6 +191,7 @@ type MdvEditorCloseStatePayload = {
 type MdvSettings = {
   version: 1
   general: {
+    locale: MdvLocale
     themeMode: 'system' | 'light' | 'dark'
     defaultStartPanel: 'write' | 'preview'
     openLinksBehavior: 'confirm-if-untrusted' | 'block-untrusted'
