@@ -4,6 +4,7 @@ const pendingOpenFileRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
 const windowCloseApprovedListeners = new Set()
+const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
 const settingsBootstrap = ipcRenderer.sendSync('mdv:settings-bootstrap')
 
@@ -36,6 +37,12 @@ ipcRenderer.on('mdv:window-close-approved', () => {
   }
 })
 
+ipcRenderer.on('mdv:current-file-changed', (_event, payload) => {
+  for (const listener of currentFileChangedListeners) {
+    listener(payload)
+  }
+})
+
 contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
@@ -43,6 +50,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   readRelativeAssetAsDataUrl: (payload) => ipcRenderer.invoke('mdv:read-relative-asset-data-url', payload),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   exportHtml: (payload) => ipcRenderer.invoke('mdv:export-html', payload),
+  trackCurrentFile: (filePath) => ipcRenderer.invoke('mdv:track-current-file', filePath),
   notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
   openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
@@ -122,6 +130,13 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
 
     return () => {
       aiEditorRequestListeners.delete(callback)
+    }
+  },
+  onCurrentFileChanged: (callback) => {
+    currentFileChangedListeners.add(callback)
+
+    return () => {
+      currentFileChangedListeners.delete(callback)
     }
   },
   onWindowCloseApproved: (callback) => {

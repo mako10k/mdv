@@ -47,6 +47,14 @@ declare module 'katex'
 type MdvFilePayload = {
   path: string
   content: string
+  snapshot: MdvFileSnapshot
+}
+
+type MdvFileSnapshot = {
+  path: string
+  contentHash: string
+  size: number
+  mtimeMs: number | null
 }
 
 type MdvRelativeAssetDataUrlPayload = {
@@ -63,6 +71,30 @@ type MdvSavePayload = {
   path?: string | null
   content: string
   forceDialog?: boolean
+  defaultFileName?: string | null
+  displayTitle?: string | null
+  expectedSnapshot?: MdvFileSnapshot | null
+  baseContent?: string | null
+}
+
+type MdvSaveResult =
+  | {
+      status: 'saved'
+      path: string
+      content: string
+      snapshot: MdvFileSnapshot
+    }
+  | {
+      status: 'cancelled'
+    }
+  | {
+      status: 'merge-failed'
+      message: string
+    }
+
+type MdvCurrentFileChangeEvent = {
+  path: string
+  exists: boolean
 }
 
 type MdvUnsavedChangesDialogResult = {
@@ -79,6 +111,7 @@ type MdvClientSnapshot = {
   markdownText: string
   persistedMarkdown: string
   currentFilePath: string | null
+  fileSnapshot?: MdvFileSnapshot | null
   displayTitle: string
   activePanel: 'write' | 'preview'
 }
@@ -394,8 +427,9 @@ interface Window {
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     readRelativeAssetAsDataUrl: (payload: MdvRelativeAssetDataUrlPayload) => Promise<MdvRelativeAssetDataUrlResult | null>
-    saveFile: (payload: MdvSavePayload) => Promise<{ path: string } | null>
+    saveFile: (payload: MdvSavePayload) => Promise<MdvSaveResult>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
+    trackCurrentFile: (filePath?: string | null) => Promise<void>
     notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
@@ -436,6 +470,7 @@ interface Window {
     onOpenFileRequested: (callback: (request: MdvLaunchRequest | string) => void) => () => void
     onMenuAction: (callback: (action: MdvMenuAction) => void) => () => void
     onAiEditorRequest: (callback: (request: MdvAiEditorRequest) => void | Promise<void>) => () => void
+    onCurrentFileChanged: (callback: (event: MdvCurrentFileChangeEvent) => void) => () => void
     onWindowCloseApproved: (callback: () => void) => () => void
     sendAiEditorResponse: (payload: {
       requestId: string

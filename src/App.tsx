@@ -509,6 +509,60 @@ function basename(filePath: string | null, fallback = 'Untitled.md'): string {
   return parts.at(-1) || fallback
 }
 
+function normalizeFileUriPath(rawValue: string): string | null {
+  if (!rawValue || !rawValue.startsWith('file://')) {
+    return null
+  }
+
+  try {
+    const parsedUrl = new URL(rawValue)
+    let nextPath = decodeURIComponent(parsedUrl.pathname)
+
+    if (/^\/[A-Za-z]:/.test(nextPath)) {
+      nextPath = nextPath.slice(1)
+    }
+
+    return nextPath || null
+  } catch {
+    return null
+  }
+}
+
+function resolveDroppedNativePath(event: DragEvent<HTMLElement>): string | null {
+  const droppedFile = event.dataTransfer.files.item(0)
+
+  if (!droppedFile) {
+    return null
+  }
+
+  const directPath = typeof Reflect.get(droppedFile, 'path') === 'string'
+    ? Reflect.get(droppedFile, 'path')
+    : undefined
+
+  if (directPath && directPath.trim().length > 0) {
+    return directPath
+  }
+
+  const uriList = event.dataTransfer.getData('text/uri-list')
+  const plainText = event.dataTransfer.getData('text/plain')
+
+  for (const candidate of `${uriList}\n${plainText}`.split(/\r?\n/)) {
+    const trimmedCandidate = candidate.trim()
+
+    if (!trimmedCandidate || trimmedCandidate.startsWith('#')) {
+      continue
+    }
+
+    const normalizedPath = normalizeFileUriPath(trimmedCandidate)
+
+    if (normalizedPath) {
+      return normalizedPath
+    }
+  }
+
+  return null
+}
+
 function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
   return event.ctrlKey || event.metaKey
 }
@@ -1140,7 +1194,9 @@ function App() {
   const editorRef = useRef<ToastUiEditor | null>(null)
   const previewRootRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const currentFilePathRef = useRef<string | null>(null)
   const persistedMarkdownRef = useRef<string>(t.app.initialDocument)
+  const currentFileSnapshotRef = useRef<MdvFileSnapshot | null>(null)
   const initialDocumentRef = useRef<string>(t.app.initialDocument)
   const untitledTitleRef = useRef<string>(t.app.untitledTitle)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
@@ -1159,6 +1215,7 @@ function App() {
     markdownText: t.app.initialDocument,
     persistedMarkdown: t.app.initialDocument,
     currentFilePath: null,
+    fileSnapshot: null,
     displayTitle: t.app.untitledTitle,
     activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
   }))
@@ -1167,6 +1224,7 @@ function App() {
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
   const hasUnsavedChanges = markdownText !== persistedMarkdown
+  const visibleDisplayTitle = hasUnsavedChanges ? `${displayTitle}*` : displayTitle
   const isPlaceholderDocument = currentFilePath === null
     && displayTitle === t.app.untitledTitle
     && markdownText === t.app.initialDocument
@@ -1269,8 +1327,72 @@ function App() {
   }, [])
 
   useEffect(() => {
-    document.title = `${displayTitle} - MDV`
-  }, [displayTitle])
+    currentFilePathRef.current = currentFilePath
+  }, [currentFilePath])
+
+  useEffect(() => {
+    document.title = `${visibleDisplayTitle} - MDV`
+  }, [visibleDisplayTitle])
+
+  useEffect(() => {
+    void window.mdvDesktop?.trackCurrentFile(currentFilePath)
+
+    return () => {
+      void window.mdvDesktop?.trackCurrentFile(null)
+    }
+  }, [currentFilePath])
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onCurrentFileChanged((event) => {
+      void (async () => {
+        const trackedPath = currentFilePathRef.current
+
+        if (!trackedPath || event?.path !== trackedPath) {
+          return
+        }
+
+        const currentName = basename(trackedPath)
+
+        if (!event.exists) {
+          setStatusText(t.app.status.localFileMissing(currentName))
+          return
+        }
+
+        if (hasUnsavedChanges) {
+          setStatusText(t.app.status.localFileChangedWhileDirty(currentName))
+          return
+        }
+
+        let payload: MdvFilePayload | null
+
+        try {
+          payload = await window.mdvDesktop?.readFile(trackedPath) ?? null
+        } catch {
+          setStatusText(t.app.status.localFileMissing(currentName))
+          return
+        }
+
+        if (!payload) {
+          return
+        }
+
+        if (currentFilePathRef.current !== trackedPath) {
+          return
+        }
+
+        if (currentFileSnapshotRef.current && payload.snapshot.contentHash === currentFileSnapshotRef.current.contentHash) {
+          return
+        }
+
+        loadFilePayloadRef.current(payload)
+        setStatusText(t.app.status.reloadedExternalChanges(currentName))
+      })()
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [currentFilePath, hasUnsavedChanges, t])
 
   useEffect(() => {
     let active = true
@@ -1325,6 +1447,7 @@ function App() {
     markdownText,
     persistedMarkdown,
     currentFilePath,
+    fileSnapshot: currentFileSnapshotRef.current,
     displayTitle,
     activePanel,
   })
@@ -1342,6 +1465,7 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = snapshot.markdownText === snapshot.persistedMarkdown
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
+    currentFileSnapshotRef.current = snapshot.fileSnapshot || null
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
     const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
@@ -1360,6 +1484,7 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     replaceLoadedDocument(payload.content)
     setCurrentFilePath(payload.path)
+    currentFileSnapshotRef.current = payload.snapshot
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
@@ -1375,6 +1500,7 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     replaceLoadedDocument(content)
     setCurrentFilePath(null)
+    currentFileSnapshotRef.current = null
     setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
@@ -1441,6 +1567,7 @@ function App() {
       markdownText: liveMarkdown,
       persistedMarkdown: persistedMarkdownRef.current,
       currentFilePath,
+      fileSnapshot: currentFileSnapshotRef.current,
       displayTitle,
       activePanel,
     }
@@ -1483,22 +1610,43 @@ function App() {
   }
 
   const handleSave = async (forceDialog = false) => {
-    const result = await window.mdvDesktop?.saveFile({
-      path: currentFilePath,
-      content: markdownText,
-      forceDialog,
-    })
+    try {
+      const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+      const result = await window.mdvDesktop?.saveFile({
+        path: currentFilePath,
+        content: liveMarkdown,
+        forceDialog,
+        defaultFileName: displayTitle,
+        displayTitle,
+        expectedSnapshot: currentFileSnapshotRef.current,
+        baseContent: persistedMarkdownRef.current,
+      })
 
-    if (!result) {
+      if (!result || result.status === 'cancelled') {
+        return false
+      }
+
+      if (result.status === 'merge-failed') {
+        setStatusText(t.app.status.mergeSaveFailed(result.message))
+        return false
+      }
+
+      invalidateEditorSearch()
+      setCurrentFilePath(result.path)
+      currentFileSnapshotRef.current = result.snapshot
+      setDisplayTitle(basename(result.path))
+      if (result.content !== liveMarkdown) {
+        setMarkdownText(result.content)
+        editorRef.current?.setMarkdown(result.content)
+      }
+      persistedMarkdownRef.current = result.content
+      setPersistedMarkdown(result.content)
+      setStatusText(t.app.status.saved(basename(result.path)))
+      return true
+    } catch (error) {
+      setStatusText(t.app.status.saveFailed(error instanceof Error ? error.message : String(error)))
       return false
     }
-
-    setCurrentFilePath(result.path)
-    setDisplayTitle(basename(result.path))
-    persistedMarkdownRef.current = markdownText
-    setPersistedMarkdown(markdownText)
-    setStatusText(t.app.status.saved(basename(result.path)))
-    return true
   }
 
   useEffect(() => {
@@ -2038,9 +2186,7 @@ function App() {
       return
     }
 
-    const nativePath = typeof Reflect.get(droppedFile, 'path') === 'string'
-      ? Reflect.get(droppedFile, 'path')
-      : undefined
+    const nativePath = resolveDroppedNativePath(event)
     if (nativePath && window.mdvDesktop) {
       const payload = await window.mdvDesktop.readFile(nativePath)
       loadFilePayload(payload)
@@ -2074,7 +2220,7 @@ function App() {
       >
         <header className="topbar">
           <div className="title-strip">
-            <h1>{displayTitle}</h1>
+            <h1>{visibleDisplayTitle}</h1>
           </div>
 
           <div className="view-switch">

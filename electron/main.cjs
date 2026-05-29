@@ -5,6 +5,7 @@ const dnsPromises = require('node:dns/promises')
 const net = require('node:net')
 const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
+const { createPatch, applyPatch } = require('diff')
 const OpenAI = require('openai')
 const {
   addFetchAclDecisionRule,
@@ -45,6 +46,7 @@ const launchStateByWindowId = new Map()
 const hiddenLaunchRevealTimerByWindowId = new Map()
 const editorRuntimeStateByWindowId = new Map()
 const aiSessionBuffersByEditorWindowId = new Map()
+const trackedFileWatchersByWindowId = new Map()
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
 const MODEL_CONTEXT_WINDOW_BY_NAME = {
   'gpt-5.4-mini': 128000,
@@ -87,6 +89,9 @@ const MAIN_I18N = {
       continue: '続行',
       cancel: 'キャンセル',
       save: '保存',
+      saveAs: '名前を付けて保存',
+      overwriteSave: '上書き保存',
+      mergeSave: 'マージ保存',
       close: '閉じる',
       open: '開く',
     },
@@ -129,6 +134,13 @@ const MAIN_I18N = {
       htmlFilter: 'HTML',
       allFilesFilter: 'すべてのファイル',
     },
+    saveConflict: {
+      title: 'ローカルファイルが更新されています',
+      message: '前回同期時からローカルファイルが変更されています。',
+      detail: (targetPath) => `保存先: ${targetPath}`,
+      mergeFailedTitle: 'マージ保存に失敗しました',
+      mergeFailedMessage: '競合を自動マージできなかったため、保存せず編集へ戻ります。',
+    },
   },
   en: {
     untitledTitle: 'Untitled.md',
@@ -147,6 +159,9 @@ const MAIN_I18N = {
       continue: 'Continue',
       cancel: 'Cancel',
       save: 'Save',
+      saveAs: 'Save As',
+      overwriteSave: 'Overwrite Save',
+      mergeSave: 'Merge Save',
       close: 'Close',
       open: 'Open',
     },
@@ -188,6 +203,13 @@ const MAIN_I18N = {
       markdownFilter: 'Markdown',
       htmlFilter: 'HTML',
       allFilesFilter: 'All Files',
+    },
+    saveConflict: {
+      title: 'The local file changed',
+      message: 'The local file changed since the last synchronized version.',
+      detail: (targetPath) => `Save target: ${targetPath}`,
+      mergeFailedTitle: 'Merge save failed',
+      mergeFailedMessage: 'The app could not merge the changes automatically. The document was not saved and editing will continue.',
     },
   },
 }
@@ -807,6 +829,7 @@ function createEditorRuntimeState() {
     editorId: `editor:${randomUUID()}`,
     createdAt: timestamp,
     updatedAt: timestamp,
+    trackedFilePath: null,
   }
 }
 
@@ -835,8 +858,103 @@ function clearEditorRuntimeState(windowId) {
     clearSemanticRuntimesForEditorId(runtimeState.editorId)
   }
 
+  clearTrackedFileWatcher(windowId)
   editorRuntimeStateByWindowId.delete(windowId)
   clearSessionBuffersForWindow(windowId)
+}
+
+function clearTrackedFileWatcher(windowId) {
+  const watcherRecord = trackedFileWatchersByWindowId.get(windowId)
+
+  if (!watcherRecord) {
+    return
+  }
+
+  if (watcherRecord.timer) {
+    clearTimeout(watcherRecord.timer)
+  }
+
+  if (watcherRecord.retryTimer) {
+    clearTimeout(watcherRecord.retryTimer)
+  }
+
+  try {
+    watcherRecord.watcher?.close()
+  } catch {
+    // Ignore watcher close failures during teardown.
+  }
+
+  trackedFileWatchersByWindowId.delete(windowId)
+}
+
+function notifyTrackedFileChanged(editorWindow, filePath) {
+  if (!editorWindow || editorWindow.isDestroyed() || !filePath) {
+    return
+  }
+
+  editorWindow.webContents.send('mdv:current-file-changed', {
+    path: filePath,
+    exists: fs.existsSync(filePath),
+  })
+}
+
+function trackCurrentFileForWindow(editorWindow, filePath, options = {}) {
+  if (!editorWindow || editorWindow.isDestroyed()) {
+    return
+  }
+
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+  const normalizedPath = typeof filePath === 'string' && filePath.trim().length > 0 ? filePath.trim() : null
+  const forceRetrack = options.force === true
+
+  if (!forceRetrack && runtimeState.trackedFilePath === normalizedPath) {
+    return
+  }
+
+  runtimeState.trackedFilePath = normalizedPath
+  clearTrackedFileWatcher(editorWindow.id)
+
+  if (!normalizedPath) {
+    return
+  }
+
+  try {
+    const watcherRecord = {
+      filePath: normalizedPath,
+      watcher: null,
+      timer: null,
+      retryTimer: null,
+    }
+
+    watcherRecord.watcher = fs.watch(normalizedPath, { persistent: false }, () => {
+      if (watcherRecord.timer) {
+        clearTimeout(watcherRecord.timer)
+      }
+
+      watcherRecord.timer = setTimeout(() => {
+        watcherRecord.timer = null
+        trackCurrentFileForWindow(editorWindow, normalizedPath, { force: true })
+        notifyTrackedFileChanged(editorWindow, normalizedPath)
+      }, 120)
+    })
+    watcherRecord.watcher.on('error', (error) => {
+      writeLog('WARN', 'watch', 'Tracked file watcher error', normalizedPath, error instanceof Error ? error.message : String(error))
+      trackCurrentFileForWindow(editorWindow, normalizedPath, { force: true })
+      notifyTrackedFileChanged(editorWindow, normalizedPath)
+    })
+    trackedFileWatchersByWindowId.set(editorWindow.id, watcherRecord)
+  } catch (error) {
+    writeLog('WARN', 'watch', 'Unable to watch tracked file', normalizedPath, error instanceof Error ? error.message : String(error))
+    const retryRecord = {
+      filePath: normalizedPath,
+      watcher: null,
+      timer: null,
+      retryTimer: setTimeout(() => {
+        trackCurrentFileForWindow(editorWindow, normalizedPath, { force: true })
+      }, 1000),
+    }
+    trackedFileWatchersByWindowId.set(editorWindow.id, retryRecord)
+  }
 }
 
 function getSessionBufferRegistry(editorWindow) {
@@ -4501,6 +4619,10 @@ async function saveContentToPath(parentWindow, payload) {
   const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
     ? payload.defaultFileName.trim()
     : 'document.md'
+  const expectedSnapshot = payload?.expectedSnapshot && typeof payload.expectedSnapshot === 'object'
+    ? payload.expectedSnapshot
+    : null
+  const baseContent = typeof payload?.baseContent === 'string' ? payload.baseContent : content
 
   let targetPath = currentPath
 
@@ -4516,17 +4638,99 @@ async function saveContentToPath(parentWindow, payload) {
 
     if (result.canceled || !result.filePath) {
       writeLog('INFO', 'ipc', 'save-file cancelled')
-      return null
+      return { status: 'cancelled' }
     }
 
     targetPath = result.filePath
   }
 
-  await fsPromises.writeFile(targetPath, content, 'utf8')
+  let nextContent = content
+  const currentDiskFile = await readOptionalUtf8File(targetPath)
+  const shouldPromptConflict = targetPath === currentPath
+    && Boolean(expectedSnapshot)
+    && (!currentDiskFile || !areFileSnapshotsEqual(currentDiskFile.snapshot, expectedSnapshot))
+
+  if (shouldPromptConflict) {
+    const messages = getMainI18n()
+    const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+      type: 'warning',
+      buttons: [messages.buttons.overwriteSave, messages.buttons.saveAs, messages.buttons.mergeSave, messages.buttons.cancel],
+      defaultId: 3,
+      cancelId: 3,
+      noLink: true,
+      title: messages.saveConflict.title,
+      message: messages.saveConflict.message,
+      detail: messages.saveConflict.detail(targetPath),
+    })
+
+    if (response.response === 3) {
+      return { status: 'cancelled' }
+    }
+
+    if (response.response === 1) {
+      const saveAsResult = await dialog.showSaveDialog(parentWindow ?? undefined, {
+        defaultPath: defaultFileName,
+        filters: [
+          { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
+          { name: messages.fileDialog.allFilesFilter, extensions: ['*'] },
+        ],
+      })
+
+      if (saveAsResult.canceled || !saveAsResult.filePath) {
+        writeLog('INFO', 'ipc', 'save-file cancelled during save-as after conflict')
+        return { status: 'cancelled' }
+      }
+
+      targetPath = saveAsResult.filePath
+    }
+
+    if (response.response === 2) {
+      try {
+        if (!currentDiskFile) {
+          throw new Error('The local file no longer exists, so merge save is unavailable.')
+        }
+
+        if (typeof payload?.baseContent !== 'string') {
+          throw new Error('Merge save requires the last synchronized document content.')
+        }
+
+        const patch = createPatch(targetPath || 'document.md', baseContent, content)
+        const mergedContent = applyPatch(currentDiskFile.content, patch)
+
+        if (typeof mergedContent !== 'string') {
+          throw new Error('The local file changed in a way that could not be merged automatically.')
+        }
+
+        nextContent = mergedContent
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await dialog.showMessageBox(parentWindow ?? undefined, {
+          type: 'error',
+          buttons: [messages.buttons.close],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+          title: messages.saveConflict.mergeFailedTitle,
+          message: messages.saveConflict.mergeFailedMessage,
+          detail: message,
+        })
+        return {
+          status: 'merge-failed',
+          message,
+        }
+      }
+    }
+  }
+
+  await fsPromises.writeFile(targetPath, nextContent, 'utf8')
+  const stat = await fsPromises.stat(targetPath)
   writeLog('INFO', 'ipc', 'save-file wrote', targetPath)
 
   return {
+    status: 'saved',
     path: targetPath,
+    content: nextContent,
+    snapshot: buildFileSnapshot(targetPath, nextContent, stat),
   }
 }
 
@@ -4694,9 +4898,11 @@ async function confirmEditorWindowClose(window) {
       path: snapshot.currentFilePath,
       content: snapshot.markdownText,
       defaultFileName: snapshot.displayTitle || messages.untitledTitle,
+      expectedSnapshot: snapshot.fileSnapshot || null,
+      baseContent: snapshot.persistedMarkdown,
     })
 
-    if (!saveResult) {
+    if (!saveResult || saveResult.status !== 'saved') {
       return
     }
   }
@@ -4824,11 +5030,46 @@ function writeLog(level, scope, ...parts) {
 writeLog('INFO', 'main', 'Application bootstrap', { isDev, logFilePath })
 
 async function readUtf8File(filePath) {
-  const content = await fsPromises.readFile(filePath, 'utf8')
+  const [content, stat] = await Promise.all([
+    fsPromises.readFile(filePath, 'utf8'),
+    fsPromises.stat(filePath),
+  ])
 
   return {
     path: filePath,
     content,
+    snapshot: buildFileSnapshot(filePath, content, stat),
+  }
+}
+
+function buildFileSnapshot(filePath, content, stat) {
+  return {
+    path: filePath,
+    contentHash: hashText(content),
+    size: Buffer.byteLength(content, 'utf8'),
+    mtimeMs: Number.isFinite(Number(stat?.mtimeMs)) ? Number(stat.mtimeMs) : null,
+  }
+}
+
+function areFileSnapshotsEqual(left, right) {
+  if (!left || !right) {
+    return false
+  }
+
+  return left.path === right.path
+    && left.contentHash === right.contentHash
+    && Number(left.size) === Number(right.size)
+}
+
+async function readOptionalUtf8File(filePath) {
+  try {
+    return await readUtf8File(filePath)
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') {
+      return null
+    }
+
+    throw error
   }
 }
 
@@ -5152,6 +5393,16 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.handle('mdv:track-current-file', async (event, filePath) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+
+  if (!window || window.isDestroyed()) {
+    return
+  }
+
+  trackCurrentFileForWindow(window, typeof filePath === 'string' ? filePath : null)
 })
 
 ipcMain.handle('mdv:read-relative-asset-data-url', async (_event, payload) => {
