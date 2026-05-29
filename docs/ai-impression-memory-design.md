@@ -878,13 +878,13 @@ system level memory
 - title
 - content
 - priority
-- ttl optional
 
 制約:
 
 - 長文禁止
 - 追加前に budget check
 - 失敗時は overflow または削除候補を返す
+- first slice では title / priority / formatting overhead も含めた injected prompt text で budget を計算する
 
 #### `list_context_items`
 
@@ -903,6 +903,7 @@ system level memory
 - update や merge は後回しにする
 - semantic retrieval との統合は後回しにする
 - first slice では protected area は小さな key fact store として扱う
+- first slice の rolling short context は latest turn を優先し、古い会話だけを bounded summary へ圧縮する
 
 ## Prompt Injection Model
 

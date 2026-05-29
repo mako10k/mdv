@@ -59,6 +59,13 @@ const DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS = 15 * 60_000
 const DEFAULT_FETCH_MAX_RESPONSE_BYTES = 512 * 1024
 const MAX_FETCH_REDIRECTS = 5
 const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
+const DEFAULT_CHAT_INPUT_BUDGET_RATIO = 0.45
+const DEFAULT_CHAT_INPUT_MIN_TOKENS = 4096
+const DEFAULT_CHAT_SUMMARY_BUDGET_RATIO = 0.18
+const DEFAULT_CHAT_RECENT_BUDGET_RATIO = 0.62
+const DEFAULT_PROTECTED_CONTEXT_BUDGET_RATIO = 0.06
+const DEFAULT_PROTECTED_CONTEXT_MAX_ITEMS = 8
+const DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS = 128
 const MAX_SEMANTIC_INDEX_BYTES = 1024 * 1024
 const MAX_EMBEDDING_CACHE_BYTES = 256 * 1024 * 1024
 const EMBEDDING_CACHE_TOUCH_INTERVAL_MS = 15_000
@@ -257,6 +264,22 @@ function getModelContextWindow(model) {
 
 function getInlineTokenBudget() {
   return Math.max(512, Math.floor(getModelContextWindow(settingsState.ai.openai.model) * 0.05))
+}
+
+function getAiChatInputBudget(model = settingsState.ai.openai.model) {
+  return Math.max(DEFAULT_CHAT_INPUT_MIN_TOKENS, Math.floor(getModelContextWindow(model) * DEFAULT_CHAT_INPUT_BUDGET_RATIO))
+}
+
+function getAiChatSummaryBudget(model = settingsState.ai.openai.model) {
+  return Math.max(256, Math.floor(getAiChatInputBudget(model) * DEFAULT_CHAT_SUMMARY_BUDGET_RATIO))
+}
+
+function getAiChatRecentBudget(model = settingsState.ai.openai.model) {
+  return Math.max(1024, Math.floor(getAiChatInputBudget(model) * DEFAULT_CHAT_RECENT_BUDGET_RATIO))
+}
+
+function getProtectedContextBudgetTokens(model = settingsState.ai.openai.model) {
+  return Math.max(96, Math.floor(getModelContextWindow(model) * DEFAULT_PROTECTED_CONTEXT_BUDGET_RATIO))
 }
 
 function resolveReadTokenBudget(maxTokens) {
@@ -915,6 +938,12 @@ function createEditorRuntimeState() {
     createdAt: timestamp,
     updatedAt: timestamp,
     trackedFilePath: null,
+    protectedContextItems: new Map(),
+    compressionState: {
+      summaryText: '',
+      summarizedMessageCount: 0,
+      updatedAt: null,
+    },
   }
 }
 
@@ -946,6 +975,366 @@ function clearEditorRuntimeState(windowId) {
   clearTrackedFileWatcher(windowId)
   editorRuntimeStateByWindowId.delete(windowId)
   clearSessionBuffersForWindow(windowId)
+}
+
+function normalizeProtectedContextPriority(value) {
+  if (value === 'high' || value === 'low') {
+    return value
+  }
+
+  return 'normal'
+}
+
+function getProtectedContextRegistry(editorWindow) {
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+
+  if (!(runtimeState.protectedContextItems instanceof Map)) {
+    runtimeState.protectedContextItems = new Map()
+  }
+
+  return runtimeState.protectedContextItems
+}
+
+function listProtectedContextItemRecords(editorWindow) {
+  const registry = getProtectedContextRegistry(editorWindow)
+
+  return Array.from(registry.values())
+    .sort((left, right) => {
+      const priorityOrder = { high: 0, normal: 1, low: 2 }
+      const priorityDelta = (priorityOrder[left.priority] ?? 1) - (priorityOrder[right.priority] ?? 1)
+
+      if (priorityDelta !== 0) {
+        return priorityDelta
+      }
+
+      return Date.parse(right.updatedAt || 0) - Date.parse(left.updatedAt || 0)
+    })
+}
+
+function formatProtectedContextItemLine(item) {
+  return `- [${item.priority}] ${item.title}: ${item.content}`
+}
+
+function buildProtectedContextBlockText(items, maxTokens = Number.POSITIVE_INFINITY) {
+  const normalizedItems = Array.isArray(items) ? items.filter(Boolean) : []
+
+  if (normalizedItems.length === 0) {
+    return ''
+  }
+
+  const header = 'Protected context items. Keep these stable unless the user explicitly changes them:\n'
+  const lines = []
+  let remainingTokens = Number.isFinite(maxTokens)
+    ? Math.max(0, maxTokens - estimateTokenCount(header))
+    : Number.POSITIVE_INFINITY
+
+  for (const item of normalizedItems) {
+    const line = formatProtectedContextItemLine(item)
+    const lineTokens = estimateTokenCount(line)
+
+    if (lineTokens > remainingTokens) {
+      break
+    }
+
+    lines.push(line)
+    remainingTokens -= lineTokens
+  }
+
+  if (lines.length === 0) {
+    return ''
+  }
+
+  return `${header}${lines.join('\n')}`
+}
+
+function getProtectedContextUsage(editorWindow, model = settingsState.ai.openai.model) {
+  const items = listProtectedContextItemRecords(editorWindow)
+  const totalTokens = estimateTokenCount(buildProtectedContextBlockText(items))
+
+  return {
+    budgetTokens: getProtectedContextBudgetTokens(model),
+    totalTokens,
+    itemCount: items.length,
+    maxItems: DEFAULT_PROTECTED_CONTEXT_MAX_ITEMS,
+    maxItemTokens: DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS,
+  }
+}
+
+function summarizeProtectedContextItem(item) {
+  return {
+    itemId: item.itemId,
+    title: item.title,
+    content: item.content,
+    priority: item.priority,
+    estimatedTokens: item.estimatedTokens,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  }
+}
+
+function buildProtectedContextDeleteCandidateHint(editorWindow) {
+  const items = listProtectedContextItemRecords(editorWindow)
+  const candidates = items
+    .slice()
+    .reverse()
+    .slice(0, 3)
+    .map((item) => `${item.itemId} (${item.title})`)
+
+  if (candidates.length === 0) {
+    return 'Delete or shorten existing protected items before saving another one.'
+  }
+
+  return `Delete or shorten existing protected items before saving another one. Candidates: ${candidates.join(', ')}`
+}
+
+function saveProtectedContextItemForWindow(editorWindow, payload) {
+  const title = typeof payload?.title === 'string' ? payload.title.trim() : ''
+  const content = typeof payload?.content === 'string' ? payload.content.trim() : ''
+
+  if (title.length === 0) {
+    throw new AiToolUserError('save_context_item', 'title must be a non-empty string.', 'Provide title as a short label such as "Current release constraint".')
+  }
+
+  if (content.length === 0) {
+    throw new AiToolUserError('save_context_item', 'content must be a non-empty string.', 'Provide content as a short fact, constraint, or TODO to preserve.')
+  }
+
+  const priority = normalizeProtectedContextPriority(payload?.priority)
+  const estimatedTokens = estimateTokenCount(formatProtectedContextItemLine({ title, content, priority }))
+
+  if (estimatedTokens > DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS) {
+    throw new AiToolUserError(
+      'save_context_item',
+      `content is too large for protected context (${estimatedTokens} tokens).`,
+      `Shorten the content to about ${DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS} tokens or less.`,
+    )
+  }
+
+  const usage = getProtectedContextUsage(editorWindow)
+
+  if (usage.itemCount >= usage.maxItems) {
+    throw new AiToolUserError(
+      'save_context_item',
+      'protected context is full by item count.',
+      buildProtectedContextDeleteCandidateHint(editorWindow),
+    )
+  }
+
+  const nextTotalTokens = estimateTokenCount(buildProtectedContextBlockText([
+    ...listProtectedContextItemRecords(editorWindow),
+    { title, content, priority },
+  ]))
+
+  if (nextTotalTokens > usage.budgetTokens) {
+    throw new AiToolUserError(
+      'save_context_item',
+      'protected context budget would overflow.',
+      `${buildProtectedContextDeleteCandidateHint(editorWindow)} Or save a shorter fact.`,
+    )
+  }
+
+  const timestamp = new Date().toISOString()
+  const item = {
+    itemId: `context:${randomUUID()}`,
+    title,
+    content,
+    priority,
+    estimatedTokens,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+
+  const registry = getProtectedContextRegistry(editorWindow)
+  registry.set(item.itemId, item)
+  touchEditorRuntimeState(editorWindow)
+
+  return {
+    item: summarizeProtectedContextItem(item),
+    usage: getProtectedContextUsage(editorWindow),
+  }
+}
+
+function listProtectedContextItemsForWindow(editorWindow) {
+  return {
+    items: listProtectedContextItemRecords(editorWindow).map(summarizeProtectedContextItem),
+    usage: getProtectedContextUsage(editorWindow),
+  }
+}
+
+function deleteProtectedContextItemForWindow(editorWindow, payload) {
+  const itemId = typeof payload?.itemId === 'string' ? payload.itemId.trim() : ''
+
+  if (itemId.length === 0) {
+    throw new AiToolUserError('delete_context_item', 'itemId must be a non-empty string.', 'Call list_context_items first and reuse one returned itemId.')
+  }
+
+  const registry = getProtectedContextRegistry(editorWindow)
+  const deleted = registry.delete(itemId)
+  touchEditorRuntimeState(editorWindow)
+
+  return {
+    itemId,
+    deleted,
+    usage: getProtectedContextUsage(editorWindow),
+  }
+}
+
+function normalizeChatMessageForCompression(message) {
+  if (!message || typeof message.content !== 'string') {
+    return null
+  }
+
+  const content = message.content.trim()
+
+  if (content.length === 0) {
+    return null
+  }
+
+  const normalizedMessage = {
+    role: message.role === 'assistant' ? 'assistant' : message.role === 'tool' ? 'tool' : 'user',
+    kind: message.role === 'tool' ? 'tool' : message.role === 'assistant' ? 'assistant' : 'user',
+    title: typeof message.title === 'string' ? message.title.trim() : '',
+    content,
+  }
+
+  normalizedMessage.estimatedTokens = estimateTokenCount(mapAiChatMessageToOpenAiInput(normalizedMessage)?.content || normalizedMessage.content)
+  return normalizedMessage
+}
+
+function summarizeMessageForCompression(message) {
+  const label = message.kind === 'assistant'
+    ? 'Assistant'
+    : message.kind === 'tool'
+      ? `Tool${message.title ? ` (${message.title})` : ''}`
+      : 'User'
+  const preview = createPreviewText(message.content, 220)
+  return `- ${label}: ${preview}`
+}
+
+function truncateTextToTokenBudget(text, maxTokens) {
+  if (typeof text !== 'string' || text.length === 0) {
+    return ''
+  }
+
+  const maxChars = Math.max(0, Math.floor(maxTokens) * DEFAULT_TOKEN_TO_CHAR_RATIO)
+
+  if (text.length <= maxChars) {
+    return text
+  }
+
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`
+}
+
+function buildCompressedConversationSummary(editorWindow, messages, maxTokens) {
+  const usableMessages = Array.isArray(messages) ? messages.filter(Boolean) : []
+
+  if (usableMessages.length === 0 || maxTokens <= 0) {
+    return ''
+  }
+
+  const header = 'Compressed earlier conversation context:\n'
+  const lines = []
+  let lineBudget = Math.max(0, maxTokens - estimateTokenCount(header))
+
+  for (const message of usableMessages) {
+    const line = summarizeMessageForCompression(message)
+    const lineTokens = estimateTokenCount(line)
+
+    if (lineTokens > lineBudget) {
+      break
+    }
+
+    lines.push(line)
+    lineBudget -= lineTokens
+  }
+
+  if (lines.length === 0) {
+    return ''
+  }
+
+  const summaryText = `${header}${lines.join('\n')}`.trim()
+  const runtimeState = touchEditorRuntimeState(editorWindow)
+  runtimeState.compressionState.summaryText = summaryText
+  runtimeState.compressionState.summarizedMessageCount = usableMessages.length
+  runtimeState.compressionState.updatedAt = new Date().toISOString()
+  return truncateTextToTokenBudget(summaryText, maxTokens)
+}
+
+function buildProtectedContextInput(editorWindow, maxTokens) {
+  const content = buildProtectedContextBlockText(listProtectedContextItemRecords(editorWindow), maxTokens)
+
+  if (content.length === 0) {
+    return null
+  }
+
+  return {
+    role: 'user',
+    content,
+  }
+}
+
+function buildOpenAiChatInput(editorWindow, messages) {
+  const normalizedMessages = Array.isArray(messages)
+    ? messages.map(normalizeChatMessageForCompression).filter(Boolean)
+    : []
+
+  if (normalizedMessages.length === 0) {
+    return []
+  }
+
+  const model = settingsState.ai.openai.model
+  const totalBudget = getAiChatInputBudget(model)
+  const latestMessage = normalizedMessages[normalizedMessages.length - 1]
+  const latestInput = mapAiChatMessageToOpenAiInput(latestMessage)
+
+  if (!latestInput) {
+    return []
+  }
+
+  const latestTokens = estimateTokenCount(latestInput.content)
+
+  if (latestTokens >= totalBudget) {
+    return [{
+      ...latestInput,
+      content: truncateTextToTokenBudget(latestInput.content, totalBudget),
+    }]
+  }
+
+  const protectedBudget = Math.min(getProtectedContextBudgetTokens(model), Math.max(0, totalBudget - latestTokens))
+  const summaryBudget = getAiChatSummaryBudget(model)
+  const protectedInput = buildProtectedContextInput(editorWindow, protectedBudget)
+  const protectedTokens = protectedInput ? estimateTokenCount(protectedInput.content) : 0
+  const recentBudget = Math.max(latestTokens, Math.min(getAiChatRecentBudget(model), totalBudget - protectedTokens))
+  const recentInputs = [latestInput]
+  let recentTokens = latestTokens
+  let cutoffIndex = Math.max(0, normalizedMessages.length - 1)
+
+  for (let index = normalizedMessages.length - 2; index >= 0; index -= 1) {
+    const message = normalizedMessages[index]
+
+    if (recentTokens + message.estimatedTokens > recentBudget) {
+      cutoffIndex = index + 1
+      break
+    }
+
+    recentInputs.unshift(mapAiChatMessageToOpenAiInput(message))
+    recentTokens += message.estimatedTokens
+    cutoffIndex = index
+  }
+
+  const olderMessages = normalizedMessages.slice(0, cutoffIndex)
+  const remainingBudget = Math.max(0, totalBudget - protectedTokens - recentTokens)
+  const summaryText = olderMessages.length > 0
+    ? buildCompressedConversationSummary(editorWindow, olderMessages, Math.min(summaryBudget, remainingBudget))
+    : ''
+  const summaryInput = summaryText.length > 0
+    ? {
+        role: 'user',
+        content: summaryText,
+      }
+    : null
+
+  return [protectedInput, summaryInput, ...recentInputs].filter(Boolean)
 }
 
 function clearTrackedFileWatcher(windowId) {
@@ -2295,6 +2684,7 @@ const openAiChatInstructions = [
   'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'write_target mode "insert" inserts at the destination span start unless you provide a point span for an exact position; mode "append" inserts at the destination span end.',
+  'Use save_context_item only for short high-value facts, constraints, or TODOs that should survive compression in this session; protected context is tightly budgeted.',
   'fetch_url may return a temp buffer instead of inline content when the response exceeds the inline chunk budget; use the returned target or bufferId with read_target/write_target, and call dispose_buffer when you are done.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
@@ -2496,6 +2886,30 @@ const aiToolDefinitions = [
         editorId: buildRequiredAiToolParameter({ type: 'string' }),
       }),
   },
+  {
+    type: 'function',
+    name: 'save_context_item',
+    description: 'Save one short high-value fact, constraint, or TODO into the protected context area so it survives compression within this session.',
+    parameters: buildAiToolParameters({
+        title: buildRequiredAiToolParameter({ type: 'string', description: 'Short label for the preserved context item.' }),
+        content: buildRequiredAiToolParameter({ type: 'string', description: 'Short preserved text. Keep it compact.' }),
+        priority: { type: 'string', enum: ['high', 'normal', 'low'] },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'list_context_items',
+    description: 'List the protected context items currently preserved from compression in this session.',
+    parameters: buildAiToolParameters({}),
+  },
+  {
+    type: 'function',
+    name: 'delete_context_item',
+    description: 'Delete one protected context item when it is no longer needed.',
+    parameters: buildAiToolParameters({
+        itemId: buildRequiredAiToolParameter({ type: 'string', description: 'Protected context item id returned by list_context_items.' }),
+      }),
+  },
 ]
 
 const aiToolHelpDocs = {
@@ -2615,6 +3029,33 @@ const aiToolHelpDocs = {
     ],
     examples: [
       { description: 'Dispose one buffer', args: { editorId: 'buffer:example' } },
+    ],
+  },
+  save_context_item: {
+    summary: 'Save one short protected context item so it survives conversation compression for this session.',
+    parameters: [
+      { name: 'title', required: true, type: 'string', description: 'Short label for the item.' },
+      { name: 'content', required: true, type: 'string', description: 'Short fact, constraint, or TODO to preserve.' },
+      { name: 'priority', required: false, type: 'string', description: 'Optional. high, normal, or low.' },
+    ],
+    examples: [
+      { description: 'Save a release constraint', args: { title: 'Packaging constraint', content: 'Keep protected context items short and high-value.', priority: 'high' } },
+    ],
+  },
+  list_context_items: {
+    summary: 'List the current protected context items and their budget usage.',
+    parameters: [],
+    examples: [
+      { description: 'List protected items', args: {} },
+    ],
+  },
+  delete_context_item: {
+    summary: 'Delete one protected context item by id.',
+    parameters: [
+      { name: 'itemId', required: true, type: 'string', description: 'Protected context item id returned by list_context_items.' },
+    ],
+    examples: [
+      { description: 'Delete one protected item', args: { itemId: 'context:example' } },
     ],
   },
 }
@@ -2797,6 +3238,17 @@ function validateAiToolArgs(toolName, args) {
 
   if (toolName === 'dispose_buffer') {
     requireStringArg(toolName, args, 'editorId', 'a temp buffer id such as buffer:example')
+    return
+  }
+
+  if (toolName === 'save_context_item') {
+    requireStringArg(toolName, args, 'title', 'a short label such as "Current release constraint"')
+    requireStringArg(toolName, args, 'content', 'a short fact, constraint, or TODO to preserve')
+    return
+  }
+
+  if (toolName === 'delete_context_item') {
+    requireStringArg(toolName, args, 'itemId', 'an item id returned by list_context_items')
   }
 }
 
@@ -3620,6 +4072,24 @@ function summarizeAiToolArgsForLog(toolName, args) {
     }
   }
 
+  if (toolName === 'save_context_item') {
+    return {
+      title: typeof args?.title === 'string' ? args.title.slice(0, 160) : null,
+      contentPreview: typeof args?.content === 'string' ? createPreviewText(args.content, 160) : null,
+      priority: typeof args?.priority === 'string' ? args.priority : null,
+    }
+  }
+
+  if (toolName === 'list_context_items') {
+    return null
+  }
+
+  if (toolName === 'delete_context_item') {
+    return {
+      itemId: typeof args?.itemId === 'string' ? args.itemId : null,
+    }
+  }
+
   return args
 }
 
@@ -3701,6 +4171,30 @@ function summarizeAiToolResultForLog(toolName, result) {
     return {
       editorId: typeof result?.editorId === 'string' ? result.editorId : null,
       disposed: result?.disposed === true,
+    }
+  }
+
+  if (toolName === 'save_context_item') {
+    return {
+      itemId: typeof result?.item?.itemId === 'string' ? result.item.itemId : null,
+      title: typeof result?.item?.title === 'string' ? result.item.title : null,
+      totalTokens: Number.isFinite(Number(result?.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null,
+      itemCount: Number.isFinite(Number(result?.usage?.itemCount)) ? Number(result.usage.itemCount) : null,
+    }
+  }
+
+  if (toolName === 'list_context_items') {
+    return {
+      itemCount: Array.isArray(result?.items) ? result.items.length : null,
+      totalTokens: Number.isFinite(Number(result?.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null,
+    }
+  }
+
+  if (toolName === 'delete_context_item') {
+    return {
+      itemId: typeof result?.itemId === 'string' ? result.itemId : null,
+      deleted: result?.deleted === true,
+      itemCount: Number.isFinite(Number(result?.usage?.itemCount)) ? Number(result.usage.itemCount) : null,
     }
   }
 
@@ -3809,6 +4303,18 @@ async function executeAiToolCall(editorWindow, toolName, args) {
       result = disposeBufferForWindow(editorWindow, {
         editorId: requireStringArg(toolName, args, 'editorId', 'a temp buffer id such as buffer:example'),
       })
+    } else if (toolName === 'save_context_item') {
+      result = saveProtectedContextItemForWindow(editorWindow, {
+        title: requireStringArg(toolName, args, 'title', 'a short label such as "Current release constraint"'),
+        content: requireStringArg(toolName, args, 'content', 'a short fact, constraint, or TODO to preserve'),
+        priority: args?.priority,
+      })
+    } else if (toolName === 'list_context_items') {
+      result = listProtectedContextItemsForWindow(editorWindow)
+    } else if (toolName === 'delete_context_item') {
+      result = deleteProtectedContextItemForWindow(editorWindow, {
+        itemId: requireStringArg(toolName, args, 'itemId', 'an item id returned by list_context_items'),
+      })
     } else {
       throw new Error(`Unsupported AI tool: ${toolName}`)
     }
@@ -3855,11 +4361,7 @@ function mapAiChatMessageToOpenAiInput(message) {
 }
 
 async function requestOpenAiChatResponse(editorWindow, messages) {
-  const input = Array.isArray(messages)
-    ? messages
-      .map(mapAiChatMessageToOpenAiInput)
-      .filter(Boolean)
-    : []
+  const input = buildOpenAiChatInput(editorWindow, messages)
 
   if (input.length === 0) {
     throw new Error('No chat context was provided to OpenAI')

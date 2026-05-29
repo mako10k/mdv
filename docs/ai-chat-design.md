@@ -13,6 +13,7 @@
 注記:
 
 - 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
+- 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
@@ -37,6 +38,8 @@
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
+- save_context_item / list_context_items / delete_context_item を main process の tool loop から呼べること
+- latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
 - fetch ACL / timeout は dedicated auxiliary window から編集できること
 - AI 応答バブルは Markdown を描画できること
@@ -52,7 +55,7 @@
 
 注記:
 
-- Impression Memory と budget-aware context reconstruction は current scaffold の外側にある次段階拡張として扱う
+- topic memory や persisted impression memory は current scaffold の外側にある次段階拡張として扱う
 - その詳細要件と設計は [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) に分離する
 
 ## Current Constraints
@@ -108,19 +111,20 @@ AI が使う操作面。
 
 最終的な tool surface:
 
+- get_tool_help
 - get_context
-- read
-- write
-- grep_slice
-- nl
-- cut
-- sort
-- stats
 - list_buffers
-- workspace_grep
+- read_target
+- write_target
+- exact_search
+- stats_slice
+- semantic_search
 - web_search
 - fetch_url
 - dispose_buffer
+- save_context_item
+- list_context_items
+- delete_context_item
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 
@@ -1008,6 +1012,8 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - base summary
 - protected context area and tools
 - budget manager
+- first slice keeps the latest chat turn verbatim when it fits, compresses older turns into a bounded summary, and drops protected context behind the latest turn when total input budget is tight
+- protected context tools: save_context_item, list_context_items, delete_context_item
 
 ### Phase 7
 
