@@ -72,10 +72,15 @@ async function extractHeadingOutline(markdown) {
 
   return matches.map((match) => {
     const node = match?.node || {}
+    const start = node?.position?.start || {}
     return {
       path: Array.isArray(match?.path) ? match.path : [],
       depth: Number.isFinite(Number(node.depth)) ? Number(node.depth) : 0,
       text: collectVisibleText(node),
+      position: {
+        line: Number.isFinite(Number(start.line)) ? Number(start.line) : 1,
+        column: Number.isFinite(Number(start.column)) ? Number(start.column) : 1,
+      },
     }
   })
 }

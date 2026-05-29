@@ -40,6 +40,10 @@ type StatusToast = {
   message: string
 }
 
+function getOutlineHeadingLabel(item: MdvMdastHeadingOutlineItem, fallbackLabel: (line: number) => string) {
+  return item.text.trim() || fallbackLabel(item.position.line)
+}
+
 const markdownParser = new MarkdownIt({
   html: true,
   breaks: true,
@@ -1189,6 +1193,7 @@ function App() {
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
   const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
+  const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
@@ -1211,6 +1216,7 @@ function App() {
   const i18nRef = useRef(t)
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
+  const outlineRequestIdRef = useRef(0)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: t.app.initialDocument,
     persistedMarkdown: t.app.initialDocument,
@@ -1442,6 +1448,41 @@ function App() {
     selectSpanInEditor(editor, pendingSearchJump)
     setPendingSearchJump(null)
   }, [activePanel, pendingSearchJump])
+
+  useEffect(() => {
+    if (activePanel !== 'write') {
+      return
+    }
+
+    let active = true
+    outlineRequestIdRef.current += 1
+    const requestId = outlineRequestIdRef.current
+
+    const refreshOutline = async () => {
+      try {
+        const nextOutline = await window.mdvDesktop?.extractMdastHeadingOutline(markdownText)
+
+        if (!active || requestId !== outlineRequestIdRef.current) {
+          return
+        }
+
+        setHeadingOutline(Array.isArray(nextOutline) ? nextOutline : [])
+      } catch {
+        if (active && requestId === outlineRequestIdRef.current) {
+          setHeadingOutline([])
+        }
+      }
+    }
+
+    const refreshTimer = window.setTimeout(() => {
+      void refreshOutline()
+    }, 180)
+
+    return () => {
+      active = false
+      window.clearTimeout(refreshTimer)
+    }
+  }, [activePanel, markdownText])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
@@ -1676,6 +1717,17 @@ function App() {
     setPendingSearchJump(result.span)
     setActivePanel('write')
     setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(editorSearchResults.length, index + 1)))
+  }
+
+  const jumpToOutlineHeading = (item: MdvMdastHeadingOutlineItem) => {
+    const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+    setPendingSearchJump({
+      start: item.position,
+      end: item.position,
+      isEmpty: true,
+    })
+    setActivePanel('write')
+    setStatusText(t.app.status.jumpedToOutlineHeading(headingLabel))
   }
 
   const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
@@ -2408,6 +2460,32 @@ function App() {
 
         {activePanel === 'write' ? (
           <div className="single-panel">
+            <aside className="panel outline-panel" aria-label={t.app.outline}>
+              <div className="outline-panel-header">{t.app.outline}</div>
+              {headingOutline.length === 0 ? (
+                <div className="outline-empty">{t.app.outlineEmpty}</div>
+              ) : (
+                <div className="outline-list">
+                  {headingOutline.map((item) => {
+                    const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+
+                    return (
+                      <button
+                        key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                        type="button"
+                        className="outline-item"
+                        style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                        onClick={() => jumpToOutlineHeading(item)}
+                        title={headingLabel}
+                      >
+                        <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                        <span className="outline-item-label">{headingLabel}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </aside>
             <div className="panel editor-panel full-panel">
               <EditorSurface
                 key={editorSessionKey}

@@ -111,6 +111,7 @@ type MdvMdastHeadingOutlineItem = {
   path: number[]
   depth: number
   text: string
+  position: MdvAiMarkdownPos
 }
 
 type MdvLocale = 'ja' | 'en'
