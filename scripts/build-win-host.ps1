@@ -72,6 +72,18 @@ function Get-OptionalFileHash {
   return (Get-FileHash -Path $Path -Algorithm SHA256).Hash
 }
 
+function Test-ExternalCommandFailed {
+  if (-not $?) {
+    return $true
+  }
+
+  if ($null -eq $LASTEXITCODE) {
+    return $false
+  }
+
+  return $LASTEXITCODE -ne 0
+}
+
 function Get-DependencyState {
   param(
     [string]$Root,
@@ -366,8 +378,10 @@ if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath
   }
 
   Write-Host "Installing npm dependencies in $workRoot"
+  $env:MDV_SKIP_MDAST_POSTINSTALL = '1'
   & "$nodeRoot\npm.cmd" install
-  if ($LASTEXITCODE -ne 0) {
+  $env:MDV_SKIP_MDAST_POSTINSTALL = $null
+  if (Test-ExternalCommandFailed) {
     throw "npm install failed with code $LASTEXITCODE"
   }
 
@@ -376,16 +390,26 @@ if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath
   Write-Host "Reusing existing npm dependencies in $workRoot"
 }
 
+$mdastNodeModules = Join-Path $workRoot 'vendor\mdast-control\node_modules'
+$mdastInstallState = Join-Path $mdastNodeModules '.mdv-install-state.json'
+if ((-not (Test-Path $mdastNodeModules)) -or (-not (Test-Path $mdastInstallState)) -or (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion)) {
+  Write-Host "Installing mdast submodule dependencies in $workRoot\vendor\mdast-control"
+  & "$nodeRoot\node.exe" (Join-Path $workRoot 'scripts\mdast-submodule.mjs') install
+  if (Test-ExternalCommandFailed) {
+    throw "mdast install failed with code $LASTEXITCODE"
+  }
+}
+
 Write-Host "Building Windows unpacked app"
 Write-Host "Building renderer assets"
 & "$nodeRoot\npm.cmd" run build
-if ($LASTEXITCODE -ne 0) {
+if (Test-ExternalCommandFailed) {
   throw "build failed with code $LASTEXITCODE"
 }
 
 $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 & "$nodeRoot\npm.cmd" exec electron-builder -- --win --dir --config.win.signAndEditExecutable=false
-if ($LASTEXITCODE -ne 0) {
+if (Test-ExternalCommandFailed) {
   throw "electron-builder --win --dir failed with code $LASTEXITCODE"
 }
 
@@ -409,7 +433,7 @@ await rcedit(exePath, {
 "@ | Set-Content -Path $rceditScriptPath -Encoding UTF8
 
 & "$nodeRoot\node.exe" $rceditScriptPath $builtExe $iconPath
-if ($LASTEXITCODE -ne 0) {
+if (Test-ExternalCommandFailed) {
   throw "rcedit failed with code $LASTEXITCODE"
 }
 
@@ -417,7 +441,7 @@ $prepackagedPath = Join-Path $workRoot 'release\win-unpacked'
 foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
   Write-Host "Building Windows $($plan.label)"
   & "$nodeRoot\npm.cmd" exec electron-builder -- --prepackaged $prepackagedPath --win $plan.target "--config.directories.output=$($plan.output)" --config.win.signAndEditExecutable=false
-  if ($LASTEXITCODE -ne 0) {
+  if (Test-ExternalCommandFailed) {
     throw "electron-builder --prepackaged --win $($plan.target) failed with code $LASTEXITCODE"
   }
 }

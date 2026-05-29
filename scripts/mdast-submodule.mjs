@@ -12,6 +12,7 @@ const mdastPackageJsonPath = path.join(mdastRoot, 'package.json')
 const mdastPackageLockJsonPath = path.join(mdastRoot, 'package-lock.json')
 const mdastNodeModulesPath = path.join(mdastRoot, 'node_modules')
 const mdastInstallStatePath = path.join(mdastNodeModulesPath, '.mdv-install-state.json')
+const shouldSkipPostinstallBootstrap = process.env.MDV_SKIP_MDAST_POSTINSTALL === '1'
 
 function getFileHash(filePath) {
   if (!existsSync(filePath)) {
@@ -45,11 +46,21 @@ function writeDependencyState() {
 }
 
 function runNpm(args) {
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const result = spawnSync(npmCommand, ['--prefix', mdastRoot, ...args], {
-    cwd: repoRoot,
+  const npmCommand = process.platform === 'win32'
+    ? process.execPath
+    : 'npm'
+  const commandArgs = process.platform === 'win32'
+    ? [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), ...args]
+    : args
+  const result = spawnSync(npmCommand, commandArgs, {
+    cwd: mdastRoot,
     stdio: 'inherit',
   })
+
+  if (result.error) {
+    console.error(result.error.message)
+    process.exit(1)
+  }
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1)
@@ -90,6 +101,11 @@ const action = process.argv[2]
 
 switch (action) {
   case 'postinstall':
+    if (shouldSkipPostinstallBootstrap) {
+      console.warn('Skipping mdast bootstrap because MDV_SKIP_MDAST_POSTINSTALL=1 is set.')
+      break
+    }
+
     if (hasMdastSubmodule()) {
       ensureMdastDependencies()
     } else {

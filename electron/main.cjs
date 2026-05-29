@@ -68,9 +68,8 @@ const MAX_SEMANTIC_RUNTIME_COUNT = 24
 const MAX_SEMANTIC_RUNTIME_AGE_MS = 15 * 60_000
 const SEMANTIC_RUNTIME_TOUCH_INTERVAL_MS = 15_000
 const SEMANTIC_LAYERS = [
-  { name: 'fine', maxChars: 900, overlapChars: 180, weight: 1 },
-  { name: 'medium', maxChars: 2800, overlapChars: 560, weight: 0.97 },
-  { name: 'coarse', maxChars: 7200, overlapChars: 1200, weight: 0.94 },
+  { name: 'fine', maxChars: 420, overlapChars: 96, weight: 1, boundarySlackChars: 72 },
+  { name: 'coarse', maxChars: 1800, overlapChars: 240, weight: 0.96, boundarySlackChars: 180 },
 ]
 const MAIN_I18N = {
   ja: {
@@ -681,7 +680,7 @@ function getSemanticSourceKey(targetText) {
   ].join(':')
 }
 
-function adjustChunkBoundary(text, offset, direction) {
+function adjustChunkBoundary(text, offset, direction, maxAdjustmentChars = Number.POSITIVE_INFINITY) {
   const clampedOffset = Math.min(Math.max(0, offset), text.length)
 
   if (clampedOffset <= 0 || clampedOffset >= text.length) {
@@ -690,11 +689,31 @@ function adjustChunkBoundary(text, offset, direction) {
 
   if (direction === 'end') {
     const newlineOffset = text.indexOf('\n', clampedOffset)
-    return newlineOffset === -1 ? text.length : newlineOffset + 1
+
+    if (newlineOffset === -1) {
+      return clampedOffset
+    }
+
+    if (newlineOffset - clampedOffset > maxAdjustmentChars) {
+      return clampedOffset
+    }
+
+    return newlineOffset + 1
   }
 
   const newlineOffset = text.lastIndexOf('\n', clampedOffset - 1)
-  return newlineOffset === -1 ? 0 : newlineOffset + 1
+
+  if (newlineOffset === -1) {
+    return clampedOffset
+  }
+
+  const adjustedOffset = newlineOffset + 1
+
+  if (clampedOffset - adjustedOffset > maxAdjustmentChars) {
+    return clampedOffset
+  }
+
+  return adjustedOffset
 }
 
 function localOffsetToAbsolutePos(baseStart, text, offset) {
@@ -721,7 +740,7 @@ function buildSemanticChunksForTarget(targetText) {
 
     while (startOffset < targetText.text.length) {
       let endOffset = Math.min(targetText.text.length, startOffset + layer.maxChars)
-      endOffset = adjustChunkBoundary(targetText.text, endOffset, 'end')
+      endOffset = adjustChunkBoundary(targetText.text, endOffset, 'end', layer.boundarySlackChars)
 
       if (endOffset <= startOffset) {
         endOffset = Math.min(targetText.text.length, startOffset + layer.maxChars)
@@ -751,11 +770,76 @@ function buildSemanticChunksForTarget(targetText) {
       }
 
       startOffset = Math.max(startOffset + 1, endOffset - layer.overlapChars)
-      startOffset = adjustChunkBoundary(targetText.text, startOffset, 'start')
+      startOffset = adjustChunkBoundary(targetText.text, startOffset, 'start', layer.boundarySlackChars)
     }
   }
 
   return chunks
+}
+
+function compareSemanticCandidates(left, right) {
+  const scoreDelta = right.score - left.score
+
+  if (scoreDelta !== 0) {
+    return scoreDelta
+  }
+
+  const leftWidth = left.endOffset - left.startOffset
+  const rightWidth = right.endOffset - right.startOffset
+
+  if (leftWidth !== rightWidth) {
+    return leftWidth - rightWidth
+  }
+
+  return left.startOffset - right.startOffset
+}
+
+function isContainedSemanticCandidate(outer, inner) {
+  return outer.startOffset <= inner.startOffset && outer.endOffset >= inner.endOffset
+}
+
+function normalizeSemanticCandidates(candidates, maxResults) {
+  const bestBySpanKey = new Map()
+
+  for (const candidate of candidates) {
+    const spanKey = `${candidate.startOffset}:${candidate.endOffset}`
+    const existingCandidate = bestBySpanKey.get(spanKey)
+
+    if (!existingCandidate || compareSemanticCandidates(candidate, existingCandidate) < 0) {
+      bestBySpanKey.set(spanKey, candidate)
+    }
+  }
+
+  const sortedCandidates = Array.from(bestBySpanKey.values()).sort(compareSemanticCandidates)
+  const candidatePool = sortedCandidates.slice(0, Math.max(maxResults * 6, maxResults))
+  const normalized = []
+
+  for (const candidate of candidatePool) {
+    const candidateWidth = candidate.endOffset - candidate.startOffset
+    const shadowedByNarrowerMatch = candidatePool.some((otherCandidate) => {
+      if (otherCandidate === candidate) {
+        return false
+      }
+
+      const otherWidth = otherCandidate.endOffset - otherCandidate.startOffset
+
+      if (otherWidth >= candidateWidth) {
+        return false
+      }
+
+      if (!isContainedSemanticCandidate(candidate, otherCandidate)) {
+        return false
+      }
+
+      return otherCandidate.score >= candidate.score * 0.94
+    })
+
+    if (!shadowedByNarrowerMatch) {
+      normalized.push(candidate)
+    }
+  }
+
+  return normalized.sort(compareSemanticCandidates).slice(0, maxResults)
 }
 
 async function ensureEmbeddingCacheEntries(texts, model = DEFAULT_EMBEDDING_MODEL) {
@@ -1726,17 +1810,20 @@ async function semanticSearchForWindow(editorWindow, payload) {
     throw new Error('Semantic query embedding could not be resolved')
   }
 
-  const results = runtime.chunks
+  const semanticCandidates = runtime.chunks
     .map((chunk) => ({
       editorId: runtime.editorId,
       span: chunk.span,
       target: buildAiTargetRef(runtime.editorId, chunk.span),
       layer: chunk.layer,
+      startOffset: chunk.startOffset,
+      endOffset: chunk.endOffset,
       score: cosineSimilarity(queryEmbedding, chunk.embedding) * chunk.weight,
       preview: createPreviewText(chunk.text),
     }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, maxResults)
+
+  const results = normalizeSemanticCandidates(semanticCandidates, maxResults)
+    .map(({ startOffset: _startOffset, endOffset: _endOffset, ...result }) => result)
 
   const bufferRecord = payload?.persistBuffer === false
     ? null
