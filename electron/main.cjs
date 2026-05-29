@@ -6,6 +6,13 @@ const net = require('node:net')
 const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
 const OpenAI = require('openai')
+const {
+  addFetchAclDecisionRule,
+  createDefaultFetchAclText,
+  evaluateFetchAcl,
+  migrateLegacyFetchConfig,
+  parseFetchAclText,
+} = require('./fetch-acl.cjs')
 
 const isDev = !app.isPackaged
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
@@ -101,6 +108,22 @@ const MAIN_I18N = {
       openOnce: '今回のみ表示',
       suggestedRuleLabel: '登録候補',
     },
+    fetchAclPrompt: {
+      title: 'fetch_url は保留中です',
+      message: 'この fetch リクエストは ACL 上で保留です。',
+      allow: '許可して保存',
+      deny: '拒否して保存',
+      runOnce: '今回のみ実行',
+      skipOnce: '今回は実行しない',
+      applyToOrigin: '現在のパスではなくオリジン単位に適用する',
+      detailsLabel: '判定詳細',
+      pendingMethod: (method, scope) => `メソッド ${method} が ${scope} で保留です。`,
+      pendingHeader: (headerName, scope) => `ヘッダー ${headerName} が ${scope} で保留です。`,
+      urlLabel: 'URL',
+      methodLabel: 'Method',
+      headersLabel: 'Headers',
+      none: '(なし)',
+    },
     fileDialog: {
       markdownFilter: 'Markdown',
       htmlFilter: 'HTML',
@@ -144,6 +167,22 @@ const MAIN_I18N = {
       allowAndRemember: 'Allow and remember',
       openOnce: 'Open once',
       suggestedRuleLabel: 'Suggested allow rule',
+    },
+    fetchAclPrompt: {
+      title: 'fetch_url is pending',
+      message: 'This fetch request is pending under the current ACL.',
+      allow: 'Allow and save',
+      deny: 'Deny and save',
+      runOnce: 'Run once',
+      skipOnce: 'Do not run',
+      applyToOrigin: 'Apply to the whole origin instead of only this path',
+      detailsLabel: 'Decision details',
+      pendingMethod: (method, scope) => `Method ${method} is pending at ${scope}.`,
+      pendingHeader: (headerName, scope) => `Header ${headerName} is pending at ${scope}.`,
+      urlLabel: 'URL',
+      methodLabel: 'Method',
+      headersLabel: 'Headers',
+      none: '(none)',
     },
     fileDialog: {
       markdownFilter: 'Markdown',
@@ -1705,7 +1744,7 @@ async function confirmAiWriteAction(parentWindow, options) {
 
 function createDefaultSettings() {
   return {
-    version: 1,
+    version: 2,
     general: {
       locale: normalizeLocale(app.getLocale()),
       themeMode: 'system',
@@ -1741,9 +1780,7 @@ function createDefaultSettings() {
         defaultMaxResults: 5,
       },
       fetch: {
-        allowedUrlRules: [],
-        allowedMethods: ['GET'],
-        allowedHeaders: [],
+        aclText: createDefaultFetchAclText(),
         requestTimeoutMs: DEFAULT_FETCH_REQUEST_TIMEOUT_MS,
         idleTimeoutMs: DEFAULT_FETCH_IDLE_TIMEOUT_MS,
         autoDisposeAfterMs: DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS,
@@ -1866,6 +1903,25 @@ function normalizeAllowedHeaderList(value) {
     .filter((entry) => /^[a-z0-9-]+$/.test(entry))
 }
 
+function normalizeFetchAclTextSetting(candidateFetch, fallbackFetch) {
+  if (isPlainObject(candidateFetch) && Object.prototype.hasOwnProperty.call(candidateFetch, 'aclText') && typeof candidateFetch.aclText === 'string') {
+    return assertSafeFetchAclText(candidateFetch.aclText)
+  }
+
+  const hasLegacyFetchFields = isPlainObject(candidateFetch)
+    && (
+      Object.prototype.hasOwnProperty.call(candidateFetch, 'allowedUrlRules')
+      || Object.prototype.hasOwnProperty.call(candidateFetch, 'allowedMethods')
+      || Object.prototype.hasOwnProperty.call(candidateFetch, 'allowedHeaders')
+    )
+
+  if (hasLegacyFetchFields) {
+    return assertSafeFetchAclText(migrateLegacyFetchConfig(candidateFetch))
+  }
+
+  return assertSafeFetchAclText(fallbackFetch?.aclText)
+}
+
 function clampFetchTimeoutMs(value, fallback) {
   const numericValue = Number(value)
 
@@ -1906,7 +1962,7 @@ function sanitizeSettings(candidate) {
     : true
 
   return {
-    version: 1,
+    version: 2,
     general: {
       locale: normalizeLocale(merged.general?.locale),
       themeMode: normalizeThemeMode(merged.general?.themeMode),
@@ -1944,9 +2000,7 @@ function sanitizeSettings(candidate) {
         defaultMaxResults: clampDefaultMaxResults(merged.ai?.tavily?.defaultMaxResults),
       },
       fetch: {
-        allowedUrlRules: sanitizeStringList(merged.ai?.fetch?.allowedUrlRules),
-        allowedMethods: normalizeAllowedMethodList(merged.ai?.fetch?.allowedMethods),
-        allowedHeaders: normalizeAllowedHeaderList(merged.ai?.fetch?.allowedHeaders),
+        aclText: normalizeFetchAclTextSetting(candidate?.ai?.fetch, defaults.ai.fetch),
         requestTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.requestTimeoutMs, DEFAULT_FETCH_REQUEST_TIMEOUT_MS),
         idleTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.idleTimeoutMs, DEFAULT_FETCH_IDLE_TIMEOUT_MS),
         autoDisposeAfterMs: clampFetchAutoDisposeMs(merged.ai?.fetch?.autoDisposeAfterMs),
@@ -2219,7 +2273,7 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'fetch_url',
-    description: 'Fetch an allowlisted HTTP(S) URL with explicit method and header controls. Large responses are returned as temp buffers instead of inline text.',
+    description: 'Fetch an ACL-governed HTTP(S) URL with explicit method and header controls. Pending ACL matches are confirmed in the main process. Large responses are returned as temp buffers instead of inline text.',
     parameters: buildAiToolParameters({
         url: buildRequiredAiToolParameter({ type: 'string' }),
         method: { type: 'string' },
@@ -2335,11 +2389,11 @@ const aiToolHelpDocs = {
     ],
   },
   fetch_url: {
-    summary: 'Fetch one allowlisted HTTP(S) URL under the app safety policy.',
+    summary: 'Fetch one ACL-governed HTTP(S) URL under the app safety policy.',
     parameters: [
-      { name: 'url', required: true, type: 'string', description: 'HTTP or HTTPS URL. Must pass allowlist and network safety checks.' },
-      { name: 'method', required: false, type: 'string', description: 'Optional method. Defaults to GET. Must be allowlisted.' },
-      { name: 'headers', required: false, type: 'object', description: 'Optional string headers. Header names must be allowlisted and newline-safe.' },
+      { name: 'url', required: true, type: 'string', description: 'HTTP or HTTPS URL. Must pass ACL and network safety checks.' },
+      { name: 'method', required: false, type: 'string', description: 'Optional method. Defaults to GET. The ACL must allow or pending-confirm it.' },
+      { name: 'headers', required: false, type: 'object', description: 'Optional string headers. Header names must be ACL-allowed or pending-confirmed and newline-safe.' },
       { name: 'body', required: false, type: 'string', description: 'Optional request body for methods that permit a body.' },
     ],
     examples: [
@@ -2569,20 +2623,6 @@ function getTavilyApiKey() {
       : null)
 }
 
-function isUrlAllowedByRules(rules, targetUrl) {
-  return Array.isArray(rules) && rules.some((rule) => {
-    if (typeof rule !== 'string' || rule.length === 0) {
-      return false
-    }
-
-    if (rule.endsWith('*')) {
-      return targetUrl.href.startsWith(rule.slice(0, -1))
-    }
-
-    return targetUrl.href === rule
-  })
-}
-
 function isRestrictedIpAddress(address) {
   const ipVersion = net.isIP(address)
 
@@ -2654,40 +2694,73 @@ function resolveFetchRequestHeaders(headers) {
     return {}
   }
 
-  const allowedHeaders = new Set(settingsState.ai.fetch.allowedHeaders)
-  const forbiddenHeaders = new Set(['connection', 'content-length', 'cookie', 'host', 'proxy-authenticate', 'proxy-authorization', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
   const normalizedHeaders = {}
 
   for (const [headerName, headerValue] of Object.entries(headers)) {
-    const normalizedName = typeof headerName === 'string' ? headerName.trim().toLowerCase() : ''
-
-    if (!normalizedName || !allowedHeaders.has(normalizedName)) {
-      throw new Error(`Fetch header is not allowlisted: ${headerName}`)
-    }
-
-    if (forbiddenHeaders.has(normalizedName)) {
-      throw new Error(`Fetch header is blocked: ${headerName}`)
-    }
-
-    if (typeof headerValue !== 'string') {
-      throw new Error(`Fetch header value must be a string: ${headerName}`)
-    }
-
-    if (/[\r\n]/.test(headerValue)) {
-      throw new Error(`Fetch header contains an unsafe newline: ${headerName}`)
-    }
-
-    normalizedHeaders[normalizedName] = headerValue
+    const { normalizedName, normalizedValue } = assertSafeFetchHeaderEntry(headerName, headerValue)
+    normalizedHeaders[normalizedName] = normalizedValue
   }
 
   return normalizedHeaders
 }
 
+function assertSafeFetchHeaderEntry(headerName, headerValue) {
+  const forbiddenHeaders = new Set(['connection', 'content-length', 'cookie', 'host', 'proxy-authenticate', 'proxy-authorization', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade'])
+  const normalizedName = typeof headerName === 'string' ? headerName.trim().toLowerCase() : ''
+
+  if (!normalizedName || !/^[a-z0-9-]+$/.test(normalizedName)) {
+    throw new Error(`Fetch header name is invalid: ${headerName}`)
+  }
+
+  if (forbiddenHeaders.has(normalizedName)) {
+    throw new Error(`Fetch header is blocked: ${headerName}`)
+  }
+
+  if (typeof headerValue !== 'string') {
+    throw new Error(`Fetch header value must be a string: ${headerName}`)
+  }
+
+  if (/[\r\n]/.test(headerValue)) {
+    throw new Error(`Fetch header contains an unsafe newline: ${headerName}`)
+  }
+
+  return {
+    normalizedName,
+    normalizedValue: headerValue,
+  }
+}
+
+function assertSafeFetchAclNode(node) {
+  if (Array.isArray(node?.rules)) {
+    for (const rule of node.rules) {
+      if (rule?.kind === 'force-header') {
+        assertSafeFetchHeaderEntry(rule.name, rule.value)
+      }
+    }
+  }
+
+  if (Array.isArray(node?.children)) {
+    for (const child of node.children) {
+      assertSafeFetchAclNode(child.node)
+    }
+  }
+}
+
+function assertSafeFetchAclText(aclText) {
+  const parsedAcl = parseFetchAclText(aclText)
+
+  for (const node of Object.values(parsedAcl.policies)) {
+    assertSafeFetchAclNode(node)
+  }
+
+  return parsedAcl.text
+}
+
 function resolveFetchMethod(method) {
   const normalizedMethod = typeof method === 'string' && method.trim().length > 0 ? method.trim().toUpperCase() : 'GET'
 
-  if (!settingsState.ai.fetch.allowedMethods.includes(normalizedMethod)) {
-    throw new Error(`Fetch method is not allowlisted: ${normalizedMethod}`)
+  if (!/^[A-Z]+$/.test(normalizedMethod)) {
+    throw new Error(`Fetch method is invalid: ${normalizedMethod}`)
   }
 
   return normalizedMethod
@@ -2777,9 +2850,7 @@ async function performSafeFetch(requestUrl, options) {
   const redirectTrail = []
 
   for (let redirectCount = 0; redirectCount <= MAX_FETCH_REDIRECTS; redirectCount += 1) {
-    if (!isUrlAllowedByRules(settingsState.ai.fetch.allowedUrlRules, targetUrl)) {
-      throw new Error(`Fetch URL is not allowlisted: ${targetUrl.href}`)
-    }
+    const effectiveHeaders = await options.authorizeTarget(targetUrl)
 
     await assertSafeFetchDestination(targetUrl)
 
@@ -2793,7 +2864,7 @@ async function performSafeFetch(requestUrl, options) {
     try {
       const response = await fetch(targetUrl, {
         method: options.method,
-        headers: options.headers,
+        headers: effectiveHeaders,
         body: options.body,
         redirect: 'manual',
         signal: controller.signal,
@@ -2873,6 +2944,137 @@ function buildFetchResult(editorWindow, payload) {
   }
 }
 
+function buildFetchAclDeniedError(decision) {
+  if (decision.reason === 'method' && decision.detail) {
+    return new Error(`Fetch ACL denied method ${decision.method} for ${decision.targetUrl.href} (${decision.detail.scope})`)
+  }
+
+  if (decision.reason === 'header' && Array.isArray(decision.detail) && decision.detail.length > 0) {
+    return new Error(`Fetch ACL denied headers for ${decision.targetUrl.href}: ${decision.detail.map((entry) => entry.name).join(', ')}`)
+  }
+
+  if (decision.reason === 'header-default' && Array.isArray(decision.detail) && decision.detail.length > 0) {
+    return new Error(`Fetch ACL denied unruled headers for ${decision.targetUrl.href}: ${decision.detail.join(', ')}`)
+  }
+
+  return new Error(`Fetch ACL denied ${decision.method} ${decision.targetUrl.href}`)
+}
+
+function mergeFetchHeaders(headers, forcedHeaders) {
+  const mergedHeaders = { ...headers }
+
+  for (const [headerName, headerValue] of Object.entries(forcedHeaders)) {
+    const { normalizedName, normalizedValue } = assertSafeFetchHeaderEntry(headerName, headerValue)
+    mergedHeaders[normalizedName] = normalizedValue
+  }
+
+  return mergedHeaders
+}
+
+function buildPendingFetchAclDetailLines(messages, decision) {
+  const lines = [
+    `${messages.urlLabel}: ${decision.targetUrl.href}`,
+    `${messages.methodLabel}: ${decision.method}`,
+    `${messages.headersLabel}: ${decision.requestedHeaders.join(', ') || messages.none}`,
+    '',
+    messages.detailsLabel,
+  ]
+
+  if (decision.methodDecision) {
+    lines.push(`- ${messages.pendingMethod(decision.method, decision.methodDecision.scope)}`)
+  }
+
+  for (const pendingHeader of decision.pendingHeaders) {
+    lines.push(`- ${messages.pendingHeader(pendingHeader.name, pendingHeader.scope)}`)
+  }
+
+  return lines.join('\n')
+}
+
+async function promptPendingFetchAclDecision(parentWindow, requestHeaders, decision) {
+  const messages = getMainI18n().fetchAclPrompt
+  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+    type: 'question',
+    buttons: [messages.allow, messages.deny, messages.runOnce, messages.skipOnce],
+    defaultId: 2,
+    cancelId: 3,
+    checkboxLabel: messages.applyToOrigin,
+    title: messages.title,
+    message: messages.message,
+    detail: buildPendingFetchAclDetailLines(messages, decision),
+    noLink: true,
+  })
+
+  return {
+    action: response.response === 0
+      ? 'allow'
+      : response.response === 1
+        ? 'deny'
+        : response.response === 2
+          ? 'run-once'
+          : 'skip-once',
+    applyToOrigin: response.checkboxChecked === true,
+  }
+}
+
+async function resolveFetchAclDecision(editorWindow, targetUrl, method, headers) {
+  let decision = evaluateFetchAcl(settingsState.ai.fetch.aclText, {
+    url: targetUrl,
+    method,
+    headerNames: Object.keys(headers),
+  })
+
+  if (decision.status === 'deny') {
+    throw buildFetchAclDeniedError(decision)
+  }
+
+  if (decision.status === 'pending') {
+    const promptResult = await promptPendingFetchAclDecision(editorWindow, headers, decision)
+
+    if (promptResult.action === 'skip-once') {
+      throw new Error(`Fetch ACL pending request was not executed: ${targetUrl.href}`)
+    }
+
+    if (promptResult.action === 'run-once') {
+      return mergeFetchHeaders(headers, decision.forcedHeaders)
+    }
+
+    settingsState = sanitizeSettings(mergePlainObjects(settingsState, {
+      ai: {
+        fetch: {
+          aclText: addFetchAclDecisionRule(settingsState.ai.fetch.aclText, {
+            decision: promptResult.action,
+            origin: targetUrl.origin,
+            path: targetUrl.pathname,
+            applyToOrigin: promptResult.applyToOrigin,
+            pathMatch: promptResult.applyToOrigin ? 'prefix' : 'exact',
+            method: decision.methodDecision ? method : undefined,
+            headers: decision.pendingHeaders.map((entry) => entry.name),
+          }),
+        },
+      },
+    }))
+    await persistSettings()
+    broadcastSettingsChanged()
+
+    decision = evaluateFetchAcl(settingsState.ai.fetch.aclText, {
+      url: targetUrl,
+      method,
+      headerNames: Object.keys(headers),
+    })
+
+    if (decision.status === 'deny') {
+      throw buildFetchAclDeniedError(decision)
+    }
+
+    if (decision.status === 'pending') {
+      throw new Error(`Fetch ACL still pending after saving a decision for ${targetUrl.href}`)
+    }
+  }
+
+  return mergeFetchHeaders(headers, decision.forcedHeaders)
+}
+
 async function fetchUrlForWindow(editorWindow, payload) {
   if (!settingsState.ai.toolPermissions.fetchUrl) {
     throw new Error('Fetch URL tool is disabled in settings')
@@ -2897,11 +3099,11 @@ async function fetchUrlForWindow(editorWindow, payload) {
   const body = resolveFetchBody(payload?.body, method)
   const result = await performSafeFetch(parsedUrl.href, {
     method,
-    headers,
     body,
     requestTimeoutMs: settingsState.ai.fetch.requestTimeoutMs,
     idleTimeoutMs: settingsState.ai.fetch.idleTimeoutMs,
     maxResponseBytes: settingsState.ai.fetch.maxResponseBytes,
+    authorizeTarget: (targetUrl) => resolveFetchAclDecision(editorWindow, targetUrl, method, headers),
   })
 
   return buildFetchResult(editorWindow, {

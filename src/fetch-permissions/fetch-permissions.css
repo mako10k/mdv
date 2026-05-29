@@ -8,7 +8,7 @@
 }
 
 .fetch-permissions-textarea {
-  min-height: 180px;
+  min-height: 320px;
   resize: vertical;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -16,6 +16,7 @@
   color: var(--text);
   font: inherit;
   padding: 10px 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 .fetch-permissions-textarea-compact {

@@ -31,7 +31,7 @@
 - OpenAI の有効化と model 指定
 - Tavily の有効化
 - AI tool の挙動
-- fetch allowlist / method / header / timeout
+- fetch ACL / pending / timeout
 - 書き換えの安全モード
 - 外部リンクと Web 検索の扱い
 
@@ -52,7 +52,7 @@ fetch の許可設定は別 window とする。
 
 理由:
 
-- allowlist、method、header の件数が増えやすい
+- ACL rule と pending 例外の件数が増えやすい
 - settings 本体の情報密度を過剰に上げたくない
 - editor / chat 操作中に並べて調整しやすい
 
@@ -227,13 +227,11 @@ Target categories after expansion:
 
 目的:
 
-- `fetch_url` の allowlist と timeout を settings 本体から分離する
+- `fetch_url` の ACL と timeout を settings 本体から分離する
 
 項目:
 
-- Allowed URL rules
-- Allowed methods
-- Allowed headers
+- ACL YAML text
 - Request timeout
 - Idle timeout
 - Temp buffer auto-dispose timeout
@@ -241,7 +239,9 @@ Target categories after expansion:
 
 補足:
 
-- 既存の外部リンク allowlist は入力時の参考情報として扱い、自動では fetch 許可に流用しない
+- 既存の外部リンク allowlist は入力時の参考情報として扱い、自動では fetch ACL に流用しない
+- ACL は origin ごとの node と path prefix 継承を持ち、method / request header / forced header / pending を記述する
+- pending に一致した fetch は main process ダイアログで保存付き allow / deny または one-shot 実行可否を選べる
 - localhost、private IP、embedded credentials、危険 redirect は main process で追加ブロックする
 
 ### 5. Safety
@@ -277,7 +277,7 @@ Target categories after expansion:
 
 ```ts
 type MdvSettings = {
-  version: 1
+  version: 2
   general: {
     themeMode: 'system' | 'light' | 'dark'
     defaultStartPanel: 'write' | 'preview'
@@ -312,9 +312,7 @@ type MdvSettings = {
       defaultMaxResults: number
     }
     fetch: {
-      allowedUrlRules: string[]
-      allowedMethods: string[]
-      allowedHeaders: string[]
+      aclText: string
       requestTimeoutMs: number
       idleTimeoutMs: number
       autoDisposeAfterMs: number
@@ -439,7 +437,7 @@ window.mdvDesktop.settings = {
 ### Allowed Link Rules Migration
 
 - 現在の `allowed-link-rules.json` は safety 設定の一部として扱える
-- 既存ファイルは legacy の read-only 参照として維持し、fetch 用 allowlist、allowed methods、allowed headers、timeout 群、auto-dispose、max response bytes は fetch permissions window から管理する
+- 既存ファイルは legacy の read-only 参照として維持し、fetch 用 ACL、timeout 群、auto-dispose、max response bytes は fetch permissions window から管理する
 - 後段で `settings.json` に統合してもよいが、今回の初期設計では急がない
 
 ## Recommended Implementation Order

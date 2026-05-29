@@ -4,15 +4,45 @@ import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 
 type FetchDraft = MdvSettings['ai']['fetch']
 
-function toMultilineText(values: string[]): string {
-  return values.join('\n')
-}
+const SAMPLE_ACL_TEXT = `*:
+  rules:
+    - - ALL
 
-function parseMultilineText(value: string): string[] {
-  return Array.from(new Set(value
+https://api.example.com:
+  rules:
+    - + GET, POST
+    - + Header: Content-Type, Accept
+    - = Header: X-Client: LLM-Bot
+  /public:
+    rules:
+      - + ALL
+  /readonly:
+    rules:
+      - - POST
+      - - Header: Content-Type
+  /admin:
+    rules:
+      - - ALL
+  /users:
+    rules:
+      - = Header: X-Scope: User
+    /profile:
+      rules:
+        - + PUT
+
+https://internal.network.local:
+  rules:
+    - + ALL
+  /secrets:
+    rules:
+      - - ALL
+`
+
+function countAclRuleLines(value: string): number {
+  return value
     .split(/\r?\n/)
     .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)))
+    .filter((entry) => /^[+\-?=]\s/.test(entry)).length
 }
 
 function FetchPermissionsApp() {
@@ -80,9 +110,7 @@ function FetchPermissionsApp() {
     void window.mdvDesktop?.settings.updateSettings({
       ai: {
         fetch: {
-          allowedUrlRules: draft.allowedUrlRules,
-          allowedMethods: draft.allowedMethods,
-          allowedHeaders: draft.allowedHeaders,
+          aclText: draft.aclText,
           requestTimeoutMs: draft.requestTimeoutMs,
           idleTimeoutMs: draft.idleTimeoutMs,
           autoDisposeAfterMs: draft.autoDisposeAfterMs,
@@ -113,52 +141,39 @@ function FetchPermissionsApp() {
 
       <section className="settings-content">
         <section className="settings-card fetch-permissions-card">
-          <h2>{t.fetchPermissions.allowlist}</h2>
+          <h2>{t.fetchPermissions.acl}</h2>
           <label className="settings-field settings-field-wide">
-            <span>{t.fetchPermissions.allowedUrlRules}</span>
+            <span>{t.fetchPermissions.aclText}</span>
             <textarea
               className="fetch-permissions-textarea"
-              value={toMultilineText(draft?.allowedUrlRules ?? [])}
-              placeholder={'https://example.com/*\nhttps://docs.example.com/api/*'}
+              value={draft?.aclText ?? ''}
+              placeholder={SAMPLE_ACL_TEXT}
               onChange={(event) => {
                 setDraft((currentDraft) => currentDraft ? {
                   ...currentDraft,
-                  allowedUrlRules: parseMultilineText(event.target.value),
+                  aclText: event.target.value,
                 } : currentDraft)
               }}
             />
           </label>
-          <p className="settings-note">{t.fetchPermissions.allowlistNote}</p>
-
-          <label className="settings-field settings-field-wide">
-            <span>{t.fetchPermissions.allowedMethods}</span>
-            <textarea
-              className="fetch-permissions-textarea fetch-permissions-textarea-compact"
-              value={toMultilineText(draft?.allowedMethods ?? [])}
-              placeholder={'GET\nPOST'}
-              onChange={(event) => {
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="settings-secondary-button"
+              onClick={() => {
                 setDraft((currentDraft) => currentDraft ? {
                   ...currentDraft,
-                  allowedMethods: parseMultilineText(event.target.value).map((entry) => entry.toUpperCase()),
+                  aclText: SAMPLE_ACL_TEXT,
                 } : currentDraft)
+                setStatusText(t.fetchPermissions.sampleLoaded)
               }}
-            />
-          </label>
-
-          <label className="settings-field settings-field-wide">
-            <span>{t.fetchPermissions.allowedHeaders}</span>
-            <textarea
-              className="fetch-permissions-textarea fetch-permissions-textarea-compact"
-              value={toMultilineText(draft?.allowedHeaders ?? [])}
-              placeholder={'accept\nauthorization\ncontent-type'}
-              onChange={(event) => {
-                setDraft((currentDraft) => currentDraft ? {
-                  ...currentDraft,
-                  allowedHeaders: parseMultilineText(event.target.value).map((entry) => entry.toLowerCase()),
-                } : currentDraft)
-              }}
-            />
-          </label>
+              disabled={!draft}
+            >
+              {t.fetchPermissions.loadSample}
+            </button>
+          </div>
+          <p className="settings-note">{t.fetchPermissions.aclNote}</p>
+          <p className="settings-note">{t.fetchPermissions.pendingNote}</p>
         </section>
 
         <section className="settings-card fetch-permissions-card">
@@ -243,16 +258,12 @@ function FetchPermissionsApp() {
               <dd>{settings?.ai.toolPermissions.fetchUrl ? t.common.yes : t.common.no}</dd>
             </div>
             <div>
-              <dt>{t.fetchPermissions.allowlistedUrlRules}</dt>
-              <dd>{settings?.ai.fetch.allowedUrlRules.length ?? 0}</dd>
+              <dt>{t.fetchPermissions.aclRuleLines}</dt>
+              <dd>{countAclRuleLines(settings?.ai.fetch.aclText ?? '')}</dd>
             </div>
             <div>
-              <dt>{t.fetchPermissions.allowedMethods}</dt>
-              <dd>{settings?.ai.fetch.allowedMethods.join(', ') || t.fetchPermissions.none}</dd>
-            </div>
-            <div>
-              <dt>{t.fetchPermissions.allowedHeaders}</dt>
-              <dd className="settings-break">{settings?.ai.fetch.allowedHeaders.join(', ') || t.fetchPermissions.none}</dd>
+              <dt>{t.fetchPermissions.aclPreview}</dt>
+              <dd className="settings-break">{settings?.ai.fetch.aclText.trim() || t.fetchPermissions.none}</dd>
             </div>
           </dl>
         </section>

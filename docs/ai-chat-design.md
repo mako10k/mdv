@@ -13,7 +13,7 @@
 - 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
-- guarded fetch は allowlist、method/header allowlist、private-address 回避、timeout、temp-buffer spillover を main process で強制する
+- guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 
 ## Target Goals
 
@@ -24,7 +24,7 @@
 - AI が新規 editor window に文書を書き出せること
 - AI がワークスペース grep 相当の検索を行えること
 - AI が Tavily を使った Web 検索を行えること
-- AI が allowlist 付き fetch を行い、大きい本文を temp buffer へ退避できること
+- AI が ACL 付き fetch を行い、大きい本文を temp buffer へ退避できること
 - OpenAI API キーを renderer に露出しないこと
 
 ## Current Scaffold Scope
@@ -36,7 +36,7 @@
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
-- fetch allowlist / method / header / timeout は dedicated auxiliary window から編集できること
+- fetch ACL / timeout は dedicated auxiliary window から編集できること
 - AI 応答バブルは Markdown を描画できること
 
 ## Non-Goals For Initial Scope
@@ -46,7 +46,7 @@
 - 自動的な大規模リファクタリング
 - 長期会話永続化
 - 複数 editor tab 管理 UI の全面導入
-- allowlist 外 URL への任意 fetch
+- ACL 既定拒否を回避した任意 fetch
 
 ## Current Constraints
 
@@ -671,7 +671,7 @@ type WriteSource =
 
 用途:
 
-- allowlist 済み URL の本文取得
+- ACL で許可された URL の本文取得
 - 大きいレスポンスの temp buffer 退避
 - web_search 後の follow-up 読み出し
 
@@ -737,7 +737,7 @@ type WriteSource =
 
 設計方針:
 
-- allowlist、allowed methods、allowed headers、request timeout、idle timeout、auto-dispose、max response bytes は fetch permissions window と main process の両方で制御する
+- fetch ACL、request timeout、idle timeout、auto-dispose、max response bytes は fetch permissions window と main process の両方で制御する
 - redirect は各 hop で再検証し、private address、embedded credentials、危険 URL は block する
 - 小さい本文は inline 返却し、大きい本文は temp buffer へ退避する
 
@@ -781,7 +781,7 @@ type WriteSource =
 - API キーは main process のみで保持する
 - renderer へ API キーは公開しない
 - OpenAI API 呼び出しは main process のみで行う
-- tool 実行は allowlist 方式にする
+- tool 実行は ACL の既定拒否方式にする
 - Tavily API 呼び出しも main process のみで行う
 
 ### Environment Variables
@@ -919,9 +919,9 @@ model の context window を実測なしで過信すると、小さいつもり�
 
 ### 6. Web Fetch Scope Creep
 
-fetch を同時に入れると、レスポンスサイズ制御、本文抽出、allowlist、危険 URL 回避、リダイレクト制御など論点が急増する。
+fetch を同時に入れると、レスポンスサイズ制御、本文抽出、ACL、pending 確認、危険 URL 回避、リダイレクト制御など論点が急増する。
 
-既存の `allowed-link-rules.json` は legacy の read-only 参照として維持しつつ、fetch 用 allowlist、method/header、timeout、auto-dispose、max response bytes は dedicated settings 導線で main process 強制にする。
+既存の `allowed-link-rules.json` は legacy の read-only 参照として維持しつつ、fetch 用 ACL、timeout、auto-dispose、max response bytes は dedicated settings 導線で main process 強制にする。
 
 そのため `web_search` は Tavily による検索結果取得だけに限定し、本文取得や follow-up 読み出しは `fetch_url` と temp buffer 経路へ分離する。network 由来 buffer は autoDisposeAt を持ち、自動破棄期限を返せる。
 

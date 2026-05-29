@@ -199,7 +199,7 @@ type MdvEditorCloseStatePayload = {
 }
 
 type MdvSettings = {
-  version: 1
+  version: 2
   general: {
     locale: MdvLocale
     themeMode: 'system' | 'light' | 'dark'
@@ -235,9 +235,7 @@ type MdvSettings = {
       defaultMaxResults: number
     }
     fetch: {
-      allowedUrlRules: string[]
-      allowedMethods: string[]
-      allowedHeaders: string[]
+      aclText: string
       requestTimeoutMs: number
       idleTimeoutMs: number
       autoDisposeAfterMs: number
