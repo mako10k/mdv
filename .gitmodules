@@ -1,0 +1,3 @@
+[submodule "vendor/mdast-control"]
+	path = vendor/mdast-control
+	url = https://github.com/mako10k/mdast.git

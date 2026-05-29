@@ -27,11 +27,35 @@ Windows で動作するシンプルな Markdown エディタです。Electron �
 - Node.js 22 系
 - npm
 
+mdast submodule 初期化:
+
+```bash
+git submodule update --init --recursive vendor/mdast-control
+npm install
+```
+
+`npm install` は submodule 未初期化でも完了しますが、`npm run mdast:build`、`npm run build`、Windows packaging は `vendor/mdast-control` 初期化済みが前提です。
+
+submodule だけ後から入れた場合:
+
+```bash
+npm run mdast:install
+```
+
 起動:
 
 ```bash
 npm install
+npm run mdast:build
 npm run dev
+```
+
+初回起動前に `vendor/mdast-control/dist` を生成しておく前提です。
+
+mdast も同時に watch しながら起動する場合:
+
+```bash
+npm run dev:with-mdast
 ```
 
 AI chat の runtime 前提:
@@ -45,6 +69,13 @@ AI chat の runtime 前提:
 
 ```bash
 npm run build
+```
+
+mdast 単体の確認:
+
+```bash
+npm run mdast:check
+npm run mdast:build
 ```
 
 ## Windows 配布
@@ -179,9 +210,20 @@ registry.set('mermaid', MermaidBlock)
 
 - [src/App.tsx](src/App.tsx): UI、本体ロジック、renderer registry
 - [electron/main.cjs](electron/main.cjs): Electron メインプロセス、ファイルダイアログ、保存処理
+- [electron/mdast-adapter.cjs](electron/mdast-adapter.cjs): mdast submodule を main process から読む adapter
 - [electron/preload.cjs](electron/preload.cjs): renderer へ公開する desktop API
 - [server/mdv-server.cjs](server/mdv-server.cjs): MDV-Server。multi-window 母艦、client suspend/resume、server handoff の入口
 - [build/icon.ico](build/icon.ico): Windows アプリ用アイコン
+- [vendor/mdast-control](vendor/mdast-control): mdast-control submodule
+
+## mdast 連携
+
+MDV は [vendor/mdast-control](vendor/mdast-control) を git submodule として保持します。現時点の前提は次のとおりです。
+
+- 連携の入口は main process 側の adapter に限定する
+- 構造操作は library API を先に使う
+- LSP は後段で sidecar process として追加できるように分離する
+- packaged build では `vendor/mdast-control/dist` を同梱し、依存 package は MDV ルートの `node_modules` で解決する
 
 ## MDV-Server
 

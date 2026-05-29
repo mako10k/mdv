@@ -80,8 +80,11 @@ function Get-DependencyState {
 
   return @{
     nodeVersion = $ResolvedNodeVersion
+    gitmodules = Get-OptionalFileHash (Join-Path $Root '.gitmodules')
     packageJson = Get-OptionalFileHash (Join-Path $Root 'package.json')
     packageLockJson = Get-OptionalFileHash (Join-Path $Root 'package-lock.json')
+    mdastPackageJson = Get-OptionalFileHash (Join-Path $Root 'vendor\mdast-control\package.json')
+    mdastPackageLockJson = Get-OptionalFileHash (Join-Path $Root 'vendor\mdast-control\package-lock.json')
   }
 }
 
@@ -134,7 +137,7 @@ function Test-DependenciesNeedInstall {
   }
 
   $currentState = Get-DependencyState -Root $Root -ResolvedNodeVersion $ResolvedNodeVersion
-  return $previousState.dependencies.nodeVersion -ne $currentState.nodeVersion -or $previousState.dependencies.packageJson -ne $currentState.packageJson -or $previousState.dependencies.packageLockJson -ne $currentState.packageLockJson
+  return $previousState.dependencies.nodeVersion -ne $currentState.nodeVersion -or $previousState.dependencies.gitmodules -ne $currentState.gitmodules -or $previousState.dependencies.packageJson -ne $currentState.packageJson -or $previousState.dependencies.packageLockJson -ne $currentState.packageLockJson -or $previousState.dependencies.mdastPackageJson -ne $currentState.mdastPackageJson -or $previousState.dependencies.mdastPackageLockJson -ne $currentState.mdastPackageLockJson
 }
 
 function Prepare-ArtifactDestination {
@@ -351,6 +354,11 @@ $env:Path = "$nodeRoot;$nodeRoot\node_modules\npm\bin;" + $env:Path
 
 Set-Location $workRoot
 Clear-PackageOutputDirectories -Root $workRoot
+
+$mdastPackageJson = Join-Path $workRoot 'vendor\mdast-control\package.json'
+if (-not (Test-Path $mdastPackageJson)) {
+  throw "mdast-control submodule is not initialized in the source tree. Run 'git submodule update --init --recursive vendor/mdast-control' before Windows host packaging."
+}
 
 if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion) {
   if (Test-Path $buildStatePath) {

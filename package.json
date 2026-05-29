@@ -7,11 +7,17 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
+    "postinstall": "node ./scripts/mdast-submodule.mjs postinstall",
+    "mdast:install": "node ./scripts/mdast-submodule.mjs install",
+    "mdast:build": "node ./scripts/mdast-submodule.mjs build",
+    "mdast:check": "node ./scripts/mdast-submodule.mjs check",
+    "mdast:watch": "node ./scripts/mdast-submodule.mjs watch",
     "dev:web": "vite",
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dev:with-mdast": "concurrently -k \"npm run mdast:watch\" \"vite\" \"wait-on tcp:5173 && electron .\"",
     "server:start": "node ./server/mdv-server.cjs",
     "build:icons": "node ./scripts/build-icons.mjs",
-    "build": "tsc -b && vite build",
+    "build": "npm run mdast:build && tsc -b && vite build",
     "start": "electron .",
     "dist:win:host": "npm run dist:win:host:full",
     "dist:win:host:full": "bash ./scripts/build-win-host.sh -Mode full",
@@ -43,6 +49,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "vendor/mdast-control/dist/**/*",
       "package.json"
     ],
     "win": {
@@ -53,6 +60,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@toast-ui/editor": "^3.2.2",
+    "commander": "^14.0.0",
     "diff": "^8.0.2",
     "katex": "^0.17.0",
     "markdown-it": "^14.1.0",
@@ -65,6 +73,13 @@
     "openai": "^6.39.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
