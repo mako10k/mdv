@@ -682,6 +682,7 @@ function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
     ? [markdownStart, markdownEnd]
     : editor.convertPosToMatchEditorMode(markdownStart, markdownEnd, 'wysiwyg')
 
+  editor.focus()
   editor.setSelection(selectionStart, selectionEnd)
 }
 

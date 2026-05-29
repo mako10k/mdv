@@ -4,7 +4,7 @@
 
 この文書は、MDV に AI チャットウィンドウと editor 操作ツールを追加するための設計を定義する。
 
-長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。
+長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。editor、memory、chat history を同じ参照面に載せる拡張案は [docs/ai-resource-target-unification-proposal.md](docs/ai-resource-target-unification-proposal.md) に分離する。
 
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 

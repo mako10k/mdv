@@ -22,6 +22,7 @@ declare module '@toast-ui/editor' {
   export default class Editor {
     constructor(options: EditorOptions)
     exec(name: string, payload?: Record<string, unknown>): void
+    focus(): void
     getMarkdown(): string
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
     getSelection(): SelectionPos
