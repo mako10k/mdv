@@ -42,6 +42,7 @@
 ## Design Principles
 
 - 全履歴を保持しない
+- まずは context compression を優先し、memory 高度化は後段へ送る
 - 会話は共通層、トピック層、印象層、短期層へ分離して扱う
 - retrieval と injection を分離し、必要時のみ再構成する
 - embedding を万能視せず、summary と lightweight graph を優先する
@@ -49,12 +50,25 @@
 
 ## Goals
 
+- context window overflow を最初に防ぐ
 - 高重要度情報だけを長期保持する
 - 5 層の context 構成を明示し、token budget を制御しやすくする
 - impression の抽出、統合、減衰、検索、注入を一貫した規則で扱う
 - semantic search だけでなく keyword、topic graph、time decay、salience rerank を併用する
 - system prompt に常時注入する memory を厳しく制限し、ユーザー固有性を安定維持する
 - 小規模 GPU/CPU 環境でも維持可能な軽量構成を採用する
+
+## Immediate Priority
+
+最初の優先順位は long-term memory の高度化ではなく、AI の context window が溢れるのを防ぐための圧縮基盤である。
+
+そのため、初手は次を優先する。
+
+- short context の token 計測
+- base summary による圧縮
+- budget manager による段階削減
+- 圧縮時に劣化させない protected context area
+- protected context area へ情報を保存する最小ツール
 
 ## Non-Goals
 
@@ -118,6 +132,24 @@
 - pinned
 - system_level
 
+### Protected Context Item
+
+圧縮時に劣化させない、小容量の保護領域に入る明示保存エンティティ。
+
+用途:
+
+- 今回の会話で絶対に落としたくない制約
+- 継続中の重要 TODO
+- 直近セッションで保持したい事実
+- ツール実行で明示的に保存した短いノート
+
+性質:
+
+- 自動要約しない
+- 自動抽出を前提にしない
+- 明示 save を基本とする
+- 固定 budget を超えたら追加前に拒否、降格、または置換を求める
+
 ## Layer Model
 
 ```text
@@ -149,6 +181,11 @@
 推奨 budget:
 
 - 全 context window の 2% から 8%
+
+注記:
+
+- system layer とは別に、小さい protected context area を持てる
+- protected context area は system prompt 常駐ではなく、runtime injection 側で保持する
 
 ### Layer 1: Active Conversation Layer
 
@@ -244,6 +281,34 @@
 - stable user model
 - pinned and system-level memories
 
+## Protected Context Area
+
+protected context area は、compression 時にも劣化させない小容量の保護領域である。
+
+### Purpose
+
+- 圧縮で失うと困る短い重要情報を保持する
+- モデルまたはユーザーがツール経由で明示保存できるようにする
+- system layer へ常駐させるほど恒久ではないが、current topic よりは優先して残したい情報を扱う
+
+### Constraints
+
+- 常時小容量に保つ
+- 長文は保存させない
+- 追加時に token budget を必ず確認する
+- 圧縮対象からは外すが、極端な budget pressure では最後の削減候補になりうる
+- 明示削除や降格は可能にする
+
+### Recommended Budget
+
+- 全 context window の 3% から 10%
+- もしくは 3 から 12 item 程度
+- 1 item あたり 20 から 120 token 程度
+
+### Priority
+
+削減順では system layer の直前に置き、overflow や topic memory より先に守る。通常圧縮では劣化させないが、hard pressure では eviction 候補になりうる。
+
 ## Context Budget Manager
 
 ### Responsibilities
@@ -252,6 +317,7 @@
 - layer 別 token 制御
 - 圧迫時の段階削減
 - retrieval 優先順位制御
+- protected context area の固定上限管理
 
 ### Reduction Order
 
@@ -260,6 +326,7 @@ overflow
   -> old topic memory
   -> low salience impressions
   -> conversation compression
+  -> protected context area
   -> system layer
 ```
 
@@ -276,6 +343,13 @@ system layer は最後まで残す。
 - soft: 軽圧縮だけ行う
 - medium: topic summary 更新を行う
 - hard: retrieval only mode に寄せ、overflow と低優先注入を切る
+
+### Protected Area Policy
+
+- protected context area 自体は summary 化しない
+- 予算超過時は自動膨張させず、追加拒否または降格候補提示とする
+- hard pressure でのみ削減候補にできる
+- system layer へ自動昇格させない
 
 ## Functional Requirements
 
@@ -362,6 +436,14 @@ system-level memory は system prompt に注入可能でなければならない
 ### FR-12 Topic-Scoped Recall
 
 現在のトピックに関連する summary と impression だけを優先的に想起し、topic 非依存情報は base summary へ寄せられなければならない。
+
+### FR-13 Protected Context Preservation
+
+システムは protected context area に保存された item を compression 対象から外し、budget 内で優先保持できなければならない。
+
+### FR-14 Protected Context Tooling
+
+システムは protected context area に対して、少なくとも save、list、delete の最小ツールを提供できなければならない。
 
 ## Non-Functional Requirements
 
@@ -669,6 +751,14 @@ if context_usage > threshold:
 
 - 長期的重要性が高い高 salience 情報のみ
 
+### Compression Exclusion
+
+次は compression の直接対象から除外する。
+
+- system layer
+- protected context area
+- 明示 pin された item
+
 ### Compression Prompt Templates
 
 #### Base Summary Prompt
@@ -770,6 +860,49 @@ system level memory
 - topic 限定
 - 古い衝動
 - stale memory
+
+## Minimal Tool Surface For The First Slice
+
+最初のシンプルな実装では、protected context area 用のツール面を最小限にする。
+
+### Proposed Tools
+
+#### `save_context_item`
+
+用途:
+
+- 短い重要情報を protected context area へ保存する
+
+入力例:
+
+- title
+- content
+- priority
+- ttl optional
+
+制約:
+
+- 長文禁止
+- 追加前に budget check
+- 失敗時は overflow または削除候補を返す
+
+#### `list_context_items`
+
+用途:
+
+- 保存済み item を確認する
+
+#### `delete_context_item`
+
+用途:
+
+- 不要になった protected item を削除する
+
+### Initial Scope Boundary
+
+- update や merge は後回しにする
+- semantic retrieval との統合は後回しにする
+- first slice では protected area は小さな key fact store として扱う
 
 ## Prompt Injection Model
 
@@ -995,12 +1128,14 @@ type RetrieveMemoryOutput = {
 
 - rolling short context
 - basic summarizer
-- topic extraction
-- topic summaries
 - budget manager
+- protected context area
+- protected context tools
 
 ### Phase 2
 
+- topic extraction
+- topic summaries
 - impression memory
 - hybrid retrieval
 - contradiction detection

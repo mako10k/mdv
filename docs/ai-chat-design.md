@@ -1004,13 +1004,16 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 
 ### Phase 6
 
-- impression memory store
-- topic memory and base summary
+- rolling short context
+- base summary
+- protected context area and tools
 - budget manager
-- unresolved loop persistence
 
 ### Phase 7
 
+- topic memory and base summary expansion
+- impression memory store
+- unresolved loop persistence
 - hybrid retrieval
 - associative graph
 - resonance retrieval
