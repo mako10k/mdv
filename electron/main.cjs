@@ -7,6 +7,7 @@ const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
 const { createPatch, applyPatch } = require('diff')
 const OpenAI = require('openai')
+const { extractHeadingOutline, getMdastCapabilities } = require('./mdast-adapter.cjs')
 const {
   addFetchAclDecisionRule,
   createDefaultFetchAclText,
@@ -5393,6 +5394,21 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.handle('mdv:mdast-get-capabilities', async () => {
+  writeLog('INFO', 'ipc', 'mdast-get-capabilities')
+  return getMdastCapabilities()
+})
+
+ipcMain.handle('mdv:mdast-extract-heading-outline', async (_event, markdown) => {
+  if (typeof markdown !== 'string') {
+    writeLog('WARN', 'ipc', 'mdast-extract-heading-outline received invalid markdown payload')
+    return []
+  }
+
+  writeLog('INFO', 'ipc', 'mdast-extract-heading-outline', { length: markdown.length })
+  return extractHeadingOutline(markdown)
 })
 
 ipcMain.handle('mdv:track-current-file', async (event, filePath) => {

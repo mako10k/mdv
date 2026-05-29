@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
+  getMdastCapabilities: () => ipcRenderer.invoke('mdv:mdast-get-capabilities'),
+  extractMdastHeadingOutline: (markdown) => ipcRenderer.invoke('mdv:mdast-extract-heading-outline', markdown),
   readRelativeAssetAsDataUrl: (payload) => ipcRenderer.invoke('mdv:read-relative-asset-data-url', payload),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   exportHtml: (payload) => ipcRenderer.invoke('mdv:export-html', payload),

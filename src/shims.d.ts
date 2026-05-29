@@ -105,6 +105,14 @@ type MdvExternalLinkResult = {
   status: 'opened' | 'cancelled' | 'blocked'
 }
 
+type MdvJsonValue = string | number | boolean | null | MdvJsonValue[] | { [key: string]: MdvJsonValue }
+
+type MdvMdastHeadingOutlineItem = {
+  path: number[]
+  depth: number
+  text: string
+}
+
 type MdvLocale = 'ja' | 'en'
 
 type MdvClientSnapshot = {
@@ -426,6 +434,8 @@ interface Window {
     platform: string
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
+    getMdastCapabilities: () => Promise<MdvJsonValue>
+    extractMdastHeadingOutline: (markdown: string) => Promise<MdvMdastHeadingOutlineItem[]>
     readRelativeAssetAsDataUrl: (payload: MdvRelativeAssetDataUrlPayload) => Promise<MdvRelativeAssetDataUrlResult | null>
     saveFile: (payload: MdvSavePayload) => Promise<MdvSaveResult>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
