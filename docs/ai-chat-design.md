@@ -4,6 +4,8 @@
 
 この文書は、MDV に AI チャットウィンドウと editor 操作ツールを追加するための設計を定義する。
 
+長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。
+
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 
 以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
@@ -47,6 +49,11 @@
 - 長期会話永続化
 - 複数 editor tab 管理 UI の全面導入
 - ACL 既定拒否を回避した任意 fetch
+
+注記:
+
+- Impression Memory と budget-aware context reconstruction は current scaffold の外側にある次段階拡張として扱う
+- その詳細要件と設計は [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) に分離する
 
 ## Current Constraints
 
@@ -994,6 +1001,20 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - Tavily web_search
 - list_buffers
 - suggest mode の土台
+
+### Phase 6
+
+- impression memory store
+- topic memory and base summary
+- budget manager
+- unresolved loop persistence
+
+### Phase 7
+
+- hybrid retrieval
+- associative graph
+- resonance retrieval
+- system-level memory rotation
 
 ## Recommended File Layout
 
