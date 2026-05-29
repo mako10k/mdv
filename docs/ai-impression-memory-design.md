@@ -985,11 +985,11 @@ type RetrieveMemoryOutput = {
 
 この章の Phase 1 から Phase 3 は subsystem 内の局所フェーズであり、親設計の product-wide roadmap を置き換えるものではない。
 
-対応関係:
+おおまかな対応関係:
 
-- この文書の Phase 1 は親設計の Phase 6 前半に相当する
-- この文書の Phase 2 は親設計の Phase 6 後半から Phase 7 前半に相当する
-- この文書の Phase 3 は親設計の Phase 7 後半に相当する
+- この文書の Phase 1 は親設計の Phase 6 前半で扱う基盤整備を主に具体化したものである
+- この文書の Phase 2 は親設計の Phase 6 後半から Phase 7 で扱う memory 拡張の一部を具体化したものである
+- この文書の Phase 3 は親設計の Phase 7 以降で扱う高度化項目の整理として読む
 
 ### Phase 1
 
