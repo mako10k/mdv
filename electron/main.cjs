@@ -985,6 +985,15 @@ function normalizeProtectedContextPriority(value) {
   return 'normal'
 }
 
+function pickHigherProtectedContextPriority(left, right) {
+  const priorityOrder = { high: 0, normal: 1, low: 2 }
+  const normalizedLeft = normalizeProtectedContextPriority(left)
+  const normalizedRight = normalizeProtectedContextPriority(right)
+  return (priorityOrder[normalizedLeft] ?? 1) <= (priorityOrder[normalizedRight] ?? 1)
+    ? normalizedLeft
+    : normalizedRight
+}
+
 function getProtectedContextRegistry(editorWindow) {
   const runtimeState = ensureEditorRuntimeState(editorWindow)
 
@@ -1150,6 +1159,171 @@ function saveProtectedContextItemForWindow(editorWindow, payload) {
 
   return {
     item: summarizeProtectedContextItem(item),
+    usage: getProtectedContextUsage(editorWindow),
+  }
+}
+
+function updateProtectedContextItemForWindow(editorWindow, payload) {
+  const itemId = typeof payload?.itemId === 'string' ? payload.itemId.trim() : ''
+
+  if (itemId.length === 0) {
+    throw new AiToolUserError('update_context_item', 'itemId must be a non-empty string.', 'Call list_context_items first and reuse one returned itemId.')
+  }
+
+  const registry = getProtectedContextRegistry(editorWindow)
+  const existingItem = registry.get(itemId)
+
+  if (!existingItem) {
+    throw new AiToolUserError('update_context_item', `Unknown protected context item: ${itemId}`, 'Call list_context_items first and reuse one returned itemId.')
+  }
+
+  const hasTitle = Object.prototype.hasOwnProperty.call(payload || {}, 'title')
+  const hasContent = Object.prototype.hasOwnProperty.call(payload || {}, 'content')
+  const hasPriority = Object.prototype.hasOwnProperty.call(payload || {}, 'priority')
+
+  if (!hasTitle && !hasContent && !hasPriority) {
+    throw new AiToolUserError('update_context_item', 'At least one field must be provided to update.', 'Provide one or more of title, content, or priority.')
+  }
+
+  const nextTitle = hasTitle ? String(payload.title || '').trim() : existingItem.title
+  const nextContent = hasContent ? String(payload.content || '').trim() : existingItem.content
+
+  if (nextTitle.length === 0) {
+    throw new AiToolUserError('update_context_item', 'title must be a non-empty string.', 'Provide title as a short label or omit it to keep the current value.')
+  }
+
+  if (nextContent.length === 0) {
+    throw new AiToolUserError('update_context_item', 'content must be a non-empty string.', 'Provide content as a short fact, constraint, or TODO, or omit it to keep the current value.')
+  }
+
+  const nextPriority = hasPriority ? normalizeProtectedContextPriority(payload.priority) : existingItem.priority
+  const estimatedTokens = estimateTokenCount(formatProtectedContextItemLine({ title: nextTitle, content: nextContent, priority: nextPriority }))
+
+  if (estimatedTokens > DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS) {
+    throw new AiToolUserError(
+      'update_context_item',
+      `content is too large for protected context (${estimatedTokens} tokens).`,
+      `Shorten the content to about ${DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS} tokens or less.`,
+    )
+  }
+
+  const usage = getProtectedContextUsage(editorWindow)
+  const nextItems = listProtectedContextItemRecords(editorWindow).map((item) => (
+    item.itemId === itemId
+      ? {
+          ...item,
+          title: nextTitle,
+          content: nextContent,
+          priority: nextPriority,
+        }
+      : item
+  ))
+  const nextTotalTokens = estimateTokenCount(buildProtectedContextBlockText(nextItems))
+
+  if (nextTotalTokens > usage.budgetTokens) {
+    throw new AiToolUserError(
+      'update_context_item',
+      'protected context budget would overflow after this update.',
+      `${buildProtectedContextDeleteCandidateHint(editorWindow)} Or shorten the updated item.`,
+    )
+  }
+
+  const updatedItem = {
+    ...existingItem,
+    title: nextTitle,
+    content: nextContent,
+    priority: nextPriority,
+    estimatedTokens,
+    updatedAt: new Date().toISOString(),
+  }
+
+  registry.set(itemId, updatedItem)
+  touchEditorRuntimeState(editorWindow)
+
+  return {
+    item: summarizeProtectedContextItem(updatedItem),
+    usage: getProtectedContextUsage(editorWindow),
+  }
+}
+
+function mergeProtectedContextItemsForWindow(editorWindow, payload) {
+  const itemIds = Array.from(new Set((Array.isArray(payload?.itemIds) ? payload.itemIds : [])
+    .filter((itemId) => typeof itemId === 'string')
+    .map((itemId) => itemId.trim())
+    .filter((itemId) => itemId.length > 0)))
+
+  if (itemIds.length < 2) {
+    throw new AiToolUserError('merge_context_items', 'itemIds must contain at least two protected context item ids.', 'Call list_context_items first and provide two or more returned itemIds.')
+  }
+
+  const title = typeof payload?.title === 'string' ? payload.title.trim() : ''
+  const content = typeof payload?.content === 'string' ? payload.content.trim() : ''
+
+  if (title.length === 0) {
+    throw new AiToolUserError('merge_context_items', 'title must be a non-empty string.', 'Provide a short label for the merged protected context item.')
+  }
+
+  if (content.length === 0) {
+    throw new AiToolUserError('merge_context_items', 'content must be a non-empty string.', 'Provide merged content as one short fact, constraint, or TODO.')
+  }
+
+  const registry = getProtectedContextRegistry(editorWindow)
+  const sourceItems = itemIds.map((itemId) => registry.get(itemId) || null)
+
+  if (sourceItems.some((item) => !item)) {
+    const missingItemId = itemIds.find((itemId) => !registry.get(itemId))
+    throw new AiToolUserError('merge_context_items', `Unknown protected context item: ${missingItemId}`, 'Call list_context_items first and reuse only returned itemIds.')
+  }
+
+  const priority = Object.prototype.hasOwnProperty.call(payload || {}, 'priority')
+    ? normalizeProtectedContextPriority(payload.priority)
+    : sourceItems.reduce((currentPriority, item) => pickHigherProtectedContextPriority(currentPriority, item?.priority), 'low')
+  const estimatedTokens = estimateTokenCount(formatProtectedContextItemLine({ title, content, priority }))
+
+  if (estimatedTokens > DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS) {
+    throw new AiToolUserError(
+      'merge_context_items',
+      `merged content is too large for protected context (${estimatedTokens} tokens).`,
+      `Shorten the merged content to about ${DEFAULT_PROTECTED_CONTEXT_MAX_ITEM_TOKENS} tokens or less.`,
+    )
+  }
+
+  const usage = getProtectedContextUsage(editorWindow)
+  const nextItems = [
+    ...listProtectedContextItemRecords(editorWindow).filter((item) => !itemIds.includes(item.itemId)),
+    { title, content, priority },
+  ]
+  const nextTotalTokens = estimateTokenCount(buildProtectedContextBlockText(nextItems))
+
+  if (nextTotalTokens > usage.budgetTokens) {
+    throw new AiToolUserError(
+      'merge_context_items',
+      'protected context budget would overflow after this merge.',
+      'Shorten the merged item before retrying.',
+    )
+  }
+
+  const timestamp = new Date().toISOString()
+  const mergedItem = {
+    itemId: `context:${randomUUID()}`,
+    title,
+    content,
+    priority,
+    estimatedTokens,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    mergedFromItemIds: itemIds,
+  }
+
+  itemIds.forEach((itemId) => {
+    registry.delete(itemId)
+  })
+  registry.set(mergedItem.itemId, mergedItem)
+  touchEditorRuntimeState(editorWindow)
+
+  return {
+    item: summarizeProtectedContextItem(mergedItem),
+    mergedFromItemIds: itemIds,
     usage: getProtectedContextUsage(editorWindow),
   }
 }
@@ -2685,6 +2859,8 @@ const openAiChatInstructions = [
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'write_target mode "insert" inserts at the destination span start unless you provide a point span for an exact position; mode "append" inserts at the destination span end.',
   'Use save_context_item only for short high-value facts, constraints, or TODOs that should survive compression in this session; protected context is tightly budgeted.',
+  'Use update_context_item when an existing protected item should be corrected, shortened, or reprioritized instead of adding a duplicate.',
+  'Use merge_context_items when two or more protected items overlap and should be compacted into one denser item.',
   'fetch_url may return a temp buffer instead of inline content when the response exceeds the inline chunk budget; use the returned target or bufferId with read_target/write_target, and call dispose_buffer when you are done.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
@@ -2904,6 +3080,28 @@ const aiToolDefinitions = [
   },
   {
     type: 'function',
+    name: 'update_context_item',
+    description: 'Update one protected context item in place when the preserved fact should be corrected, shortened, or reprioritized.',
+    parameters: buildAiToolParameters({
+        itemId: buildRequiredAiToolParameter({ type: 'string', description: 'Protected context item id returned by list_context_items.' }),
+        title: { type: 'string', description: 'Optional replacement title. Provide at least one of title, content, or priority.' },
+        content: { type: 'string', description: 'Optional replacement content. Keep it compact. Provide at least one of title, content, or priority.' },
+        priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'Optional replacement priority. Provide at least one of title, content, or priority.' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'merge_context_items',
+    description: 'Merge two or more protected context items into one new compact item and remove the source items.',
+    parameters: buildAiToolParameters({
+        itemIds: buildRequiredAiToolParameter({ type: 'array', description: 'Two or more protected context item ids returned by list_context_items.', items: { type: 'string' }, minItems: 2 }),
+        title: buildRequiredAiToolParameter({ type: 'string', description: 'Title for the merged protected context item.' }),
+        content: buildRequiredAiToolParameter({ type: 'string', description: 'Merged compact content.' }),
+        priority: { type: 'string', enum: ['high', 'normal', 'low'], description: 'Optional merged priority. If omitted, the highest source priority is kept.' },
+      }),
+  },
+  {
+    type: 'function',
     name: 'delete_context_item',
     description: 'Delete one protected context item when it is no longer needed.',
     parameters: buildAiToolParameters({
@@ -3047,6 +3245,30 @@ const aiToolHelpDocs = {
     parameters: [],
     examples: [
       { description: 'List protected items', args: {} },
+    ],
+  },
+  update_context_item: {
+    summary: 'Update one protected context item in place.',
+    parameters: [
+      { name: 'itemId', required: true, type: 'string', description: 'Protected context item id returned by list_context_items.' },
+      { name: 'title', required: false, type: 'string', description: 'Optional replacement title. Provide at least one of title, content, or priority.' },
+      { name: 'content', required: false, type: 'string', description: 'Optional replacement content. Provide at least one of title, content, or priority.' },
+      { name: 'priority', required: false, type: 'string', description: 'Optional. high, normal, or low. Provide at least one of title, content, or priority.' },
+    ],
+    examples: [
+      { description: 'Shorten one protected item', args: { itemId: 'context:example', content: 'Use host-side build flow for Windows packaging.' } },
+    ],
+  },
+  merge_context_items: {
+    summary: 'Merge two or more protected context items into one new item and remove the originals.',
+    parameters: [
+      { name: 'itemIds', required: true, type: 'array', description: 'Two or more protected context item ids returned by list_context_items.' },
+      { name: 'title', required: true, type: 'string', description: 'Title for the merged item.' },
+      { name: 'content', required: true, type: 'string', description: 'Merged compact content.' },
+      { name: 'priority', required: false, type: 'string', description: 'Optional. high, normal, or low. If omitted, the highest source priority is kept.' },
+    ],
+    examples: [
+      { description: 'Merge related packaging constraints', args: { itemIds: ['context:first', 'context:second'], title: 'Windows packaging constraints', content: 'Use host-side build flow and keep protected notes compact.', priority: 'high' } },
     ],
   },
   delete_context_item: {
@@ -3244,6 +3466,18 @@ function validateAiToolArgs(toolName, args) {
   if (toolName === 'save_context_item') {
     requireStringArg(toolName, args, 'title', 'a short label such as "Current release constraint"')
     requireStringArg(toolName, args, 'content', 'a short fact, constraint, or TODO to preserve')
+    return
+  }
+
+  if (toolName === 'update_context_item') {
+    requireStringArg(toolName, args, 'itemId', 'an item id returned by list_context_items')
+    return
+  }
+
+  if (toolName === 'merge_context_items') {
+    requireArrayArg(toolName, args, 'itemIds', 'an array of two or more item ids returned by list_context_items')
+    requireStringArg(toolName, args, 'title', 'a short label for the merged item')
+    requireStringArg(toolName, args, 'content', 'merged compact content')
     return
   }
 
@@ -4084,6 +4318,24 @@ function summarizeAiToolArgsForLog(toolName, args) {
     return null
   }
 
+  if (toolName === 'update_context_item') {
+    return {
+      itemId: typeof args?.itemId === 'string' ? args.itemId : null,
+      title: typeof args?.title === 'string' ? args.title.slice(0, 160) : null,
+      contentPreview: typeof args?.content === 'string' ? createPreviewText(args.content, 160) : null,
+      priority: typeof args?.priority === 'string' ? args.priority : null,
+    }
+  }
+
+  if (toolName === 'merge_context_items') {
+    return {
+      itemIds: Array.isArray(args?.itemIds) ? args.itemIds.slice(0, 8) : null,
+      title: typeof args?.title === 'string' ? args.title.slice(0, 160) : null,
+      contentPreview: typeof args?.content === 'string' ? createPreviewText(args.content, 160) : null,
+      priority: typeof args?.priority === 'string' ? args.priority : null,
+    }
+  }
+
   if (toolName === 'delete_context_item') {
     return {
       itemId: typeof args?.itemId === 'string' ? args.itemId : null,
@@ -4187,6 +4439,24 @@ function summarizeAiToolResultForLog(toolName, result) {
     return {
       itemCount: Array.isArray(result?.items) ? result.items.length : null,
       totalTokens: Number.isFinite(Number(result?.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null,
+    }
+  }
+
+  if (toolName === 'update_context_item') {
+    return {
+      itemId: typeof result?.item?.itemId === 'string' ? result.item.itemId : null,
+      title: typeof result?.item?.title === 'string' ? result.item.title : null,
+      totalTokens: Number.isFinite(Number(result?.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null,
+      itemCount: Number.isFinite(Number(result?.usage?.itemCount)) ? Number(result.usage.itemCount) : null,
+    }
+  }
+
+  if (toolName === 'merge_context_items') {
+    return {
+      itemId: typeof result?.item?.itemId === 'string' ? result.item.itemId : null,
+      mergedFromCount: Array.isArray(result?.mergedFromItemIds) ? result.mergedFromItemIds.length : null,
+      totalTokens: Number.isFinite(Number(result?.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null,
+      itemCount: Number.isFinite(Number(result?.usage?.itemCount)) ? Number(result.usage.itemCount) : null,
     }
   }
 
@@ -4311,6 +4581,20 @@ async function executeAiToolCall(editorWindow, toolName, args) {
       })
     } else if (toolName === 'list_context_items') {
       result = listProtectedContextItemsForWindow(editorWindow)
+    } else if (toolName === 'update_context_item') {
+      result = updateProtectedContextItemForWindow(editorWindow, {
+        itemId: requireStringArg(toolName, args, 'itemId', 'an item id returned by list_context_items'),
+        ...(Object.prototype.hasOwnProperty.call(args || {}, 'title') ? { title: args.title } : {}),
+        ...(Object.prototype.hasOwnProperty.call(args || {}, 'content') ? { content: args.content } : {}),
+        ...(Object.prototype.hasOwnProperty.call(args || {}, 'priority') ? { priority: args.priority } : {}),
+      })
+    } else if (toolName === 'merge_context_items') {
+      result = mergeProtectedContextItemsForWindow(editorWindow, {
+        itemIds: requireArrayArg(toolName, args, 'itemIds', 'an array of two or more item ids returned by list_context_items'),
+        title: requireStringArg(toolName, args, 'title', 'a short label for the merged item'),
+        content: requireStringArg(toolName, args, 'content', 'merged compact content'),
+        priority: args?.priority,
+      })
     } else if (toolName === 'delete_context_item') {
       result = deleteProtectedContextItemForWindow(editorWindow, {
         itemId: requireStringArg(toolName, args, 'itemId', 'an item id returned by list_context_items'),

@@ -443,7 +443,7 @@ system-level memory は system prompt に注入可能でなければならない
 
 ### FR-14 Protected Context Tooling
 
-システムは protected context area に対して、少なくとも save、list、delete の最小ツールを提供できなければならない。
+システムは protected context area に対して、少なくとも save、list、update、merge、delete の最小ツールを提供できなければならない。
 
 ## Non-Functional Requirements
 
@@ -892,6 +892,40 @@ system level memory
 
 - 保存済み item を確認する
 
+#### `update_context_item`
+
+用途:
+
+- 既存 item を短く直す
+- priority を上げ下げする
+- 既存 item の意味を保ったまま修正する
+
+制約:
+
+- itemId 必須
+- title / content / priority のいずれかを必須にする
+- 更新後も injected prompt text 基準で budget check する
+
+#### `merge_context_items`
+
+用途:
+
+- 重複または近い item を 1 件へ統合する
+- source item を削除して protected area の密度を上げる
+
+入力例:
+
+- itemIds
+- title
+- content
+- priority
+
+制約:
+
+- 2 件以上の itemId 必須
+- merge 後の 1 件も injected prompt text 基準で budget check する
+- first slice では source 内容からの自動 merge は行わず、merged content は明示指定にする
+
 #### `delete_context_item`
 
 用途:
@@ -900,10 +934,10 @@ system level memory
 
 ### Initial Scope Boundary
 
-- update や merge は後回しにする
 - semantic retrieval との統合は後回しにする
 - first slice では protected area は小さな key fact store として扱う
 - first slice の rolling short context は latest turn を優先し、古い会話だけを bounded summary へ圧縮する
+- first slice の protected context mutation は save / list / update / merge / delete までとし、semantic merge や auto-summarize merge は後回しにする
 
 ## Prompt Injection Model
 

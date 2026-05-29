@@ -98,11 +98,15 @@ topic extraction と topic summary は次段階へ送る。
 - 内容:
   - `save_context_item` を導入する
   - `list_context_items` を導入する
+  - `update_context_item` を導入する
+  - `merge_context_items` を導入する
   - `delete_context_item` を導入する
-  - save 実行時に budget check を行う
+  - save / update / merge 実行時に injected prompt text 基準の budget check を行う
 - 受け入れ条件:
   - ツール経由で短い item を保存できる
   - 保存済み item を一覧できる
+  - 保存済み item をその場で修正できる
+  - 複数 item を 1 件へ統合できる
   - 不要な item を削除できる
   - 長文や予算超過 item を拒否できる
 

@@ -6,6 +6,8 @@
 
 長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。
 
+subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md](docs/ai-subagent-tools-design.md) を参照する。
+
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 
 以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
@@ -13,7 +15,7 @@
 注記:
 
 - 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
-- 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / delete_context_item による session-local protected context も含む
+- 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
@@ -38,7 +40,7 @@
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
-- save_context_item / list_context_items / delete_context_item を main process の tool loop から呼べること
+- save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
 - latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
 - chat / editor の両 window と Ctrl+, から settings window を開けること
 - fetch ACL / timeout は dedicated auxiliary window から編集できること
@@ -124,6 +126,8 @@ AI が使う操作面。
 - dispose_buffer
 - save_context_item
 - list_context_items
+- update_context_item
+- merge_context_items
 - delete_context_item
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
@@ -1013,7 +1017,7 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - protected context area and tools
 - budget manager
 - first slice keeps the latest chat turn verbatim when it fits, compresses older turns into a bounded summary, and drops protected context behind the latest turn when total input budget is tight
-- protected context tools: save_context_item, list_context_items, delete_context_item
+- protected context tools: save_context_item, list_context_items, update_context_item, merge_context_items, delete_context_item
 
 ### Phase 7
 
@@ -1024,6 +1028,14 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - associative graph
 - resonance retrieval
 - system-level memory rotation
+
+### Phase 8
+
+- agent runtime abstraction
+- root agent と subagent の分離
+- subagent lifecycle tools
+- subagent wait / stop / context release
+- custom agent profile 拡張余地の設計
 
 ## Recommended File Layout
 

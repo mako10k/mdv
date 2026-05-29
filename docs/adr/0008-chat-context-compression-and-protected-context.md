@@ -14,12 +14,13 @@ At the same time, the first slice must stay main-process local and avoid a rende
 - Preserve the latest chat turn verbatim when it fits within the input budget.
 - Compress only older turns into a bounded synthetic summary block.
 - Keep protected context as a session-local store in editor runtime state, not as a persisted memory system.
-- Expose the minimal protected-context tool surface as `save_context_item`, `list_context_items`, and `delete_context_item`.
+- Expose the protected-context tool surface as `save_context_item`, `list_context_items`, `update_context_item`, `merge_context_items`, and `delete_context_item`.
 - Enforce protected-context budget checks against the actual injected prompt text, including item formatting overhead.
 
 ## Consequences
 
 - The first slice reduces prompt growth without changing the renderer chat UI.
 - Protected context survives transcript compression within the current session only.
+- Protected context can be compacted in place through explicit update and merge operations without widening the renderer contract.
 - Very large latest turns may still need truncation to fit the hard input budget.
 - Future topic memory or persisted impression memory can build on this boundary without changing renderer contracts first.
