@@ -181,7 +181,7 @@ type MdvAiEditorRequest =
       type: 'write'
       destination: MdvAiEditorTarget
       sources: MdvAiWriteSource[]
-      mode: 'replace' | 'insert'
+      mode: 'replace' | 'insert' | 'append'
       title?: string
     }
   | {
@@ -309,7 +309,7 @@ type MdvAiWritePayload = {
   span: MdvAiNormalizedSpan
   target?: MdvAiEditorTarget
   text: string
-  mode: 'replace' | 'insert'
+  mode: 'replace' | 'insert' | 'append'
   bytesWritten: number
   created?: boolean
 }
@@ -410,7 +410,7 @@ interface Window {
     semanticSearchAiSlice: (payload: { target: MdvAiEditorTarget; query: string; maxResults?: number; persistBuffer?: boolean }) => Promise<MdvAiSemanticSearchPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
-    writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert'; title?: string }) => Promise<MdvAiWritePayload | null>
+    writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert' | 'append'; title?: string }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
     sendAiChatMessage: (payload: { messages: MdvAiChatMessage[] }) => Promise<MdvAiChatResponse>
     settings: {

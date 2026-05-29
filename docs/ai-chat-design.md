@@ -396,7 +396,7 @@ type ChatMessage = {
 
 - 任意 EditorID + SPAN への書き込み
 - temp buffer や既存 editor slice の合成書き込み
-- 全文置換、新規文書作成、範囲置換、point insert
+- 全文置換、新規文書作成、範囲置換、point insert、span end への append
 
 入力:
 
@@ -453,6 +453,28 @@ type ChatMessage = {
   "mode": "insert"
 }
 ```
+
+または append:
+
+```json
+{
+  "destination": {
+    "editorId": "editor:active",
+    "span": {
+      "kind": "document"
+    }
+  },
+  "sources": [
+    { "type": "literal", "text": "\n## Follow-up\n" }
+  ],
+  "mode": "append"
+}
+```
+
+補足:
+
+- 任意位置 insert は `mode: "insert"` と `destination.span.kind: "point"` を組み合わせる
+- `append` は destination span の end へ追加する sugar として扱う
 
 出力:
 

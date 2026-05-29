@@ -1747,6 +1747,11 @@ function App() {
               startOffset: resolvedOffsets.startOffset,
               endOffset: resolvedOffsets.startOffset,
             }
+          : request.mode === 'append'
+            ? {
+                startOffset: resolvedOffsets.endOffset,
+                endOffset: resolvedOffsets.endOffset,
+              }
           : resolvedOffsets
         const updatedMarkdown = `${markdownText.slice(0, insertionOffsets.startOffset)}${nextText}${markdownText.slice(insertionOffsets.endOffset)}`
 
@@ -1754,7 +1759,7 @@ function App() {
           setDisplayTitle(request.title.trim())
         }
 
-        applyMarkdownContent(updatedMarkdown, request.mode === 'insert' ? i18nRef.current.app.status.aiInsertedContent : i18nRef.current.app.status.aiUpdatedDocument)
+        applyMarkdownContent(updatedMarkdown, request.mode === 'replace' ? i18nRef.current.app.status.aiUpdatedDocument : i18nRef.current.app.status.aiInsertedContent)
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,

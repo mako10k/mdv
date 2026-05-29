@@ -2088,6 +2088,7 @@ const openAiChatInstructions = [
   'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
   'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
+  'write_target mode "insert" inserts at the destination span start unless you provide a point span for an exact position; mode "append" inserts at the destination span end.',
   'fetch_url may return a temp buffer instead of inline content when the response exceeds the inline chunk budget; use the returned target or bufferId with read_target/write_target, and call dispose_buffer when you are done.',
   'Do not claim that edits were applied unless the transcript explicitly says a write action already happened.',
 ].join(' ')
@@ -2226,7 +2227,7 @@ const aiToolDefinitions = [
     parameters: buildAiToolParameters({
         destination: buildRequiredAiToolParameter({ type: 'object', description: aiDestinationDescription }),
         sources: buildRequiredAiToolParameter({ type: 'array', description: `Array of literal sources like {"type":"literal","text":"..."} or slice-ref sources. ${aiSliceRefSourceDescription}` }),
-        mode: { type: 'string', enum: ['replace', 'insert'] },
+        mode: { type: 'string', enum: ['replace', 'insert', 'append'] },
         title: { type: 'string' },
       }),
   },
@@ -2335,11 +2336,12 @@ const aiToolHelpDocs = {
     parameters: [
       { name: 'destination', required: true, type: 'object', description: 'Destination target. Use editorId=":new" to create a new document.' },
       { name: 'sources', required: true, type: 'array', description: 'One or more sources. Each source must be {"type":"literal","text":"..."} or a slice-ref object.' },
-      { name: 'mode', required: false, type: 'string', description: 'Optional. "replace" or "insert". Defaults to replace.' },
+      { name: 'mode', required: false, type: 'string', description: 'Optional. "replace", "insert", or "append". Defaults to replace. Use destination.span.kind="point" for arbitrary insert positions.' },
       { name: 'title', required: false, type: 'string', description: 'Optional title when destination.editorId is :new.' },
     ],
     examples: [
       { description: 'Replace active selection with literal text', args: { destination: { editorId: 'editor:active', span: { kind: 'selection' } }, sources: [{ type: 'literal', text: 'Updated text' }], mode: 'replace' } },
+      { description: 'Append to the end of the active document', args: { destination: { editorId: 'editor:active', span: { kind: 'document' } }, sources: [{ type: 'literal', text: '\n## Notes\n' }], mode: 'append' } },
       { description: 'Create a new document', args: { destination: { editorId: ':new', span: { kind: 'document' } }, sources: [{ type: 'literal', text: '# Draft\n' }], title: 'Draft.md' } },
     ],
   },
@@ -3361,7 +3363,7 @@ function summarizeAiToolArgsForLog(toolName, args) {
   if (toolName === 'write_target') {
     return {
       destination: summarizeTargetForLog(args?.destination),
-      mode: args?.mode === 'insert' ? 'insert' : 'replace',
+      mode: args?.mode === 'insert' || args?.mode === 'append' ? args.mode : 'replace',
       sourceCount: Array.isArray(args?.sources) ? args.sources.length : 0,
       sources: summarizeAiWriteSourcesForLog(args?.sources),
     }
@@ -3563,7 +3565,7 @@ async function executeAiToolCall(editorWindow, toolName, args) {
             }
           : { editorId: 'editor:active', span: { kind: 'document' } },
         sources: sources.map((source) => normalizeAiSliceRefSource(source)),
-        mode: args?.mode === 'insert' ? 'insert' : 'replace',
+        mode: args?.mode === 'insert' || args?.mode === 'append' ? args.mode : 'replace',
         title: typeof args?.title === 'string' ? args.title : undefined,
       })
     } else if (toolName === 'exact_search') {
@@ -4072,11 +4074,15 @@ async function writeAiTargetForWindow(editorWindow, payload) {
   const resolvedTarget = resolveTargetForSession(editorWindow, destination)
 
   if (resolvedTarget.kind === 'temp-buffer') {
-    const nextMode = payload?.mode === 'insert' ? 'insert' : 'replace'
+    const nextMode = payload?.mode === 'insert' || payload?.mode === 'append' ? payload.mode : 'replace'
     const currentText = resolvedTarget.bufferRecord.text
     const resolvedOffsets = resolveSpanToOffsets(currentText, resolvedTarget.span)
-    const startOffset = resolvedOffsets.startOffset
-    const endOffset = nextMode === 'insert' ? startOffset : resolvedOffsets.endOffset
+    const startOffset = nextMode === 'append' ? resolvedOffsets.endOffset : resolvedOffsets.startOffset
+    const endOffset = nextMode === 'replace'
+      ? resolvedOffsets.endOffset
+      : nextMode === 'append'
+        ? resolvedOffsets.endOffset
+        : resolvedOffsets.startOffset
     const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
     const writtenSpan = normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length)
     resolvedTarget.bufferRecord.text = nextText
@@ -4101,7 +4107,7 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     throw new Error('Active document write is disabled in settings')
   }
 
-  if (payload?.mode !== 'insert' && settingsState.safety.confirmBeforeFullDocumentOverwrite) {
+  if (payload?.mode !== 'insert' && payload?.mode !== 'append' && settingsState.safety.confirmBeforeFullDocumentOverwrite) {
     const fullDocumentTarget = await readFullTargetTextForWindow(editorWindow, {
       target: {
         editorId: resolvedTarget.editorId,
@@ -4147,7 +4153,7 @@ async function writeAiTargetForWindow(editorWindow, payload) {
         text: content,
       },
     ],
-    mode: payload?.mode === 'insert' ? 'insert' : 'replace',
+    mode: payload?.mode === 'insert' || payload?.mode === 'append' ? payload.mode : 'replace',
     title: resolvedTarget.editorId === ':new' && typeof payload?.title === 'string' ? payload.title : undefined,
   })
 
