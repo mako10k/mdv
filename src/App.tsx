@@ -675,15 +675,92 @@ function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
   return [position.line, position.column]
 }
 
+function getActiveEditorRoot(editor: ToastUiEditor): HTMLElement {
+  const slots = editor.getEditorElements()
+  return editor.isMarkdownMode() ? slots.mdEditor : slots.wwEditor
+}
+
+function findEditorSelectionAnchor(root: HTMLElement): HTMLElement | null {
+  const selection = window.getSelection()
+
+  if (selection && selection.rangeCount > 0) {
+    const anchorNode = selection.getRangeAt(0).startContainer
+    const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+
+    if (anchorElement instanceof HTMLElement && root.contains(anchorElement)) {
+      return anchorElement
+    }
+  }
+
+  return root.querySelector<HTMLElement>(
+    '.CodeMirror-selected, .cm-selectionBackground, .CodeMirror-cursor, .cm-cursor, .ProseMirror-selectednode'
+  )
+}
+
+function findEditorScrollContainer(root: HTMLElement): HTMLElement {
+  return root.querySelector<HTMLElement>('.CodeMirror-scroll, .cm-scroller, .toastui-editor, .ProseMirror') ?? root
+}
+
+function focusEditorAnchorTarget(root: HTMLElement) {
+  const focusTarget =
+    root.querySelector<HTMLElement>('textarea, .cm-content, .ProseMirror, [contenteditable="true"]') ?? root
+
+  focusTarget.focus({ preventScroll: true })
+}
+
+function scrollElementIntoContainer(container: HTMLElement, target: HTMLElement) {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const topPadding = Math.max(40, Math.round(containerRect.height * 0.28))
+  const bottomPadding = Math.max(28, Math.round(containerRect.height * 0.18))
+
+  if (targetRect.top < containerRect.top + topPadding) {
+    container.scrollTop += targetRect.top - containerRect.top - topPadding
+    return
+  }
+
+  if (targetRect.bottom > containerRect.bottom - bottomPadding) {
+    container.scrollTop += targetRect.bottom - containerRect.bottom + bottomPadding
+  }
+}
+
+function scrollSpanIntoEditorView(editor: ToastUiEditor) {
+  const root = getActiveEditorRoot(editor)
+  const container = findEditorScrollContainer(root)
+  const scrollToAnchor = () => {
+    const anchor = findEditorSelectionAnchor(root)
+
+    if (!anchor) {
+      return false
+    }
+
+    scrollElementIntoContainer(container, anchor)
+    return true
+  }
+
+  window.requestAnimationFrame(() => {
+    if (scrollToAnchor()) {
+      return
+    }
+
+    focusEditorAnchorTarget(root)
+    window.requestAnimationFrame(() => {
+      scrollToAnchor()
+    })
+  })
+}
+
 function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
+  const root = getActiveEditorRoot(editor)
   const markdownStart = toToastMarkdownPos(span.start)
   const markdownEnd = toToastMarkdownPos(span.end)
   const [selectionStart, selectionEnd] = editor.isMarkdownMode()
     ? [markdownStart, markdownEnd]
     : editor.convertPosToMatchEditorMode(markdownStart, markdownEnd, 'wysiwyg')
 
-  editor.focus()
+  focusEditorAnchorTarget(root)
   editor.setSelection(selectionStart, selectionEnd)
+  scrollSpanIntoEditorView(editor)
 }
 
 function EditorIcon() {

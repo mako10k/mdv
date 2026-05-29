@@ -4,6 +4,11 @@ declare module '@toast-ui/editor' {
   export type EditorPos = MarkdownPos | number
   export type EditorSelection = [EditorPos, EditorPos]
   export type SelectionPos = Sourcepos | EditorSelection
+  export type EditorSlots = {
+    mdEditor: HTMLElement
+    mdPreview: HTMLElement
+    wwEditor: HTMLElement
+  }
 
   export type EditorOptions = {
     el: HTMLElement
@@ -24,6 +29,7 @@ declare module '@toast-ui/editor' {
     exec(name: string, payload?: Record<string, unknown>): void
     focus(): void
     getMarkdown(): string
+    getEditorElements(): EditorSlots
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
     getSelection(): SelectionPos
     setSelection(start: EditorPos, end?: EditorPos): void
