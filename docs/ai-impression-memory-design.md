@@ -4,6 +4,11 @@
 
 この文書は、AI chat の短期会話文脈とは別に管理する長期メモリ層として、Impression Memory を導入するための要件と設計を定義する。
 
+位置づけ:
+
+- この文書は current scaffold そのものではなく、その次段階として導入する memory subsystem の拡張設計である
+- 親設計でいう [docs/ai-chat-design.md](docs/ai-chat-design.md) の Phase 6 と Phase 7 を具体化する内訳として扱う
+
 主目的は、context window 制約の中でも次を維持することにある。
 
 - ユーザー固有の継続性
@@ -978,6 +983,14 @@ type RetrieveMemoryOutput = {
 
 ## Phased Rollout
 
+この章の Phase 1 から Phase 3 は subsystem 内の局所フェーズであり、親設計の product-wide roadmap を置き換えるものではない。
+
+対応関係:
+
+- この文書の Phase 1 は親設計の Phase 6 前半に相当する
+- この文書の Phase 2 は親設計の Phase 6 後半から Phase 7 前半に相当する
+- この文書の Phase 3 は親設計の Phase 7 後半に相当する
+
 ### Phase 1
 
 - rolling short context
@@ -999,6 +1012,8 @@ type RetrieveMemoryOutput = {
 - resonance retrieval
 - user-visible memory management UI
 - multi-device sync or external store evaluation
+
+詳細な実装タスク分解は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
 
 ## Open Questions
 
