@@ -1,24 +1,25 @@
 # MarkDownViewer
 
-Windows で動作するシンプルな Markdown エディタです。Electron 上で動作し、WYSIWYG 編集、Markdown ソース編集、diff、patch、CodeBlock renderer 拡張を 1 つのアプリにまとめています。
+Windows で動作する Markdown ワークスペースです。Electron 上で動作し、文書編集、レンダリングプレビュー、見出しアウトライン、AI chat、設定管理、HTML export を 1 つのアプリにまとめています。
 
 ## 特徴
 
-- 最小 UI
-- WYSIWYG / Markdown ソース切り替え
-- diff 表示と unified patch 適用
+- Markdown 編集とレンダリングプレビュー
+- 見出しアウトラインとエディタ内検索
+- AI chat window と editor context 添付
 - ドラッグアンドドロップでファイル読込
-- Open / Save / Save As
+- Open / Save / Save As / Print / HTML Export
 - fenced code block の renderer 差し替え
 - Windows 向け standalone 配布
 
 ## 画面構成
 
-- Write: 編集画面
-- Preview: Markdown プレビュー
-- Diff: baseline と現在文書の差分、および patch 適用
+- Editor window: 見出しアウトライン、エディタ、プレビューを用途に応じて切り替えて使う主画面
+- AI chat window: editor context を添付して assistant とやり取りする補助画面
+- Settings window: theme、locale、AI provider、安全設定を管理する補助画面
+- Fetch permissions window: guarded fetch の ACL と timeout を管理する補助画面
 
-上部ツールバーだけを残し、余白を削って編集領域を優先しています。
+現行 UI の棚卸しと、後方互換なしの再設計案は [docs/ui-reset-and-html-safety-review.md](docs/ui-reset-and-html-safety-review.md) を参照してください。
 
 ## 開発
 
@@ -224,6 +225,8 @@ registry.set('mermaid', MermaidBlock)
 - [docs/ai-chat-design.md](docs/ai-chat-design.md): AI チャット window、tool bridge、OpenAI 連携の設計
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット実装タスクの分解と着手順
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計
+- [docs/ui-reset-and-html-safety-review.md](docs/ui-reset-and-html-safety-review.md): HTML 安全性の実装監査と UI 全体の再設計案
+- [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md): UI 情報設計リセット方針の決定
 
 ## 主要ファイル
 
