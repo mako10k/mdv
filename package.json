@@ -1,7 +1,7 @@
 {
   "name": "mdv",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Minimal Windows markdown editor with WYSIWYG, source, diff and patch support.",
   "author": "GitHub Copilot",
   "type": "module",
