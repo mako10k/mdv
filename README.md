@@ -183,6 +183,25 @@ npm run dist:win:dir
 - 白画面や起動失敗のときは `%APPDATA%\MarkDownViewer\logs\mdv.log` を確認してください。
 - `diff` は staged incremental sync なので、Node.js バージョン変更、依存関係崩れ、成果物不整合が疑わしいときは `full` を使ってください。
 
+## バージョン管理
+
+- 正規のアプリバージョンは `package.json` の `version` だけを使います。Windows 配布物や実行ファイル名はここから派生させ、別管理のバージョン番号は持ちません。
+- バージョニングは SemVer ベースですが、`1.0.0` までは `0.y.z` を使います。
+- `0.y.0` は user-visible な機能追加、大きな UX 変更、互換性に影響しうる挙動変更、永続 workflow や契約変更に使います。
+- `0.y.z` の patch はバグ修正、UI 調整、配布物再生成、packaging/runtime 修正など、同じ feature line の中で閉じる変更に使います。
+- 同じ source commit 系列を再 packaging しただけで tracked binary だけが更新された場合は、意図した配布ラインが変わらない限り version は据え置きにします。
+- `1.0.0` は、設定保存、ファイル入出力、AI tool contract など主要な互換性ルールを明示して守る段階に入るまで予約します。
+
+リリースを切るときの手順:
+
+1. `package.json` の `version` を bump する。
+2. `npm run lint && npm run build` を通す。
+3. `npm run dist:win:host:noadmin:full` で配布物を更新する。
+4. version bump と対応する Windows artifact を同じ release slice として commit する。
+5. `main` へ push したあと、annotated tag `vX.Y.Z` を作る。
+
+通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` を参照してください。
+
 ## ファイル操作
 
 - Open: ファイル選択ダイアログから読込
