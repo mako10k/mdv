@@ -241,7 +241,8 @@ registry.set('mermaid', MermaidBlock)
 ## 設計メモ
 
 - [docs/ai-chat-design.md](docs/ai-chat-design.md): AI チャット window、tool bridge、OpenAI 連携の設計
-- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット実装タスクの分解と着手順
+- [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
+- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計
 - [docs/ui-reset-and-html-safety-review.md](docs/ui-reset-and-html-safety-review.md): HTML 安全性の実装監査と UI 全体の再設計案
 - [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md): UI 情報設計リセット方針の決定

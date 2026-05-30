@@ -6,6 +6,7 @@
 
 - この文書には separate chat window 前提で切った初期タスク分解が含まれる
 - 現在の primary surface は editor window 内の assistant dock であり、window 分離前提の項目は履歴的検討として読むこと
+- 現在の優先順位と着手順は [docs/current-backlog.md](docs/current-backlog.md) を正とする
 
 [docs/ai-chat-design.md](docs/ai-chat-design.md) を実装へ落とすための作業分解。
 
