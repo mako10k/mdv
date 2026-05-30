@@ -2531,18 +2531,26 @@ function App() {
             >
               <span className="toolbar-text-icon" aria-hidden="true">AI</span>
             </ToolbarButton>
-            <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
-              <CopyIcon />
-            </ToolbarButton>
-            <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
-              <CopyIcon />
-            </ToolbarButton>
-            <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
-              <PrintIcon />
-            </ToolbarButton>
-            <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
-              <ExportIcon />
-            </ToolbarButton>
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
+                <CopyIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
+                <CopyIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
+                <PrintIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'preview' ? (
+              <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
+                <ExportIcon />
+              </ToolbarButton>
+            ) : null}
             <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
               <SettingsIcon />
             </ToolbarButton>
@@ -2568,7 +2576,7 @@ function App() {
               </section>
             ) : null}
 
-            <div className={activePanel === 'preview' ? 'single-panel workspace-panels preview-focused' : 'single-panel workspace-panels editor-focused'}>
+            <div className="single-panel">
               <aside className="panel outline-panel" aria-label={t.app.outline}>
                 <div className="outline-panel-header">{t.app.outline}</div>
                 {headingOutline.length === 0 ? (
@@ -2595,60 +2603,62 @@ function App() {
                   </div>
                 )}
               </aside>
-              <div className={activePanel === 'write' ? 'panel editor-panel full-panel panel-focused' : 'panel editor-panel full-panel panel-secondary'}>
-                <EditorSurface
-                  key={editorSessionKey}
-                  value={markdownText}
-                  onChange={(nextMarkdown) => {
-                    invalidateEditorSearch()
-                    setMarkdownText(nextMarkdown)
-                  }}
-                  editorRef={editorRef}
-                  onReady={(editor) => {
-                    if (shouldCanonicalizeLoadedBaselineRef.current) {
-                      const canonicalMarkdown = editor.getMarkdown()
-                      shouldCanonicalizeLoadedBaselineRef.current = false
-                      persistedMarkdownRef.current = canonicalMarkdown
-                      setPersistedMarkdown(canonicalMarkdown)
-                      setMarkdownText(canonicalMarkdown)
-                    }
+              <div className="panel-stack full-panel">
+                <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>
+                  <EditorSurface
+                    key={editorSessionKey}
+                    value={markdownText}
+                    onChange={(nextMarkdown) => {
+                      invalidateEditorSearch()
+                      setMarkdownText(nextMarkdown)
+                    }}
+                    editorRef={editorRef}
+                    onReady={(editor) => {
+                      if (shouldCanonicalizeLoadedBaselineRef.current) {
+                        const canonicalMarkdown = editor.getMarkdown()
+                        shouldCanonicalizeLoadedBaselineRef.current = false
+                        persistedMarkdownRef.current = canonicalMarkdown
+                        setPersistedMarkdown(canonicalMarkdown)
+                        setMarkdownText(canonicalMarkdown)
+                      }
 
-                    if (!pendingSearchJump) {
-                      return
-                    }
+                      if (!pendingSearchJump) {
+                        return
+                      }
 
-                    selectSpanInEditor(editor, pendingSearchJump)
-                    setPendingSearchJump(null)
-                  }}
-                />
-              </div>
-              <div className={activePanel === 'preview' ? 'panel preview-panel full-panel panel-focused' : 'panel preview-panel full-panel panel-secondary'}>
-                <div ref={previewRootRef} className="preview-scroll compact-preview">
-                  {segments.map((segment, index) => {
-                    if (segment.type === 'markdown') {
+                      selectSpanInEditor(editor, pendingSearchJump)
+                      setPendingSearchJump(null)
+                    }}
+                  />
+                </div>
+                <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
+                  <div ref={previewRootRef} className="preview-scroll compact-preview">
+                    {segments.map((segment, index) => {
+                      if (segment.type === 'markdown') {
+                        return (
+                          <section
+                            key={`md-${index}`}
+                            className="markdown-fragment"
+                            dangerouslySetInnerHTML={{
+                              __html: renderMarkdownSegment(segment.value),
+                            }}
+                          />
+                        )
+                      }
+
+                      const Renderer =
+                        rendererRegistry.get(segment.language) ?? DefaultCodeBlock
+
                       return (
-                        <section
-                          key={`md-${index}`}
-                          className="markdown-fragment"
-                          dangerouslySetInnerHTML={{
-                            __html: renderMarkdownSegment(segment.value),
-                          }}
+                        <Renderer
+                          key={`code-${index}`}
+                          code={segment.code}
+                          language={segment.language}
+                          theme={resolvedTheme}
                         />
                       )
-                    }
-
-                    const Renderer =
-                      rendererRegistry.get(segment.language) ?? DefaultCodeBlock
-
-                    return (
-                      <Renderer
-                        key={`code-${index}`}
-                        code={segment.code}
-                        language={segment.language}
-                        theme={resolvedTheme}
-                      />
-                    )
-                  })}
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

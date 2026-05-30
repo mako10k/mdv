@@ -131,7 +131,7 @@ AI が使う操作面。
 ## Why Default Dock
 
 - editor と assistant の往復コストを減らせる
-- outline、editor、preview、assistant を同じ作業面で扱える
+- outline、editor、preview、assistant を同じ workspace で扱える
 - context 添付と編集結果の適用を一続きの導線にできる
 - API キーやツール実行状態の main process 隔離は、dock 化しても維持できる
 

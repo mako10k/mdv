@@ -312,10 +312,6 @@
   padding: 10px;
 }
 
-.workspace-panels {
-  align-items: stretch;
-}
-
 .outline-panel {
   flex: 0 0 240px;
   min-width: 220px;
@@ -401,12 +397,24 @@
   min-height: 0;
 }
 
-.panel-focused {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--link) 26%, transparent), var(--shadow);
+.panel-stack {
+  position: relative;
 }
 
-.panel-secondary {
-  opacity: 0.9;
+.panel-stack-item {
+  position: absolute;
+  inset: 0;
+}
+
+.panel-stack-item-active {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-stack-item-inactive {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .editor-panel .toastui-editor-defaultUI {
@@ -849,7 +857,7 @@
     padding: 8px;
   }
 
-  .workspace-panels {
+  .single-panel {
     flex-direction: column;
   }
 

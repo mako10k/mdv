@@ -111,22 +111,22 @@
 
 1. 上部 topbar
 2. editor search row
-3. outline + editor + preview の同一 workspace
-4. 右側に assistant dock を開閉できる
+3. write のときだけ outline + editor の 2 カラム
+4. preview のときは outline + preview
 5. 下部 statusbar
 
 良い点:
 
 - 上部に主要アクションが集約されている
-- outline、editor、preview を同じ画面で見比べられる
-- assistant を同じ workspace に引き込める
+- outline が editor/preview の両 panel から使える
+- assistant dock は必要時だけ開ける
 
 問題:
 
 - 検索、view switch、保存、設定、AI chat、theme が同じ topbar に詰め込まれていて情報密度が高い
 - topbar の情報密度はまだ高く、command grouping も未導入
 - statusbar に説明文を載せすぎており、状態通知とヘルプが競合している
-- activePanel が主表示の強調に変わった一方、状態モデル名はまだ旧来のまま
+- write と preview が排他的なため、比較は panel 切替前提になる
 - 現在地、dirty 状態、mode、文書操作、AI 操作が視覚的にグルーピングされていない
 
 ### Current AI chat structure
@@ -231,13 +231,13 @@ AI chat を独立 window に固定せず、既定では workspace 右 dock と�
 
 #### 3. Main work area
 
-既定は 3 ペイン:
+既定は workspace-first だが、main surface は viewer semantics を優先する:
 
 1. Outline / search / references sidebar
-2. Editor center pane
-3. Preview pane
+2. Main panel は write か preview のどちらか一方を前面表示する
+3. Editor state は panel 切り替えで失わない
 
-write と preview の二者択一はやめる。既定で同時表示し、狭い画面だけ tab collapse する。
+write と preview の二者択一自体は維持するが、assistant は別 dock として同じ workspace に統合する。
 
 #### 4. Assistant dock
 
@@ -323,8 +323,8 @@ UI 再設計と同時に HTML trust model も作り直す。
 順序:
 
 1. HTML sanitizer pipeline を共通化する
-2. workspace window を 3 ペイン化する
-3. assistant を dock 化する
+2. assistant を dock 化する
+3. viewer semantics を保つ main panel 切り替えへ再編する
 4. status/toast/help を unified activity strip に統合する
 5. shortcut overlay と command palette を入れる
 6. settings IA を tasks 基準に組み替える
@@ -332,7 +332,7 @@ UI 再設計と同時に HTML trust model も作り直す。
 ## Recommended next implementation slices
 
 1. `rendered HTML` の共通 sanitizer utility 導入
-2. editor / preview 同時表示レイアウトへの切り替え
+2. viewer-priority な main panel 切り替えの整理
 3. assistant dock の統合
 4. shortcut registry と overlay 実装
 5. settings taxonomy の再編
