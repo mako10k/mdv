@@ -46,7 +46,7 @@ MDV は次の点ですでに強い。
 | 基本保存安全性 | Fit | Save / Save As、dirty 表示、外部変更追従、競合保存、merge save あり | なし |
 | ドラッグ&ドロップ読込 | Fit | ローカルファイルとして接続したまま読込できる | なし |
 | プレビュー確認 | Partial Fit | Preview、印刷、HTML export はある | side-by-side 常時比較、スクロール同期、カーソル連動がない |
-| 文内検索 | Partial Fit | exact search はある | replace、正規表現置換、複数置換がない。現状の exact search は AI slice search 権限に依存しているため、editor 固有機能として独立性が弱い |
+| 文内検索 | Partial Fit | exact search はある | replace、正規表現置換、複数置換がない。exact search 自体は editor ローカル機能として独立したが、日常編集に必要な replace 系と選択範囲・条件変更時の安定性を強化する余地がある |
 | 長文ナビゲーション | Partial Fit | 見出しアウトラインと見出しジャンプはある | 現在カーソル位置に応じた active heading、TOC、さらに長文での追従強化が必要 |
 | Markdown 入力補助 | Partial Fit | Toast UI Editor 標準 toolbar と基本コマンドはある | MDV として使う主要挿入操作の導線、選択 wrap、command palette 的な呼び出しが弱い |
 | 画像・添付資産 | Gap | relative image の export は考慮されている | 画像貼り付け、ドラッグ投入、相対パス配置、添付ファイル管理がない |
@@ -77,7 +77,7 @@ Markdown 編集という観点での優先 gap は次の 5 つに集約される
 
 #### MD-BL-001 文内 Find & Replace
 
-- 種別: 追加
+- 種別: 完了
 - 目的: Markdown の日常編集で最低限必要な置換操作を提供する
 - 内容:
   - 現在の exact search UI を拡張し、replace / replace all を追加
@@ -86,6 +86,7 @@ Markdown 編集という観点での優先 gap は次の 5 つに集約される
 - 完了条件:
   - 単一置換、全置換、キャンセルが可能
   - Preview/Write のどちらからでも呼べる
+  - later-hit jump、in-selection replace all、検索条件変更時の stale result 破棄が回帰テストで固定されている
 
 #### MD-BL-002 見出しアウトライン追従強化
 

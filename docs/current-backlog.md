@@ -22,6 +22,7 @@
 - explicit context attachment、tool result bubble、fetch ACL、settings/fetch permissions 補助 window を実装
 - preview 優先の panel semantics、outline 表示条件、assistant dock の重なり問題を修正
 - Playwright による主要 UI レイアウト回帰テストを導入
+- local exact find/replace、replace all、match case / regexp / 選択範囲オプション、検索結果ジャンプ回帰を実装
 
 このため、以後のバックログは「assistant を成立させるための初期土台」ではなく、「製品として何を次に良くするか」で切る。
 
@@ -29,9 +30,8 @@
 
 ### P0 Editor Core
 
-1. MD-BL-001 Find & Replace
-2. MD-BL-003 Autosave / Crash Recovery
-3. MD-BL-002 見出しアウトライン追従強化
+1. MD-BL-003 Autosave / Crash Recovery
+2. MD-BL-002 見出しアウトライン追従強化
 
 理由:
 

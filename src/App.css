@@ -175,6 +175,7 @@
 .editor-search-shell {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   min-height: 28px;
   padding: 0 6px;
@@ -184,7 +185,8 @@
 }
 
 .editor-search-mode,
-.editor-search-input {
+.editor-search-input,
+.editor-search-replace-input {
   border: none;
   background: transparent;
   color: var(--text);
@@ -201,8 +203,36 @@
   font-size: 12px;
 }
 
+.editor-search-replace-input {
+  min-width: 150px;
+  font-size: 12px;
+}
+
 .editor-search-mode:focus,
-.editor-search-input:focus {
+.editor-search-input:focus,
+.editor-search-replace-input:focus {
+  outline: none;
+}
+
+.editor-search-toggle,
+.editor-search-text-button {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  border-radius: 7px;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.editor-search-toggle.active,
+.editor-search-toggle:hover,
+.editor-search-toggle:focus-visible,
+.editor-search-text-button:hover,
+.editor-search-text-button:focus-visible {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
   outline: none;
 }
 

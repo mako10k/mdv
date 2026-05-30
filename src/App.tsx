@@ -660,6 +660,22 @@ type EditorSearchResult = {
   meta: string
 }
 
+type ExactEditorSearchOptions = {
+  matchCase: boolean
+  useRegexp: boolean
+  inSelection: boolean
+}
+
+type ExactEditorSearchExecution = {
+  results: EditorSearchResult[]
+  scope: ExactEditorSearchScope
+}
+
+type ExactEditorSearchScope = {
+  startOffset: number
+  endOffset: number
+}
+
 function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
@@ -672,6 +688,94 @@ function ToolbarButton({ label, active = false, onClick, children }: ToolbarButt
       {children}
     </button>
   )
+}
+
+function escapeRegExpPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildExactSearchExpression(query: string, options: ExactEditorSearchOptions): RegExp {
+  const source = options.useRegexp ? query : escapeRegExpPattern(query)
+  const testExpression = new RegExp(source, options.matchCase ? '' : 'i')
+
+  if (testExpression.test('')) {
+    throw new Error('Search patterns that match empty text are not supported')
+  }
+
+  return new RegExp(source, options.matchCase ? 'g' : 'gi')
+}
+
+function buildEditorSearchPreview(markdown: string, startOffset: number, endOffset: number): string {
+  const previewStart = Math.max(0, startOffset - 28)
+  const previewEnd = Math.min(markdown.length, endOffset + 44)
+  const prefix = previewStart > 0 ? '...' : ''
+  const suffix = previewEnd < markdown.length ? '...' : ''
+
+  return `${prefix}${markdown.slice(previewStart, previewEnd).replace(/\s+/g, ' ')}${suffix}`
+}
+
+function getExactEditorSearchScope(markdown: string, editor: ToastUiEditor | null, inSelection: boolean): ExactEditorSearchScope {
+  if (!inSelection) {
+    return {
+      startOffset: 0,
+      endOffset: markdown.length,
+    }
+  }
+
+  if (!editor) {
+    throw new Error('Editor is unavailable')
+  }
+
+  const selectionSpan = normalizeSelectionToMarkdownSpan(editor, markdown)
+
+  if (selectionSpan.isEmpty) {
+    throw new Error('A non-empty selection is required')
+  }
+
+  return {
+    startOffset: markdownPosToOffset(markdown, selectionSpan.start),
+    endOffset: markdownPosToOffset(markdown, selectionSpan.end),
+  }
+}
+
+function runExactEditorSearch(
+  markdown: string,
+  editor: ToastUiEditor | null,
+  query: string,
+  options: ExactEditorSearchOptions,
+  scopeOverride?: ExactEditorSearchScope | null,
+): ExactEditorSearchExecution {
+  const scope = scopeOverride ?? getExactEditorSearchScope(markdown, editor, options.inSelection)
+
+  if (query.length === 0) {
+    return { results: [], scope }
+  }
+
+  const scopedText = markdown.slice(scope.startOffset, scope.endOffset)
+  const expression = buildExactSearchExpression(query, options)
+  const results: EditorSearchResult[] = []
+  let match = expression.exec(scopedText)
+
+  while (match) {
+    const matchStartOffset = scope.startOffset + match.index
+    const matchEndOffset = matchStartOffset + match[0].length
+    const span = normalizeOffsetsToSpan(markdown, matchStartOffset, matchEndOffset)
+
+    results.push({
+      id: `exact:${matchStartOffset}:${matchEndOffset}:${results.length}`,
+      span,
+      preview: buildEditorSearchPreview(markdown, matchStartOffset, matchEndOffset),
+      meta: `${span.start.line}:${span.start.column}`,
+    })
+
+    match = expression.exec(scopedText)
+  }
+
+  return { results, scope }
+}
+
+function replaceOffsets(markdown: string, startOffset: number, endOffset: number, replacement: string): string {
+  return `${markdown.slice(0, startOffset)}${replacement}${markdown.slice(endOffset)}`
 }
 
 function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
@@ -754,15 +858,14 @@ function scrollSpanIntoEditorView(editor: ToastUiEditor) {
 }
 
 function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
-  const root = getActiveEditorRoot(editor)
   const markdownStart = toToastMarkdownPos(span.start)
   const markdownEnd = toToastMarkdownPos(span.end)
   const [selectionStart, selectionEnd] = editor.isMarkdownMode()
     ? [markdownStart, markdownEnd]
     : editor.convertPosToMatchEditorMode(markdownStart, markdownEnd, 'wysiwyg')
 
-  focusEditorAnchorTarget(root)
   editor.setSelection(selectionStart, selectionEnd)
+  editor.focus()
   scrollSpanIntoEditorView(editor)
 }
 
@@ -1268,13 +1371,17 @@ function App() {
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
+  const [editorSearchReplacement, setEditorSearchReplacement] = useState('')
+  const [isEditorSearchMatchCase, setIsEditorSearchMatchCase] = useState(false)
+  const [isEditorSearchRegexp, setIsEditorSearchRegexp] = useState(false)
+  const [isEditorSearchInSelection, setIsEditorSearchInSelection] = useState(false)
+  const [exactEditorSearchScope, setExactEditorSearchScope] = useState<ExactEditorSearchScope | null>(null)
   const [editorSearchResults, setEditorSearchResults] = useState<EditorSearchResult[]>([])
   const [selectedSearchResultIndex, setSelectedSearchResultIndex] = useState(-1)
   const [pendingSearchJump, setPendingSearchJump] = useState<MdvAiNormalizedSpan | null>(null)
   const [isRunningEditorSearch, setIsRunningEditorSearch] = useState(false)
   const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
-  const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [editorSessionKey, setEditorSessionKey] = useState(0)
@@ -1518,7 +1625,6 @@ function App() {
       }
 
       const sliceSearchEnabled = resolvedSettings?.ai.toolPermissions.sliceSearch !== false
-      setIsSliceSearchEnabled(sliceSearchEnabled)
       setIsSemanticSearchAvailable(Boolean(sliceSearchEnabled && resolvedSettings?.ai.openai.enabled && providerStatus?.openaiConfigured))
     }
 
@@ -1528,7 +1634,6 @@ function App() {
 
     void refreshSemanticAvailability().catch(() => {
       if (active) {
-        setIsSliceSearchEnabled(false)
         setIsSemanticSearchAvailable(false)
       }
     })
@@ -1544,15 +1649,26 @@ function App() {
       return
     }
 
-    const editor = editorRef.current
-
-    if (!editor) {
+    if (activePanel !== 'write') {
       return
     }
 
-    selectSpanInEditor(editor, pendingSearchJump)
-    setPendingSearchJump(null)
-  }, [pendingSearchJump])
+    const jumpSpan = pendingSearchJump
+    const frameId = window.requestAnimationFrame(() => {
+      const editor = editorRef.current
+
+      if (!editor) {
+        return
+      }
+
+      selectSpanInEditor(editor, jumpSpan)
+      setPendingSearchJump(null)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [activePanel, pendingSearchJump])
 
   useEffect(() => {
     let active = true
@@ -1600,6 +1716,7 @@ function App() {
     setPendingSearchJump(null)
     setEditorSearchError(null)
     setIsEditorSearchResultsVisible(false)
+    setExactEditorSearchScope(null)
   }
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
@@ -1813,11 +1930,11 @@ function App() {
     i18nRef.current = t
   })
 
-  const jumpToEditorSearchResult = (result: EditorSearchResult, index: number) => {
+  const jumpToEditorSearchResult = (result: EditorSearchResult, index: number, total = editorSearchResults.length) => {
     setSelectedSearchResultIndex(index)
     setPendingSearchJump(result.span)
     setActivePanel('write')
-    setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(editorSearchResults.length, index + 1)))
+    setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(total, index + 1)))
   }
 
   const jumpToOutlineHeading = (item: MdvMdastHeadingOutlineItem) => {
@@ -1832,16 +1949,46 @@ function App() {
   }
 
   const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
-  const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? isSliceSearchEnabled : isSemanticSearchAvailable
+  const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? true : isSemanticSearchAvailable
+  const exactEditorSearchOptions: ExactEditorSearchOptions = {
+    matchCase: isEditorSearchMatchCase,
+    useRegexp: isEditorSearchRegexp,
+    inSelection: isEditorSearchInSelection,
+  }
+
+  const applyEditorSearchState = (
+    nextResults: EditorSearchResult[],
+    nextSelectedIndex: number,
+    options?: {
+      error?: string | null
+      visible?: boolean
+      jump?: boolean
+    },
+  ) => {
+    setEditorSearchResults(nextResults)
+    setSelectedSearchResultIndex(nextSelectedIndex)
+    setEditorSearchError(options?.error ?? null)
+    setIsEditorSearchResultsVisible(options?.visible ?? (nextResults.length > 0 || Boolean(options?.error)))
+
+    if (options?.jump && nextSelectedIndex >= 0 && nextSelectedIndex < nextResults.length) {
+      const result = nextResults[nextSelectedIndex]
+      setPendingSearchJump(result.span)
+      setActivePanel('write')
+      return
+    }
+
+    setPendingSearchJump(null)
+  }
+
+  const runLocalExactEditorSearch = (sourceMarkdown: string, scopeOverride?: ExactEditorSearchScope | null) => {
+    return runExactEditorSearch(sourceMarkdown, editorRef.current, editorSearchQuery, exactEditorSearchOptions, scopeOverride)
+  }
 
   const handleRunEditorSearch = async () => {
-    const query = editorSearchQuery.trim()
+    const query = resolvedEditorSearchMode === 'semantic' ? editorSearchQuery.trim() : editorSearchQuery
 
     if (query.length === 0) {
-      setEditorSearchResults([])
-      setSelectedSearchResultIndex(-1)
-      setEditorSearchError(null)
-      setIsEditorSearchResultsVisible(false)
+      applyEditorSearchState([], -1, { visible: false })
       setStatusText(t.app.status.clearedEditorSearch)
       return
     }
@@ -1851,33 +1998,15 @@ function App() {
 
     try {
       if (resolvedEditorSearchMode === 'exact') {
-        if (!isSliceSearchEnabled) {
-          throw new Error('Slice search is disabled in settings')
-        }
+        const execution = runLocalExactEditorSearch(markdownText)
+        const { results } = execution
 
-        const payload = await window.mdvDesktop?.grepAiSlice({
-          target: {
-            editorId: 'editor:active',
-            span: { kind: 'document' },
-          },
-          query,
-          maxResults: 40,
-          persistBuffer: false,
-        })
+        setExactEditorSearchScope(execution.scope)
 
-        const results = payload?.matches.map((match, index) => ({
-          id: `exact:${match.line}:${match.column}:${index}`,
-          span: match.span,
-          preview: match.preview,
-          meta: `${match.line}:${match.column}`,
-        })) ?? []
-
-        setEditorSearchResults(results)
-        setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
-        setIsEditorSearchResultsVisible(results.length > 0)
+        applyEditorSearchState(results, results.length > 0 ? 0 : -1, { visible: results.length > 0 })
 
         if (results.length > 0) {
-          jumpToEditorSearchResult(results[0], 0)
+          jumpToEditorSearchResult(results[0], 0, results.length)
         } else {
           setStatusText(t.app.status.noExactMatches(query))
         }
@@ -1906,24 +2035,122 @@ function App() {
         meta: `${result.layer} ${(result.score * 100).toFixed(1)}%`,
       })) ?? []
 
-      setEditorSearchResults(results)
-      setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
-      setIsEditorSearchResultsVisible(results.length > 0)
+      applyEditorSearchState(results, results.length > 0 ? 0 : -1, { visible: results.length > 0 })
 
       if (results.length > 0) {
-        jumpToEditorSearchResult(results[0], 0)
+        jumpToEditorSearchResult(results[0], 0, results.length)
       } else {
         setStatusText(t.app.status.noSemanticMatches(query))
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setEditorSearchError(message)
-      setEditorSearchResults([])
-      setSelectedSearchResultIndex(-1)
-      setIsEditorSearchResultsVisible(true)
+      applyEditorSearchState([], -1, { error: message, visible: true })
       setStatusText(t.app.status.searchFailed(message))
     } finally {
       setIsRunningEditorSearch(false)
+    }
+  }
+
+  const handleReplaceCurrentEditorSearchResult = () => {
+    try {
+      const query = editorSearchQuery
+
+      if (resolvedEditorSearchMode !== 'exact' || query.length === 0) {
+        return
+      }
+
+      const execution = runLocalExactEditorSearch(markdownText, exactEditorSearchScope)
+      const { results } = execution
+
+      setExactEditorSearchScope(execution.scope)
+
+      if (results.length === 0) {
+        applyEditorSearchState([], -1, { visible: false })
+        setStatusText(t.app.status.noExactMatches(query))
+        return
+      }
+
+      const targetIndex = selectedSearchResultIndex >= 0 && selectedSearchResultIndex < results.length
+        ? selectedSearchResultIndex
+        : 0
+      const targetResult = results[targetIndex]
+      const startOffset = markdownPosToOffset(markdownText, targetResult.span.start)
+      const endOffset = markdownPosToOffset(markdownText, targetResult.span.end)
+      const replacementText = isEditorSearchRegexp
+        ? markdownText.slice(startOffset, endOffset).replace(
+          new RegExp(query, isEditorSearchMatchCase ? '' : 'i'),
+          editorSearchReplacement,
+        )
+        : editorSearchReplacement
+      const nextMarkdown = replaceOffsets(markdownText, startOffset, endOffset, replacementText)
+      const nextScope = execution.scope.endOffset >= endOffset
+        ? {
+          startOffset: execution.scope.startOffset,
+          endOffset: execution.scope.endOffset + (replacementText.length - (endOffset - startOffset)),
+        }
+        : execution.scope
+      const nextSearch = runLocalExactEditorSearch(nextMarkdown, nextScope)
+      const nextIndex = nextSearch.results.length === 0 ? -1 : Math.min(targetIndex, nextSearch.results.length - 1)
+
+      setMarkdownText(nextMarkdown)
+      editorRef.current?.setMarkdown(nextMarkdown)
+      setExactEditorSearchScope(nextScope)
+      applyEditorSearchState(nextSearch.results, nextIndex, {
+        visible: nextSearch.results.length > 0,
+        jump: nextIndex >= 0,
+      })
+      setStatusText(t.app.status.replacedSearchResult(targetIndex + 1, results.length))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      applyEditorSearchState([], -1, { error: message, visible: true })
+      setStatusText(t.app.status.replaceFailed(message))
+    }
+  }
+
+  const handleReplaceAllEditorSearchResults = () => {
+    try {
+      const query = editorSearchQuery
+
+      if (resolvedEditorSearchMode !== 'exact' || query.length === 0) {
+        return
+      }
+
+      const execution = runLocalExactEditorSearch(markdownText, exactEditorSearchScope)
+
+      setExactEditorSearchScope(execution.scope)
+
+      if (execution.results.length === 0) {
+        applyEditorSearchState([], -1, { visible: false })
+        setStatusText(t.app.status.noExactMatches(query))
+        return
+      }
+
+      let nextMarkdown = markdownText
+
+      if (isEditorSearchRegexp) {
+        const scopedText = markdownText.slice(execution.scope.startOffset, execution.scope.endOffset)
+        const replacedScopedText = scopedText.replace(
+          buildExactSearchExpression(query, exactEditorSearchOptions),
+          editorSearchReplacement,
+        )
+        nextMarkdown = replaceOffsets(markdownText, execution.scope.startOffset, execution.scope.endOffset, replacedScopedText)
+      } else {
+        for (let index = execution.results.length - 1; index >= 0; index -= 1) {
+          const result = execution.results[index]
+          const startOffset = markdownPosToOffset(nextMarkdown, result.span.start)
+          const endOffset = markdownPosToOffset(nextMarkdown, result.span.end)
+          nextMarkdown = replaceOffsets(nextMarkdown, startOffset, endOffset, editorSearchReplacement)
+        }
+      }
+
+      setMarkdownText(nextMarkdown)
+      editorRef.current?.setMarkdown(nextMarkdown)
+      applyEditorSearchState([], -1, { visible: false })
+      setStatusText(t.app.status.replacedAllSearchResults(execution.results.length))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      applyEditorSearchState([], -1, { error: message, visible: true })
+      setStatusText(t.app.status.replaceFailed(message))
     }
   }
 
@@ -2407,6 +2634,7 @@ function App() {
                     return
                   }
 
+                  invalidateEditorSearch()
                   setEditorSearchMode(nextMode)
                 }}
               >
@@ -2419,7 +2647,10 @@ function App() {
                 type="search"
                 placeholder={t.app.searchInEditor}
                 value={editorSearchQuery}
-                onChange={(event) => setEditorSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  invalidateEditorSearch()
+                  setEditorSearchQuery(event.target.value)
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault()
@@ -2443,6 +2674,85 @@ function App() {
                   }
                 }}
               />
+              {resolvedEditorSearchMode === 'exact' ? (
+                <>
+                  <button
+                    type="button"
+                    className={isEditorSearchMatchCase ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchMatchCase((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchMatchCase}
+                    title={t.app.toggleSearchMatchCase}
+                  >
+                    Aa
+                  </button>
+                  <button
+                    type="button"
+                    className={isEditorSearchRegexp ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchRegexp((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchRegexp}
+                    title={t.app.toggleSearchRegexp}
+                  >
+                    .*
+                  </button>
+                  <button
+                    type="button"
+                    className={isEditorSearchInSelection ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchInSelection((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchInSelection}
+                    title={t.app.toggleSearchInSelection}
+                  >
+                    {t.app.toggleSearchInSelectionShort}
+                  </button>
+                  <input
+                    className="editor-search-replace-input"
+                    type="text"
+                    placeholder={t.app.replaceInEditor}
+                    value={editorSearchReplacement}
+                    onChange={(event) => setEditorSearchReplacement(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+
+                        if (event.shiftKey) {
+                          handleReplaceAllEditorSearchResults()
+                          return
+                        }
+
+                        handleReplaceCurrentEditorSearchResult()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="editor-search-text-button"
+                    onClick={handleReplaceCurrentEditorSearchResult}
+                    disabled={isRunningEditorSearch}
+                    aria-label={t.app.replaceResult}
+                    title={t.app.replaceResult}
+                  >
+                    {t.app.replace}
+                  </button>
+                  <button
+                    type="button"
+                    className="editor-search-text-button"
+                    onClick={handleReplaceAllEditorSearchResults}
+                    disabled={isRunningEditorSearch}
+                    aria-label={t.app.replaceAllResults}
+                    title={t.app.replaceAllResults}
+                  >
+                    {t.app.replaceAll}
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="editor-search-icon-button"
