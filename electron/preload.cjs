@@ -55,7 +55,6 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   trackCurrentFile: (filePath) => ipcRenderer.invoke('mdv:track-current-file', filePath),
   notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
-  openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),

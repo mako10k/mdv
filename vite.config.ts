@@ -10,7 +10,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
-        chat: fileURLToPath(new URL('./chat.html', import.meta.url)),
         settings: fileURLToPath(new URL('./settings.html', import.meta.url)),
         fetchPermissions: fileURLToPath(new URL('./fetch-permissions.html', import.meta.url)),
       },

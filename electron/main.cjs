@@ -40,8 +40,6 @@ let pendingLaunchRequest = resolveLaunchRequest(process.argv)
 let managedMainWindow = null
 let commandPollTimer = null
 const pendingServerRequests = new Map()
-const editorToAiChatWindowId = new Map()
-const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
 const launchStateByWindowId = new Map()
 const hiddenLaunchRevealTimerByWindowId = new Map()
@@ -4018,12 +4016,8 @@ function isFetchPermissionsWindow(window) {
   return Boolean(fetchPermissionsWindow) && Boolean(window) && fetchPermissionsWindow.id === window.id
 }
 
-function isAiChatWindow(window) {
-  return Boolean(window) && aiChatToEditorWindowId.has(window.id)
-}
-
 function isEditorWindow(window) {
-  return Boolean(window) && !isAiChatWindow(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
+  return Boolean(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
 }
 
 function getDefaultEditorWindow() {
@@ -4033,11 +4027,6 @@ function getDefaultEditorWindow() {
 function getEditorWindowForAiAction(candidateWindow) {
   if (!candidateWindow) {
     return getDefaultEditorWindow()
-  }
-
-  if (aiChatToEditorWindowId.has(candidateWindow.id)) {
-    const ownerWindowId = aiChatToEditorWindowId.get(candidateWindow.id)
-    return BrowserWindow.fromId(ownerWindowId) ?? null
   }
 
   if (isSettingsWindow(candidateWindow)) {
@@ -4064,12 +4053,6 @@ function getEditorWindowForAiAction(candidateWindow) {
 
   return candidateWindow
 }
-
-function getAiChatWindowForEditorWindow(editorWindow) {
-  const chatWindowId = editorToAiChatWindowId.get(editorWindow.id)
-  return chatWindowId ? BrowserWindow.fromId(chatWindowId) : null
-}
-
 function requestEditorWindowData(editorWindow, request) {
   if (!editorWindow || editorWindow.isDestroyed()) {
     return Promise.reject(new Error('Editor window is unavailable'))
@@ -4424,41 +4407,9 @@ function openAiChatWindow(targetWindow) {
     return { status: 'focused' }
   }
 
-  const existingChatWindow = getAiChatWindowForEditorWindow(editorWindow)
-
-  if (existingChatWindow && !existingChatWindow.isDestroyed()) {
-    focusWindow(existingChatWindow)
-    return { status: 'focused' }
-  }
-
-  const chatWindow = new BrowserWindow({
-    width: 520,
-    height: 760,
-    minWidth: 420,
-    minHeight: 540,
-    backgroundColor: '#fffaf4',
-    autoHideMenuBar: true,
-    icon: windowIcon,
-    parent: editorWindow,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-
-  editorToAiChatWindowId.set(editorWindow.id, chatWindow.id)
-  aiChatToEditorWindowId.set(chatWindow.id, editorWindow.id)
-
-  chatWindow.on('closed', () => {
-    aiChatToEditorWindowId.delete(chatWindow.id)
-    editorToAiChatWindowId.delete(editorWindow.id)
-    clearSessionBuffersForWindow(editorWindow.id)
-  })
-
-  loadRendererWindow(chatWindow, 'chat.html')
-  focusWindow(chatWindow)
-  writeLog('INFO', 'ai-chat', 'BrowserWindow created', { editorWindowId: editorWindow.id, chatWindowId: chatWindow.id })
+  focusWindow(editorWindow)
+  editorWindow.webContents.send('mdv:menu-action', 'open-ai-chat')
+  writeLog('INFO', 'ai-chat', 'Assistant dock requested', { editorWindowId: editorWindow.id })
 
   return { status: 'opened' }
 }
@@ -4907,13 +4858,6 @@ async function requestEditorCloseState(editorWindow) {
 }
 
 function closeAuxiliaryWindowsForEditor(editorWindow) {
-  const chatWindow = getAiChatWindowForEditorWindow(editorWindow)
-
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    approvedWindowCloseIds.add(chatWindow.id)
-    chatWindow.close()
-  }
-
   if (settingsWindowOwnerEditorId === editorWindow.id && settingsWindow && !settingsWindow.isDestroyed()) {
     approvedWindowCloseIds.add(settingsWindow.id)
     settingsWindow.close()
@@ -5541,11 +5485,6 @@ ipcMain.on('mdv:initial-launch-open-handled', (event) => {
 ipcMain.handle('mdv:export-html', async (event, payload) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   return saveHtmlExportToPath(window ?? undefined, payload)
-})
-
-ipcMain.handle('mdv:open-ai-chat', async (event) => {
-  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-  return openAiChatWindow(sourceWindow)
 })
 
 ipcMain.handle('mdv:open-settings-window', async (event) => {

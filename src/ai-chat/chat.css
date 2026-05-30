@@ -29,6 +29,21 @@ body,
   gap: 10px;
 }
 
+.ai-chat-close-button {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .ai-chat-header h1 {
   margin: 2px 0 0;
   font-size: 1.45rem;
@@ -465,6 +480,25 @@ body,
 .ai-chat-send:focus-visible {
   border-color: var(--link);
   outline: none;
+}
+
+.ai-chat-close-button:hover,
+.ai-chat-close-button:focus-visible {
+  border-color: var(--link);
+  outline: none;
+}
+
+.ai-chat-shell.embedded {
+  height: 100%;
+  min-height: 0;
+}
+
+.ai-chat-shell.embedded .ai-chat-header h1 {
+  font-size: 1.2rem;
+}
+
+.ai-chat-shell.embedded .ai-chat-subtitle {
+  max-width: none;
 }
 
 @media (max-width: 640px) {

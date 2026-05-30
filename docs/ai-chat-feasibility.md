@@ -2,6 +2,11 @@
 
 ## Scope
 
+注記:
+
+- この文書の T0-3 は separate chat window entry を評価した時点の feasibility record
+- 現在の primary surface は editor window 内の assistant dock であり、別 entry の記述は履歴扱いとする
+
 この文書は [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) の Track 0 を事実ベースで確認した結果をまとめる。
 
 確認対象:
@@ -110,6 +115,11 @@ write tool の canonical destination を Markdown 座標で持ち、実行直前
 
 ## T0-3 Chat Renderer Entry Feasibility
 
+注記:
+
+- この節は独立 chat renderer entry を初期 scaffold として評価した時点の記録
+- 現在の実装既定は editor window 内の assistant dock であり、独立 window は primary surface ではない
+
 ### Evidence
 
 - 現在の Vite 設定は [vite.config.ts](vite.config.ts#L1) の最小構成で、multi-entry を妨げる独自 build 制約はない
@@ -118,17 +128,19 @@ write tool の canonical destination を Markdown 座標で持ち、実行直前
 
 ### Implication
 
-chat window は次の形で分離実装できる。
+独立 chat window は当時の scaffold 候補としては実装可能だった。
 
 - `chat.html` を追加する
 - `src/ai-chat/main.tsx` を追加する
 - Vite build を multi-entry 化する
 - Electron では editor window は `index.html`、chat window は `chat.html` を読み分ける
 
+ただし current architecture ではこの分離 entry は採用せず、assistant surface は editor window 内の dock として統合した。
+
 ### Decision
 
-- chat renderer の独立 entry は feasible
-- main process 側に window kind ごとの load helper を追加するのが自然
+- separate chat renderer entry は feasibility 上は問題なかった
+- current implementation では dock 統合を優先し、この分離 entry は採用しない
 
 ## Recommended Adjustments Before Implementation
 

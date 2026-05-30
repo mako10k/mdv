@@ -450,7 +450,6 @@ interface Window {
     trackCurrentFile: (filePath?: string | null) => Promise<void>
     notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
-    openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>

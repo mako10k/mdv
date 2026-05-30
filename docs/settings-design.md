@@ -8,7 +8,7 @@
 
 ## Goals
 
-- editor window と AI chat window の両方から開ける設定画面を用意する
+- editor window と assistant surface の両方から開ける設定画面を用意する
 - theme のような既存のローカル設定を統合する
 - OpenAI と Tavily の設定面を段階的に UI へ寄せられる土台を用意する
 - Tavily web search と guarded fetch の許可設定を main process 側へ集約する
@@ -35,7 +35,7 @@
 - 書き換えの安全モード
 - 外部リンクと Web 検索の扱い
 
-これらを各 renderer が勝手に保持すると、editor window、chat window、main process の間で状態が分岐する。そのため、設定は main process の単一ソースオブトゥルースに統合する必要がある。
+これらを各 renderer が勝手に保持すると、editor window、assistant surface、main process の間で状態が分岐する。そのため、設定は main process の単一ソースオブトゥルースに統合する必要がある。
 
 ## UX Recommendation
 
@@ -43,8 +43,8 @@
 
 理由:
 
-- editor と chat のどちらからでも同じ画面を開ける
-- AI chat と同様に責務を分離できる
+- editor と assistant のどちらからでも同じ画面を開ける
+- assistant surface と同様に責務を分離できる
 - 後から設定カテゴリが増えても editor 本体を圧迫しない
 - 秘密情報の保存、接続確認、provider 状態表示を専用 UI に集約できる
 
@@ -60,24 +60,24 @@ fetch の許可設定は別 window とする。
 
 - `CmdOrCtrl+,`
 - メニューの `Settings`
-- AI chat header の `Settings` ボタン
+- editor window または assistant surface 上で `CmdOrCtrl+,`
 - editor toolbar の gear button optional
 
 ## Window Behavior
 
 - 既に設定画面が開いている場合は再利用して前面化する
-- 設定画面は modeless window とし、editor/chat と並行で参照できるようにする
+- 設定画面は modeless window とし、editor/assistant と並行で参照できるようにする
 - 設定画面は OS 上は parent を持たない top-level singleton window とし、last opener の editor を routing owner としてだけ記録する
 - 設定保存は即時反映を基本とし、秘密情報だけは明示保存でもよい
 
 ## Window Classification
 
-settings window は editor window や AI chat window とは別の auxiliary window として扱う。
+settings window は editor window や assistant surface とは別の auxiliary window として扱う。
 
 ルール:
 
 - editor 向け menu action の配送対象にはしない
-- AI chat の owner/target window 解決には含めない
+- assistant surface の owner/target window 解決には含めない
 - ただし last opener の editor は routing owner として保持し、必要時の復帰先解決に使う
 - managed client の suspend/resume snapshot 対象からは外す
 - 単純な再利用と前面化だけを main process で扱う

@@ -17,7 +17,9 @@ import katex from 'katex'
 import mermaid from 'mermaid'
 import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
+import ChatApp from './ai-chat/ChatApp'
 import './App.css'
+import './ai-chat/chat.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
 
@@ -1260,6 +1262,8 @@ function App() {
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
   const [statusText, setStatusTextState] = useState<string>(t.common.ready)
   const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
+  const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
+  const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
@@ -1333,6 +1337,28 @@ function App() {
       setActiveToast((currentToast) => (currentToast?.id === toastId ? null : currentToast))
       toastTimerRef.current = null
     }, 2600)
+  }
+
+  const openAssistantDock = (options?: { focus?: boolean; statusMessage?: string }) => {
+    setIsAssistantDockOpen(true)
+
+    if (options?.focus) {
+      setAssistantFocusNonce((currentValue) => currentValue + 1)
+    }
+
+    if (options?.statusMessage) {
+      setStatusText(options.statusMessage)
+    }
+  }
+
+  const closeAssistantDock = () => {
+    setIsAssistantDockOpen(false)
+
+    const editor = editorRef.current
+
+    if (editor) {
+      focusEditorAnchorTarget(getActiveEditorRoot(editor))
+    }
   }
 
   const replaceLoadedDocument = (nextMarkdown: string) => {
@@ -1513,7 +1539,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (activePanel !== 'write' || !pendingSearchJump) {
+    if (!pendingSearchJump) {
       return
     }
 
@@ -1525,13 +1551,9 @@ function App() {
 
     selectSpanInEditor(editor, pendingSearchJump)
     setPendingSearchJump(null)
-  }, [activePanel, pendingSearchJump])
+  }, [pendingSearchJump])
 
   useEffect(() => {
-    if (activePanel !== 'write') {
-      return
-    }
-
     let active = true
     outlineRequestIdRef.current += 1
     const requestId = outlineRequestIdRef.current
@@ -1560,7 +1582,7 @@ function App() {
       active = false
       window.clearTimeout(refreshTimer)
     }
-  }, [activePanel, markdownText])
+  }, [markdownText])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
@@ -2104,9 +2126,7 @@ function App() {
     }
 
     if (action === 'open-ai-chat') {
-      void window.mdvDesktop?.openAiChat().then(() => {
-        setStatusText(t.app.status.openedAiChat)
-      })
+      openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
       return
     }
 
@@ -2273,6 +2293,10 @@ function App() {
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest('.assistant-dock')) {
+        return
+      }
+
       const anchor = resolveExternalAnchor(event.target)
 
       if (!anchor) {
@@ -2493,140 +2517,158 @@ function App() {
             <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
-                <CopyIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
-                <CopyIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
-                <PrintIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
-                <ExportIcon />
-              </ToolbarButton>
-            ) : null}
+            <ToolbarButton
+              label={`${t.chat.title} (Ctrl/Cmd+I)`}
+              active={isAssistantDockOpen}
+              onClick={() => {
+                if (isAssistantDockOpen) {
+                  closeAssistantDock()
+                  return
+                }
+
+                openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
+              }}
+            >
+              <span className="toolbar-text-icon" aria-hidden="true">AI</span>
+            </ToolbarButton>
+            <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
+              <CopyIcon />
+            </ToolbarButton>
+            <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
+              <CopyIcon />
+            </ToolbarButton>
+            <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
+              <PrintIcon />
+            </ToolbarButton>
+            <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
+              <ExportIcon />
+            </ToolbarButton>
             <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
               <SettingsIcon />
             </ToolbarButton>
           </div>
         </header>
 
-        {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
-          <section className="editor-search-results" aria-label={t.app.searchResults}>
-            {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
-            {editorSearchResults.map((result, index) => (
-              <button
-                key={result.id}
-                type="button"
-                className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
-                onClick={() => jumpToEditorSearchResult(result, index)}
-              >
-                <span className="editor-search-result-meta">{result.meta}</span>
-                <span className="editor-search-result-preview">{result.preview}</span>
-              </button>
-            ))}
-          </section>
-        ) : null}
+        <div className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}>
+          <div className="workspace-main-column">
+            {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
+              <section className="editor-search-results" aria-label={t.app.searchResults}>
+                {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
+                {editorSearchResults.map((result, index) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
+                    onClick={() => jumpToEditorSearchResult(result, index)}
+                  >
+                    <span className="editor-search-result-meta">{result.meta}</span>
+                    <span className="editor-search-result-preview">{result.preview}</span>
+                  </button>
+                ))}
+              </section>
+            ) : null}
 
-        {activePanel === 'write' ? (
-          <div className="single-panel">
-            <aside className="panel outline-panel" aria-label={t.app.outline}>
-              <div className="outline-panel-header">{t.app.outline}</div>
-              {headingOutline.length === 0 ? (
-                <div className="outline-empty">{t.app.outlineEmpty}</div>
-              ) : (
-                <div className="outline-list">
-                  {headingOutline.map((item) => {
-                    const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+            <div className={activePanel === 'preview' ? 'single-panel workspace-panels preview-focused' : 'single-panel workspace-panels editor-focused'}>
+              <aside className="panel outline-panel" aria-label={t.app.outline}>
+                <div className="outline-panel-header">{t.app.outline}</div>
+                {headingOutline.length === 0 ? (
+                  <div className="outline-empty">{t.app.outlineEmpty}</div>
+                ) : (
+                  <div className="outline-list">
+                    {headingOutline.map((item) => {
+                      const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+
+                      return (
+                        <button
+                          key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                          type="button"
+                          className="outline-item"
+                          style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                          onClick={() => jumpToOutlineHeading(item)}
+                          title={headingLabel}
+                        >
+                          <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                          <span className="outline-item-label">{headingLabel}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </aside>
+              <div className={activePanel === 'write' ? 'panel editor-panel full-panel panel-focused' : 'panel editor-panel full-panel panel-secondary'}>
+                <EditorSurface
+                  key={editorSessionKey}
+                  value={markdownText}
+                  onChange={(nextMarkdown) => {
+                    invalidateEditorSearch()
+                    setMarkdownText(nextMarkdown)
+                  }}
+                  editorRef={editorRef}
+                  onReady={(editor) => {
+                    if (shouldCanonicalizeLoadedBaselineRef.current) {
+                      const canonicalMarkdown = editor.getMarkdown()
+                      shouldCanonicalizeLoadedBaselineRef.current = false
+                      persistedMarkdownRef.current = canonicalMarkdown
+                      setPersistedMarkdown(canonicalMarkdown)
+                      setMarkdownText(canonicalMarkdown)
+                    }
+
+                    if (!pendingSearchJump) {
+                      return
+                    }
+
+                    selectSpanInEditor(editor, pendingSearchJump)
+                    setPendingSearchJump(null)
+                  }}
+                />
+              </div>
+              <div className={activePanel === 'preview' ? 'panel preview-panel full-panel panel-focused' : 'panel preview-panel full-panel panel-secondary'}>
+                <div ref={previewRootRef} className="preview-scroll compact-preview">
+                  {segments.map((segment, index) => {
+                    if (segment.type === 'markdown') {
+                      return (
+                        <section
+                          key={`md-${index}`}
+                          className="markdown-fragment"
+                          dangerouslySetInnerHTML={{
+                            __html: renderMarkdownSegment(segment.value),
+                          }}
+                        />
+                      )
+                    }
+
+                    const Renderer =
+                      rendererRegistry.get(segment.language) ?? DefaultCodeBlock
 
                     return (
-                      <button
-                        key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
-                        type="button"
-                        className="outline-item"
-                        style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
-                        onClick={() => jumpToOutlineHeading(item)}
-                        title={headingLabel}
-                      >
-                        <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
-                        <span className="outline-item-label">{headingLabel}</span>
-                      </button>
+                      <Renderer
+                        key={`code-${index}`}
+                        code={segment.code}
+                        language={segment.language}
+                        theme={resolvedTheme}
+                      />
                     )
                   })}
                 </div>
-              )}
-            </aside>
-            <div className="panel editor-panel full-panel">
-              <EditorSurface
-                key={editorSessionKey}
-                value={markdownText}
-                onChange={(nextMarkdown) => {
-                  invalidateEditorSearch()
-                  setMarkdownText(nextMarkdown)
-                }}
-                editorRef={editorRef}
-                onReady={(editor) => {
-                  if (shouldCanonicalizeLoadedBaselineRef.current) {
-                    const canonicalMarkdown = editor.getMarkdown()
-                    shouldCanonicalizeLoadedBaselineRef.current = false
-                    persistedMarkdownRef.current = canonicalMarkdown
-                    setPersistedMarkdown(canonicalMarkdown)
-                    setMarkdownText(canonicalMarkdown)
-                  }
-
-                  if (!pendingSearchJump) {
-                    return
-                  }
-
-                  selectSpanInEditor(editor, pendingSearchJump)
-                  setPendingSearchJump(null)
-                }}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {activePanel === 'preview' ? (
-          <div className="single-panel">
-            <div className="panel preview-panel full-panel">
-              <div ref={previewRootRef} className="preview-scroll compact-preview">
-                {segments.map((segment, index) => {
-                  if (segment.type === 'markdown') {
-                    return (
-                      <section
-                        key={`md-${index}`}
-                        className="markdown-fragment"
-                        dangerouslySetInnerHTML={{
-                          __html: renderMarkdownSegment(segment.value),
-                        }}
-                      />
-                    )
-                  }
-
-                  const Renderer =
-                    rendererRegistry.get(segment.language) ?? DefaultCodeBlock
-
-                  return (
-                    <Renderer
-                      key={`code-${index}`}
-                      code={segment.code}
-                      language={segment.language}
-                      theme={resolvedTheme}
-                    />
-                  )
-                })}
               </div>
             </div>
           </div>
-        ) : null}
+
+          <aside
+            className={isAssistantDockOpen ? 'assistant-dock panel' : 'assistant-dock panel assistant-dock-hidden'}
+            aria-label={t.chat.title}
+            aria-hidden={!isAssistantDockOpen}
+            hidden={!isAssistantDockOpen}
+          >
+            <ChatApp
+              variant="dock"
+              autoFocusNonce={assistantFocusNonce}
+              onRequestClose={() => {
+                closeAssistantDock()
+              }}
+            />
+          </aside>
+        </div>
 
         <div className="statusbar">
           <span>{t.app.statusbarHelp}</span>

@@ -17,7 +17,7 @@
 - Renderer UI lives in `src/` and uses React + Toast UI Editor.
 - Electron main process lives in `electron/main.cjs` and owns window lifecycle, file I/O, and IPC orchestration.
 - The preload bridge in `electron/preload.cjs` is the only supported renderer boundary for desktop capabilities.
-- AI chat is a separate renderer entry under `src/ai-chat/`; keep chat-window concerns separate from editor-window concerns.
+- Assistant UI logic lives under `src/ai-chat/` and is currently embedded in the editor window as a dock; keep assistant concerns modular even though the primary surface is no longer a separate renderer entry.
 - `server/mdv-server.cjs` is the managed-client supervisor path. Treat it as a separate runtime from the normal editor window flow.
 
 ## Project-Specific Conventions

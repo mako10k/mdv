@@ -75,7 +75,7 @@
 ### Window inventory
 
 1. Editor window
-2. AI chat window
+2. Assistant dock in the editor window
 3. Settings window
 4. Fetch permissions auxiliary window
 
@@ -111,22 +111,22 @@
 
 1. 上部 topbar
 2. editor search row
-3. write のときだけ outline + editor の 2 カラム
-4. preview のときは単一 preview pane
+3. outline + editor + preview の同一 workspace
+4. 右側に assistant dock を開閉できる
 5. 下部 statusbar
 
 良い点:
 
 - 上部に主要アクションが集約されている
-- write 時に outline が常時見える
-- preview に印刷・HTML export を寄せている
+- outline、editor、preview を同じ画面で見比べられる
+- assistant を同じ workspace に引き込める
 
 問題:
 
 - 検索、view switch、保存、設定、AI chat、theme が同じ topbar に詰め込まれていて情報密度が高い
-- write と preview が排他的で、比較や連続作業の流れが切れる
+- topbar の情報密度はまだ高く、command grouping も未導入
 - statusbar に説明文を載せすぎており、状態通知とヘルプが競合している
-- outline は write 時にしか使えず、preview 読みでも文書構造に触れにくい
+- activePanel が主表示の強調に変わった一方、状態モデル名はまだ旧来のまま
 - 現在地、dirty 状態、mode、文書操作、AI 操作が視覚的にグルーピングされていない
 
 ### Current AI chat structure

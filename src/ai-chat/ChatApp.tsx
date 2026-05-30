@@ -3,6 +3,12 @@ import { useDesktopTheme } from '../shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 import ChatMarkdown from './ChatMarkdown'
 
+type ChatAppProps = {
+  variant?: 'window' | 'dock'
+  autoFocusNonce?: number
+  onRequestClose?: () => void
+}
+
 type ContextAttachmentKind = 'editor' | 'document' | 'selection'
 
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
@@ -370,11 +376,13 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
   }
 }
 
-function ChatApp() {
+function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatAppProps) {
   const { resolvedTheme } = useDesktopTheme()
   const { t } = useI18n()
   const i18nRef = useRef(t)
+  const rootRef = useRef<HTMLElement | null>(null)
   const transcriptRef = useRef<HTMLElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const forceScrollOnNextRenderRef = useRef(false)
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
@@ -392,8 +400,20 @@ function ChatApp() {
   })
 
   useEffect(() => {
+    if (variant !== 'window') {
+      return
+    }
+
     document.title = `MDV ${t.chat.title}`
-  }, [t])
+  }, [t, variant])
+
+  useEffect(() => {
+    if (variant !== 'dock' || autoFocusNonce <= 0) {
+      return
+    }
+
+    composerRef.current?.focus({ preventScroll: true })
+  }, [variant, autoFocusNonce])
 
   useEffect(() => {
     let active = true
@@ -470,6 +490,12 @@ function ChatApp() {
   }
 
   useEffect(() => {
+    const root = rootRef.current
+
+    if (!root) {
+      return
+    }
+
     const handleDocumentClick = (event: MouseEvent) => {
       const anchor = resolveExternalAnchor(event.target)
 
@@ -493,10 +519,10 @@ function ChatApp() {
       })
     }
 
-    document.addEventListener('click', handleDocumentClick, true)
+    root.addEventListener('click', handleDocumentClick, true)
 
     return () => {
-      document.removeEventListener('click', handleDocumentClick, true)
+      root.removeEventListener('click', handleDocumentClick, true)
     }
   }, [])
 
@@ -693,7 +719,7 @@ function ChatApp() {
   }
 
   return (
-    <main className="ai-chat-shell">
+    <section ref={rootRef} className={`ai-chat-shell ${variant === 'dock' ? 'embedded' : 'windowed'}`}>
       <header className="ai-chat-header">
         <div>
           <p className="ai-chat-eyebrow">{t.chat.eyebrow}</p>
@@ -702,6 +728,11 @@ function ChatApp() {
         </div>
         <div className="ai-chat-header-actions">
           <span className="ai-chat-status">{statusText}</span>
+          {variant === 'dock' && onRequestClose ? (
+            <button type="button" className="ai-chat-close-button" onClick={onRequestClose} aria-label={t.common.close} title={t.common.close}>
+              <span aria-hidden="true">×</span>
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -789,6 +820,7 @@ function ChatApp() {
         ) : null}
         <textarea
           id="ai-chat-input"
+          ref={composerRef}
           className="ai-chat-composer"
           placeholder={t.chat.messagePlaceholder}
           value={composerText}
@@ -805,7 +837,7 @@ function ChatApp() {
           </div>
         </div>
       </footer>
-    </main>
+    </section>
   )
 }
 
