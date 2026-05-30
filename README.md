@@ -72,6 +72,24 @@ AI chat の runtime 前提:
 npm run build
 ```
 
+E2E 回帰テスト:
+
+```bash
+npm test
+
+# 既に browser を導入済みならこちらでも可
+npm run test:e2e:install
+npm run test:e2e
+```
+
+`npm test` は必要な Chromium を確認してから、この suite を実行します。suite 自体は毎回 production build を作ってから preview server を起動し、その renderer に対して回帰確認を行います。
+
+ブラウザを開いて確認したいとき:
+
+```bash
+npm run test:e2e:headed
+```
+
 mdast 単体の確認:
 
 ```bash

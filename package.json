@@ -36,7 +36,11 @@
     "dist:win:installer": "npm run build && electron-builder --win nsis --config.directories.output=release/installer",
     "dist:win": "npm run build && electron-builder --win portable --config.directories.output=release/portable && electron-builder --win nsis --config.directories.output=release/installer",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm run test:e2e:install && npm run test:e2e",
+    "test:e2e": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test",
+    "test:e2e:headed": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test --headed",
+    "test:e2e:install": "playwright install chromium"
   },
   "build": {
     "appId": "local.markdownviewer",
@@ -96,6 +100,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "png-to-ico": "^3.0.1",
+    "@playwright/test": "^1.54.2",
     "rcedit": "^5.0.2",
     "sharp": "^0.34.5",
     "typescript": "~6.0.2",
