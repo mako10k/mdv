@@ -18,10 +18,10 @@ import mermaid from 'mermaid'
 import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
 import ChatApp from './ai-chat/ChatApp'
-import './App.css'
-import './ai-chat/chat.css'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
+import './App.css'
+import './ai-chat/chat.css'
 
 type CodeBlockProps = {
   code: string
@@ -411,6 +411,7 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
       el: hostRef.current,
       height: '100%',
       initialValue: initialValueRef.current,
+      // Keep Toast UI itself single-surface; app-level preview owns rendered output.
       initialEditType: 'markdown',
       previewStyle: 'tab',
       usageStatistics: false,
@@ -2576,33 +2577,35 @@ function App() {
               </section>
             ) : null}
 
-            <div className="single-panel">
-              <aside className="panel outline-panel" aria-label={t.app.outline}>
-                <div className="outline-panel-header">{t.app.outline}</div>
-                {headingOutline.length === 0 ? (
-                  <div className="outline-empty">{t.app.outlineEmpty}</div>
-                ) : (
-                  <div className="outline-list">
-                    {headingOutline.map((item) => {
-                      const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+            <div className={activePanel === 'write' ? 'single-panel single-panel-with-outline' : 'single-panel single-panel-preview-only'}>
+              {activePanel === 'write' ? (
+                <aside className="panel outline-panel" aria-label={t.app.outline}>
+                  <div className="outline-panel-header">{t.app.outline}</div>
+                  {headingOutline.length === 0 ? (
+                    <div className="outline-empty">{t.app.outlineEmpty}</div>
+                  ) : (
+                    <div className="outline-list">
+                      {headingOutline.map((item) => {
+                        const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
 
-                      return (
-                        <button
-                          key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
-                          type="button"
-                          className="outline-item"
-                          style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
-                          onClick={() => jumpToOutlineHeading(item)}
-                          title={headingLabel}
-                        >
-                          <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
-                          <span className="outline-item-label">{headingLabel}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </aside>
+                        return (
+                          <button
+                            key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                            type="button"
+                            className="outline-item"
+                            style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                            onClick={() => jumpToOutlineHeading(item)}
+                            title={headingLabel}
+                          >
+                            <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                            <span className="outline-item-label">{headingLabel}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </aside>
+              ) : null}
               <div className="panel-stack full-panel">
                 <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>
                   <EditorSurface
