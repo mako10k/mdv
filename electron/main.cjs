@@ -4598,7 +4598,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         previousResponseId,
         inputCount: nextInput.length,
       })
-      let streamedText = ''
+      let streamedTextSnapshot = ''
 
       const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
@@ -4614,7 +4614,9 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           return
         }
 
-        streamedText += event.delta
+        streamedTextSnapshot = typeof event.snapshot === 'string' && event.snapshot.length > 0
+          ? event.snapshot
+          : `${streamedTextSnapshot}${event.delta}`
 
         onStreamEvent?.({
           type: 'text-delta',
@@ -4628,24 +4630,34 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
-      const iterationReply = typeof response.output_text === 'string' && response.output_text.trim().length > 0
-        ? response.output_text
-        : streamedText
+      const outputItemTypes = outputItems.map((item) => item?.type || 'unknown')
+      const finalOutputText = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+      const streamedReply = streamedTextSnapshot.trim()
 
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
         iteration,
         responseId: previousResponseId,
         functionCallCount: functionCalls.length,
         outputItemCount: outputItems.length,
-        outputItemTypes: outputItems.map((item) => item?.type || 'unknown'),
-        streamedTextLength: streamedText.length,
+        outputItemTypes,
+        streamedTextLength: streamedTextSnapshot.length,
+        finalOutputTextLength: finalOutputText.length,
       })
 
       if (functionCalls.length === 0) {
-        const reply = iterationReply.trim()
+        if (!finalOutputText && streamedReply) {
+          writeLog('WARN', 'ai-chat', 'OpenAI final response dropped streamed output_text', {
+            iteration,
+            responseId: previousResponseId,
+            outputItemTypes,
+            streamedTextLength: streamedTextSnapshot.length,
+          })
+        }
+
+        const reply = finalOutputText || streamedReply
 
         if (!reply) {
-          throw new Error('OpenAI SDK returned no output_text')
+          throw new Error(`OpenAI SDK returned no output_text (output item types: ${outputItemTypes.join(', ') || 'none'})`)
         }
 
         return {
