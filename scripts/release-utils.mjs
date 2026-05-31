@@ -36,14 +36,17 @@ export function getReleaseArtifactManifest(rootDir, version) {
     {
       label: 'portable executable',
       path: path.join(windowsHostDir, 'portable', versionedExeName),
+      githubAssetName: `${PRODUCT_NAME}-${version}-portable-win.exe`,
     },
     {
       label: 'installer executable',
       path: path.join(windowsHostDir, 'installer', versionedExeName),
+      githubAssetName: `${PRODUCT_NAME}-${version}-installer-win.exe`,
     },
     {
       label: 'installer blockmap',
       path: path.join(windowsHostDir, 'installer', `${versionedExeName}.blockmap`),
+      githubAssetName: `${PRODUCT_NAME}-${version}-installer-win.exe.blockmap`,
     },
     {
       label: 'win-unpacked executable',

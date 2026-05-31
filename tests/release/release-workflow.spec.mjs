@@ -105,7 +105,9 @@ test('github release helper prints the exact gh command for the tagged artifacts
 
   assert.equal(result.status, 0)
   assert.match(result.stdout, /gh release create v1\.2\.3/)
-  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-win\.exe/)
+  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-portable-win\.exe/)
+  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe/)
+  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe\.blockmap/)
   assert.match(result.stdout, /--verify-tag/)
   assert.match(result.stdout, /--notes-file/)
 })

@@ -103,13 +103,19 @@ try {
 const title = options.title ?? `MDV ${validation.expectedTag}`
 const uploadArtifacts = validation.artifacts
   .filter((artifact) => artifact.label !== 'win-unpacked executable')
-  .map((artifact) => artifact.path)
+  .map((artifact) => ({
+    sourcePath: artifact.path,
+    uploadName: artifact.githubAssetName ?? path.basename(artifact.path),
+  }))
+
+const uploadDir = path.join(validation.rootDir, 'release', '.github-upload')
+const stagedUploadPaths = uploadArtifacts.map((artifact) => path.join(uploadDir, artifact.uploadName))
 
 const ghArgs = [
   'release',
   'create',
   validation.expectedTag,
-  ...uploadArtifacts,
+  ...stagedUploadPaths,
   '--verify-tag',
   '--title',
   title,
@@ -124,10 +130,19 @@ if (!options.execute) {
   process.exit(0)
 }
 
+await fs.rm(uploadDir, { recursive: true, force: true })
+await fs.mkdir(uploadDir, { recursive: true })
+
+for (const artifact of uploadArtifacts) {
+  await fs.copyFile(artifact.sourcePath, path.join(uploadDir, artifact.uploadName))
+}
+
 const result = spawnSync('gh', ghArgs, {
   cwd: validation.rootDir,
   stdio: 'inherit',
 })
+
+await fs.rm(uploadDir, { recursive: true, force: true })
 
 if (result.error) {
   throw result.error
