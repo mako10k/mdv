@@ -4599,6 +4599,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         inputCount: nextInput.length,
       })
       let streamedTextSnapshot = ''
+      let streamedTextDone = ''
 
       const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
@@ -4624,6 +4625,14 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         })
       })
 
+      responseStream.on('response.output_text.done', (event) => {
+        if (typeof event.text !== 'string' || event.text.length === 0) {
+          return
+        }
+
+        streamedTextDone = event.text
+      })
+
       const response = await responseStream.finalResponse()
 
       previousResponseId = typeof response.id === 'string' ? response.id : null
@@ -4632,6 +4641,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
       const outputItemTypes = outputItems.map((item) => item?.type || 'unknown')
       const finalOutputText = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+      const doneReply = streamedTextDone.trim()
       const streamedReply = streamedTextSnapshot.trim()
 
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
@@ -4641,12 +4651,23 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         outputItemCount: outputItems.length,
         outputItemTypes,
         streamedTextLength: streamedTextSnapshot.length,
+        streamedDoneTextLength: streamedTextDone.length,
         finalOutputTextLength: finalOutputText.length,
       })
 
       if (functionCalls.length === 0) {
-        if (!finalOutputText && streamedReply) {
-          writeLog('WARN', 'ai-chat', 'OpenAI final response dropped streamed output_text', {
+        if (!finalOutputText && doneReply) {
+          writeLog('WARN', 'ai-chat', 'OpenAI final response dropped output_text; using output_text.done', {
+            iteration,
+            responseId: previousResponseId,
+            outputItemTypes,
+            streamedDoneTextLength: streamedTextDone.length,
+            streamedTextLength: streamedTextSnapshot.length,
+          })
+        }
+
+        if (!finalOutputText && !doneReply && streamedReply) {
+          writeLog('WARN', 'ai-chat', 'OpenAI stream missed output_text.done; using delta snapshot', {
             iteration,
             responseId: previousResponseId,
             outputItemTypes,
@@ -4654,10 +4675,10 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           })
         }
 
-        const reply = finalOutputText || streamedReply
+        const reply = finalOutputText || doneReply || streamedReply
 
         if (!reply) {
-          throw new Error(`OpenAI SDK returned no output_text (output item types: ${outputItemTypes.join(', ') || 'none'})`)
+          throw new Error(`OpenAI SDK returned no final text (output item types: ${outputItemTypes.join(', ') || 'none'})`)
         }
 
         return {
