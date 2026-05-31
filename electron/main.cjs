@@ -4597,14 +4597,13 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         previousResponseId,
         inputCount: nextInput.length,
       })
-      const responseStream = await client.responses.create({
+      const responseStream = client.responses.stream({
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
         input: nextInput,
         previous_response_id: previousResponseId || undefined,
         tools: openAiTools,
         store: true,
-        stream: true,
       })
 
       responseStream.on('response.output_text.delta', (event) => {
