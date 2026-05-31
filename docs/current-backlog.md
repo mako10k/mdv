@@ -90,6 +90,9 @@
 2. workspace grep を assistant tool surface に追加する
 3. slice 加工系 `nl` / `cut` / `sort` を追加する
 4. suggest mode と audit trail を追加する
+5. AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
+6. AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
+7. AI-UX-003 INSTRUCTION / SKILL / HOOK の責務境界と優先順位を整理する
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
 
@@ -106,6 +109,14 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 詳細は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
 
 ただしこれは、editor core の P0、AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足、assistant 応答体験の重さ、tool surface の未完了が先に効くためである。
+
+### AI-CM Context Lifecycle
+
+1. AI-CM-001 thread 一覧、resume、active context 切替 surface を定義する
+2. AI-CM-002 context 継続の永続化と復元 policy を定義する
+3. AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
+
+これらは [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) の Phase 1 範囲外であり、Phase 1 完了後の context lifecycle 拡張として扱う。
 
 ### AI-P4 Subagent Orchestration
 
@@ -140,12 +151,14 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 4. MD-BL-004 以降の editor comfort 項目
 5. AI-P2 の再分解と tool surface 残件の整理
 6. AI-P3 context management
-7. AI-P4 subagent orchestration
+7. AI-CM context lifecycle
+8. AI-P4 subagent orchestration
 
 注記:
 
 - AI-P1 は新機能拡張というより、現行 assistant の待ち時間知覚を改善する response UX 修正として editor comfort より前に扱う
-- それ以外の AI 拡張は、引き続き editor core / editor comfort の後に置く
+- AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
+- AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
 
 ## Release Framing
 
