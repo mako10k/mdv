@@ -50,6 +50,10 @@
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
+注記:
+
+- MD-BL-005 には単なる挿入 UI だけでなく、draft workspace、asset manager、assetId continuity を含む local asset foundation を含める
+
 ### P2 Editor Expansion
 
 1. MD-BL-008 Preview 同期強化
@@ -61,16 +65,37 @@
 
 ## Active AI Backlog
 
-### AI-P1 Current Product Gaps
+### AI-P1 Response UX
+
+1. AI-RT-001 応答ストリーミング基盤の整理
+2. AI-RT-002 チャットバブル単位のリアルタイム連携
+3. AI-RT-003 OpenAI 差分 chunk の段階反映
+4. AI-RT-004 負荷制御つきリアルタイム Markdown レンダリング
+
+理由:
+
+- 現在の「しばらく待ってから一気に返る」体験は、assistant の能力不足より先に知覚される product gap である
+- tool surface を増やしても、応答体験が blocking に見える限り使用感が伸びにくい
+- bubble 単位、text chunk 単位、Markdown render 単位で更新境界を分けておくと、リアルタイム性と renderer 負荷の trade-off を調整しやすい
+
+実装メモ:
+
+- 上の 4 項目は望ましい分解であり、厳密な waterfall ではない
+- transport を SSE、WS、あるいは現行 main process 経路の streaming 再編で解くかは実装時に決めてよい
+- UI と renderer 負荷の見合いが取れるなら、AI-RT-001 から AI-RT-004 をまとめて一気に進めてもよい
+
+### AI-P2 Current Product Gaps
 
 1. dock 前提の現行 AI バックログへ再分解する
 2. workspace grep を assistant tool surface に追加する
 3. slice 加工系 `nl` / `cut` / `sort` を追加する
 4. suggest mode と audit trail を追加する
 
-この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。
+この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
 
-### AI-P2 Context Management
+asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) の workspace / asset foundation を前提にするため、MD-BL-005 とその後続 implementation phase に従属させ、AI-P2 の一部として foundation 完了後に扱う。
+
+### AI-P3 Context Management
 
 1. IM-P1-001 Rolling Short Context Buffer
 2. IM-P1-002 Base Summary Generator
@@ -80,7 +105,7 @@
 
 詳細は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
 
-ただしこれは、editor core の P0 と AI-P1 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足と assistant tool surface の未完了が先に効くためである。
+ただしこれは、editor core の P0、AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足、assistant 応答体験の重さ、tool surface の未完了が先に効くためである。
 
 ## Historical Documents
 
@@ -90,12 +115,17 @@
 
 ## Recommended Execution Order
 
-1. MD-BL-001 Find & Replace
-2. MD-BL-003 Autosave / Crash Recovery
-3. MD-BL-002 見出しアウトライン追従強化
-4. AI-P1 の再分解と tool surface 残件の整理
-5. MD-BL-004 以降の editor comfort 項目
-6. IM-P1 context management
+1. MD-BL-003 Autosave / Crash Recovery
+2. MD-BL-002 見出しアウトライン追従強化
+3. AI-P1 Response UX
+4. MD-BL-004 以降の editor comfort 項目
+5. AI-P2 の再分解と tool surface 残件の整理
+6. AI-P3 context management
+
+注記:
+
+- AI-P1 は新機能拡張というより、現行 assistant の待ち時間知覚を改善する response UX 修正として editor comfort より前に扱う
+- それ以外の AI 拡張は、引き続き editor core / editor comfort の後に置く
 
 ## Release Framing
 
@@ -103,5 +133,6 @@
 
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
+- assistant 応答のリアルタイム性改善
 - Playwright による主要 UI 回帰の固定化
 - 今後の実装順を editor core 優先へ再整理

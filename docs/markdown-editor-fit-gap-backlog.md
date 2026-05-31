@@ -130,12 +130,18 @@ Markdown 編集という観点での優先 gap は次の 5 つに集約される
 - 種別: 追加
 - 目的: Markdown 執筆で最も頻出な画像挿入を簡単にする
 - 内容:
+  - draft workspace、asset manager、assetId continuity を含む local asset foundation を導入する
   - クリップボード画像、ファイル drop を相対 asset として保存
   - Markdown に `![](...)` を自動挿入
-  - 保存先未確定文書では方針を選ばせる
+  - 保存先未確定文書では app-managed draft workspace へ保存し、初回保存時に実ディレクトリへ materialize する
 - 完了条件:
   - 保存済み Markdown の隣接 assets ディレクトリへ出力できる
+  - 未保存文書でも relative path を維持したまま recovery / first save と整合する
   - 既存 export 挙動と整合する
+
+注記:
+
+- 詳細設計は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を正とする
 
 #### MD-BL-006 表編集補助
 

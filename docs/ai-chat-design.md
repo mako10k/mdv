@@ -120,7 +120,16 @@ AI が使う操作面。
 - workspace_grep
 - web_search
 - fetch_url
+- list_assets
+- read_asset_metadata
+- copy_asset
+- rename_asset
 - dispose_buffer
+
+注記:
+
+- asset は editor text と異なる file semantics を持つため、`read` / `write` に雑に混ぜず、read 系参照と mutation 系 tool を分ける
+- local asset の詳細方針は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を参照する
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 

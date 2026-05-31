@@ -52,6 +52,7 @@ canonical target は `resourceRef + locator` とする。
 
 - `editor`
 - `buffer`
+- `asset`
 - `protected-context-item`
 - `base-summary`
 - `impression-memory-item`
@@ -68,6 +69,7 @@ editor/buffer にだけ現在の SPAN 系を適用する。
 
 - `markdown-span`
 - `whole-item`
+- `metadata-only`
 - `text-range`
 - `turn-range`
 - `message-range`
@@ -75,6 +77,7 @@ editor/buffer にだけ現在の SPAN 系を適用する。
 原則:
 
 - `selection` は live editor 専用
+- `asset` は locator と read surface には載せられるが、rename/copy/delete のような mutation は text write に混ぜない
 - conversation 全体には `turn-range` / `message-range` を使う
 - memory item は基本 `whole-item`、必要なら限定的な `text-range` だけを許可する
 - resource kind ごとに valid locator matrix を明示し、暗黙拡張しない
@@ -87,6 +90,7 @@ editor/buffer にだけ現在の SPAN 系を適用する。
 
 - editor slice
 - temp buffer slice
+- asset metadata or safe text projection
 - protected context item
 - summary text
 - conversation message range
@@ -106,6 +110,7 @@ write destination まで全面統一しない。
 理由:
 
 - editor は text replacement / insert / append が自然
+- asset は file rename / copy / export のような file-semantics mutation が自然
 - protected context は save / list / delete / replace-item が自然
 - impression memory は merge / decay / pin / demote のような意味操作が主になる
 - conversation transcript は provenance 保護のため原則 read-only にすべきである
@@ -113,6 +118,7 @@ write destination まで全面統一しない。
 従って初期方針は次とする。
 
 - `write_target.destination` は当面 `editor` / `buffer` に限定する
+- `asset` は read/source 側の参照面には載せても、mutation は `rename_asset` や `copy_asset` のような専用 tool に分ける
 - memory は専用 tool で mutate する
 - conversation transcript は read-only resource とし、必要なら summary や save 系の意味操作を専用 tool で追加する
 
@@ -145,6 +151,7 @@ write destination まで全面統一しない。
 | --- | --- |
 | editor | markdown-span |
 | buffer | markdown-span |
+| asset | whole-item, metadata-only |
 | protected-context-item | whole-item, text-range |
 | base-summary | whole-item, text-range |
 | impression-memory-item | whole-item, text-range |
@@ -155,6 +162,7 @@ write destination まで全面統一しない。
 
 - `text-range` は plain text projection 上の range とし、Markdown 座標とは区別する
 - `selection` は `editor` にだけ許可する
+- `metadata-only` は asset のような非 text resource で、本文投影ではなく lightweight metadata projection を返すために使う
 - resource kind ごとの locator 変換は共通 helper で吸収せず、kind ごとに明示分岐する
 
 ## Migration Strategy
@@ -162,9 +170,9 @@ write destination まで全面統一しない。
 1. 現行 `EditorID + SPAN` を compatibility layer として残す
 2. 内部 canonical contract を `resourceRef + locator` に切り替える
 3. Phase 1 は read と source だけを一般化する
-4. protected context item を最初の non-editor resource として載せる
+4. protected context item と asset metadata を最初の non-editor resource として載せる
 5. 次に conversation excerpt read を追加する
-6. memory mutation は専用 tool のまま維持する
+6. memory mutation と asset mutation は専用 tool のまま維持する
 7. 必要なら Phase 2 以降で write destination の拡張可能性を再評価する
 
 ## Why This Is Better Than Expanding EditorID
