@@ -130,6 +130,13 @@ type MdvClientSnapshot = {
   fileSnapshot?: MdvFileSnapshot | null
   displayTitle: string
   activePanel: 'write' | 'preview'
+  recoveryKey: string
+}
+
+type MdvAutosaveRecoveryEntry = {
+  recoveryKey: string
+  savedAt: string
+  snapshot: MdvClientSnapshot
 }
 
 type MdvServerCommand = {
@@ -448,6 +455,11 @@ interface Window {
     saveFile: (payload: MdvSavePayload) => Promise<MdvSaveResult>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
     trackCurrentFile: (filePath?: string | null) => Promise<void>
+    autosaveRecoveryUpsert: (payload: { snapshot: MdvClientSnapshot }) => Promise<{ recoveryKey: string; savedAt: string } | null>
+    clearAutosaveRecovery: (payload?: { recoveryKey?: string | null; filePath?: string | null }) => Promise<void>
+    getLatestAutosaveRecovery: () => Promise<MdvAutosaveRecoveryEntry | null>
+    getAutosaveRecoveryForFile: (filePath: string) => Promise<MdvAutosaveRecoveryEntry | null>
+    hasPendingOpenFileRequests: () => boolean
     notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>

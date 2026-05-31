@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1366,6 +1367,7 @@ function App() {
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
   const [statusText, setStatusTextState] = useState<string>(t.common.ready)
   const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
+  const [isInitialLaunchOpenSettled, setIsInitialLaunchOpenSettled] = useState(() => !(window.mdvDesktop?.hasPendingOpenFileRequests() ?? false))
   const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
   const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
@@ -1399,6 +1401,10 @@ function App() {
   const toastTimerRef = useRef<number | null>(null)
   const shouldCanonicalizeLoadedBaselineRef = useRef(true)
   const allowWindowCloseRef = useRef(false)
+  const recoveryKeyRef = useRef<string>('')
+  const lastAutosaveRecoveryStorageKeyRef = useRef<string | null>(null)
+  const lastAutosaveSignatureRef = useRef<string | null>(null)
+  const handledRecoveryKeysRef = useRef(new Set<string>())
   const confirmUnsavedChangesBeforeProceedRef = useRef<(proceedLabel: string) => Promise<boolean>>(async () => true)
   const handleSaveRef = useRef<(forceDialog?: boolean) => Promise<boolean>>(async () => false)
   const loadFilePayloadRef = useRef<(payload: MdvFilePayload | null) => void>(() => {})
@@ -1414,7 +1420,9 @@ function App() {
     fileSnapshot: null,
     displayTitle: t.app.untitledTitle,
     activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
+    recoveryKey: recoveryKeyRef.current,
   }))
+  const buildLiveClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => buildClientSnapshotRef.current())
   const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
   const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
@@ -1457,6 +1465,14 @@ function App() {
     if (options?.statusMessage) {
       setStatusText(options.statusMessage)
     }
+  }
+
+  const ensureRecoveryKey = () => {
+    if (!recoveryKeyRef.current) {
+      recoveryKeyRef.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    }
+
+    return recoveryKeyRef.current
   }
 
   const closeAssistantDock = () => {
@@ -1708,6 +1724,7 @@ function App() {
     fileSnapshot: currentFileSnapshotRef.current,
     displayTitle,
     activePanel,
+    recoveryKey: ensureRecoveryKey(),
   })
 
   const invalidateEditorSearch = () => {
@@ -1722,6 +1739,9 @@ function App() {
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = snapshot.markdownText === snapshot.persistedMarkdown
+    if (typeof snapshot.recoveryKey === 'string' && snapshot.recoveryKey.length > 0) {
+      recoveryKeyRef.current = snapshot.recoveryKey
+    }
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
@@ -1829,7 +1849,17 @@ function App() {
       fileSnapshot: currentFileSnapshotRef.current,
       displayTitle,
       activePanel,
+      recoveryKey: ensureRecoveryKey(),
     }
+  }
+
+  const clearAutosaveRecovery = async (payload?: { recoveryKey?: string | null; filePath?: string | null }) => {
+    await window.mdvDesktop?.clearAutosaveRecovery(payload ?? {
+      recoveryKey: lastAutosaveRecoveryStorageKeyRef.current,
+      filePath: currentFilePathRef.current,
+    })
+    lastAutosaveRecoveryStorageKeyRef.current = null
+    lastAutosaveSignatureRef.current = null
   }
 
   const confirmUnsavedChangesBeforeProceed = async (proceedLabel: string) => {
@@ -1851,6 +1881,8 @@ function App() {
       return handleSaveRef.current(false)
     }
 
+    await clearAutosaveRecovery()
+
     return true
   }
 
@@ -1871,6 +1903,7 @@ function App() {
   const handleSave = async (forceDialog = false) => {
     try {
       const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+      const previousFilePath = currentFilePath
       const result = await window.mdvDesktop?.saveFile({
         path: currentFilePath,
         content: liveMarkdown,
@@ -1900,6 +1933,10 @@ function App() {
       }
       persistedMarkdownRef.current = result.content
       setPersistedMarkdown(result.content)
+      await clearAutosaveRecovery({ recoveryKey: lastAutosaveRecoveryStorageKeyRef.current, filePath: previousFilePath })
+      if (previousFilePath !== result.path) {
+        await clearAutosaveRecovery({ filePath: result.path })
+      }
       setStatusText(t.app.status.saved(basename(result.path)))
       return true
     } catch (error) {
@@ -1911,6 +1948,118 @@ function App() {
   useEffect(() => {
     handleSaveRef.current = handleSave
   })
+
+  useEffect(() => {
+    if (isPlaceholderDocument || !hasUnsavedChanges) {
+      void clearAutosaveRecovery({
+        recoveryKey: lastAutosaveRecoveryStorageKeyRef.current,
+      })
+      return
+    }
+
+    const autosaveTimer = window.setTimeout(() => {
+      const snapshot = buildLiveClientSnapshotRef.current()
+      const signature = `${snapshot.currentFilePath ?? ''}\u0000${snapshot.markdownText}\u0000${snapshot.persistedMarkdown}`
+
+      if (lastAutosaveSignatureRef.current === signature) {
+        return
+      }
+
+      void window.mdvDesktop?.autosaveRecoveryUpsert({ snapshot }).then((result) => {
+        if (!result) {
+          return
+        }
+
+        handledRecoveryKeysRef.current.delete(result.recoveryKey)
+        lastAutosaveRecoveryStorageKeyRef.current = result.recoveryKey
+        lastAutosaveSignatureRef.current = signature
+      })
+    }, 1200)
+
+    return () => {
+      window.clearTimeout(autosaveTimer)
+    }
+  }, [currentFilePath, displayTitle, activePanel, markdownText, hasUnsavedChanges, isPlaceholderDocument])
+
+  useEffect(() => {
+    let active = true
+
+    const maybeRestoreStartupRecovery = async () => {
+      if (!isInitialLaunchOpenSettled || currentFilePath !== null || !isPlaceholderDocument) {
+        return
+      }
+
+      const recovery = await window.mdvDesktop?.getLatestAutosaveRecovery()
+
+      if (!active || !recovery || recovery.snapshot.currentFilePath || handledRecoveryKeysRef.current.has(recovery.recoveryKey)) {
+        return
+      }
+
+      handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+      const recoveryName = recovery.snapshot.currentFilePath
+        ? basename(recovery.snapshot.currentFilePath)
+        : recovery.snapshot.displayTitle
+
+      if (!window.confirm(t.app.recoveryRestorePrompt(recoveryName))) {
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: recovery.snapshot.currentFilePath })
+        setStatusText(t.app.status.discardedRecovery)
+        return
+      }
+
+      applyClientSnapshotRef.current(recovery.snapshot)
+      lastAutosaveRecoveryStorageKeyRef.current = recovery.recoveryKey
+      lastAutosaveSignatureRef.current = null
+      setStatusText(t.app.status.restoredRecovery(recoveryName))
+    }
+
+    void maybeRestoreStartupRecovery()
+
+    return () => {
+      active = false
+    }
+  }, [currentFilePath, isInitialLaunchOpenSettled, isPlaceholderDocument, t])
+
+  useEffect(() => {
+    let active = true
+
+    const maybeRestoreFileRecovery = async () => {
+      if (!currentFilePath || hasUnsavedChanges) {
+        return
+      }
+
+      const recovery = await window.mdvDesktop?.getAutosaveRecoveryForFile(currentFilePath)
+
+      if (!active || !recovery || handledRecoveryKeysRef.current.has(recovery.recoveryKey)) {
+        return
+      }
+
+      if (recovery.snapshot.markdownText === persistedMarkdownRef.current) {
+        handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: currentFilePath })
+        return
+      }
+
+      handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+      const recoveryName = basename(currentFilePath)
+
+      if (!window.confirm(t.app.recoveryRestorePrompt(recoveryName))) {
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: currentFilePath })
+        setStatusText(t.app.status.discardedRecovery)
+        return
+      }
+
+      applyClientSnapshotRef.current(recovery.snapshot)
+      lastAutosaveRecoveryStorageKeyRef.current = recovery.recoveryKey
+      lastAutosaveSignatureRef.current = null
+      setStatusText(t.app.status.restoredRecovery(recoveryName))
+    }
+
+    void maybeRestoreFileRecovery()
+
+    return () => {
+      active = false
+    }
+  }, [currentFilePath, hasUnsavedChanges, t])
 
   const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
     invalidateEditorSearch()
@@ -2320,6 +2469,7 @@ function App() {
 
   useEffect(() => {
     buildClientSnapshotRef.current = buildClientSnapshot
+    buildLiveClientSnapshotRef.current = buildLiveClientSnapshot
     applyClientSnapshotRef.current = applyClientSnapshot
     respondToAiEditorRequestRef.current = respondToAiEditorRequest
   })
@@ -2454,11 +2604,15 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
-      void (async () => {
-        const isInitialLaunch = typeof request !== 'string' && request.isInitialLaunch === true
+      const isInitialLaunch = typeof request !== 'string' && request.isInitialLaunch === true
 
+      if (isInitialLaunch) {
+        setIsInitialLaunchOpenSettled(false)
+      }
+
+      void (async () => {
         try {
           if (!await confirmUnsavedChangesBeforeProceedRef.current(i18nRef.current.common.open)) {
             setStatusText(i18nRef.current.app.status.openRequestCancelled)
@@ -2490,6 +2644,8 @@ function App() {
           if (isInitialLaunch) {
             window.mdvDesktop?.notifyInitialLaunchOpenHandled()
           }
+
+          setIsInitialLaunchOpenSettled(true)
         }
       })()
     })

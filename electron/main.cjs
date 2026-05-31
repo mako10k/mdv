@@ -22,6 +22,7 @@ const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-ru
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 const secretsPath = path.join(app.getPath('userData'), 'secrets.json')
 const semanticCachePath = path.join(app.getPath('userData'), 'semantic-cache-v1.json')
+const autosaveRecoveryPath = path.join(app.getPath('userData'), 'autosave-recovery-v1.json')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
@@ -234,12 +235,17 @@ let hasReadableSettings = loadSettings.didLoadPersisted === true
 let semanticCacheDidLoad = false
 let semanticCacheDirty = false
 let semanticCacheSaveTimer = null
+let autosaveRecoveryDirty = false
+let autosaveRecoverySaveTimer = null
 const embeddingCacheByKey = new Map()
 const semanticRuntimeBySourceKey = new Map()
+const autosaveRecoveryByKey = new Map()
 let embeddingCacheTotalBytes = 0
 let embeddingUsageCountsNeedRepair = false
 let embeddingCacheGcTimer = null
 let embeddingCacheGcScheduledForAt = 0
+
+loadAutosaveRecoveryStore()
 
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
@@ -247,6 +253,187 @@ function isManagedClient() {
 
 function estimateTokenCount(text) {
   return typeof text === 'string' && text.length > 0 ? Math.ceil(text.length / DEFAULT_TOKEN_TO_CHAR_RATIO) : 0
+}
+
+function normalizeRecoveryFilePath(filePath) {
+  return typeof filePath === 'string' && filePath.trim().length > 0 ? path.resolve(filePath) : null
+}
+
+function buildRecoveryStorageKey(snapshot) {
+  const normalizedFilePath = normalizeRecoveryFilePath(snapshot?.currentFilePath)
+
+  if (normalizedFilePath) {
+    return `file:${normalizedFilePath}`
+  }
+
+  if (typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0) {
+    return `draft:${snapshot.recoveryKey.trim()}`
+  }
+
+  return `draft:${randomUUID()}`
+}
+
+function serializeAutosaveRecoveryEntries() {
+  return {
+    version: 1,
+    entries: Array.from(autosaveRecoveryByKey.values())
+      .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt)),
+  }
+}
+
+function markAutosaveRecoveryDirty() {
+  autosaveRecoveryDirty = true
+
+  if (autosaveRecoverySaveTimer) {
+    clearTimeout(autosaveRecoverySaveTimer)
+  }
+
+  autosaveRecoverySaveTimer = setTimeout(() => {
+    autosaveRecoverySaveTimer = null
+    void saveAutosaveRecoveryStore()
+  }, 250)
+}
+
+async function saveAutosaveRecoveryStore() {
+  if (!autosaveRecoveryDirty) {
+    return
+  }
+
+  autosaveRecoveryDirty = false
+
+  try {
+    await fsPromises.writeFile(autosaveRecoveryPath, JSON.stringify(serializeAutosaveRecoveryEntries(), null, 2), 'utf8')
+  } catch (error) {
+    autosaveRecoveryDirty = true
+    writeLog('ERROR', 'main', 'Failed to save autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function flushAutosaveRecoveryStoreSync() {
+  if (autosaveRecoverySaveTimer) {
+    clearTimeout(autosaveRecoverySaveTimer)
+    autosaveRecoverySaveTimer = null
+  }
+
+  if (!autosaveRecoveryDirty) {
+    return
+  }
+
+  autosaveRecoveryDirty = false
+
+  try {
+    fs.writeFileSync(autosaveRecoveryPath, JSON.stringify(serializeAutosaveRecoveryEntries(), null, 2), 'utf8')
+  } catch (error) {
+    autosaveRecoveryDirty = true
+    writeLog('ERROR', 'main', 'Failed to flush autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function loadAutosaveRecoveryStore() {
+  try {
+    if (!fs.existsSync(autosaveRecoveryPath)) {
+      return
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(autosaveRecoveryPath, 'utf8'))
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : []
+
+    for (const entry of entries) {
+      if (typeof entry?.recoveryKey !== 'string' || typeof entry?.savedAt !== 'string' || typeof entry?.snapshot !== 'object' || entry.snapshot === null) {
+        continue
+      }
+
+      const snapshot = entry.snapshot
+
+      if (
+        typeof snapshot.markdownText !== 'string'
+        || typeof snapshot.persistedMarkdown !== 'string'
+        || typeof snapshot.displayTitle !== 'string'
+        || typeof snapshot.recoveryKey !== 'string'
+      ) {
+        continue
+      }
+
+      autosaveRecoveryByKey.set(entry.recoveryKey, {
+        recoveryKey: entry.recoveryKey,
+        savedAt: entry.savedAt,
+        snapshot: {
+          markdownText: snapshot.markdownText,
+          persistedMarkdown: snapshot.persistedMarkdown,
+          currentFilePath: normalizeRecoveryFilePath(snapshot.currentFilePath),
+          fileSnapshot: snapshot.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+          displayTitle: snapshot.displayTitle,
+          activePanel: snapshot.activePanel === 'write' ? 'write' : 'preview',
+          recoveryKey: snapshot.recoveryKey,
+        },
+      })
+    }
+  } catch (error) {
+    writeLog('WARN', 'main', 'Failed to load autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function upsertAutosaveRecovery(snapshot) {
+  const recoveryKey = buildRecoveryStorageKey(snapshot)
+  const savedAt = new Date().toISOString()
+  const normalizedSnapshot = {
+    markdownText: typeof snapshot?.markdownText === 'string' ? snapshot.markdownText : '',
+    persistedMarkdown: typeof snapshot?.persistedMarkdown === 'string' ? snapshot.persistedMarkdown : '',
+    currentFilePath: normalizeRecoveryFilePath(snapshot?.currentFilePath),
+    fileSnapshot: snapshot?.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+    displayTitle: typeof snapshot?.displayTitle === 'string' && snapshot.displayTitle.trim().length > 0 ? snapshot.displayTitle.trim() : getMainI18n().untitledTitle,
+    activePanel: snapshot?.activePanel === 'write' ? 'write' : 'preview',
+    recoveryKey: typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0 ? snapshot.recoveryKey.trim() : recoveryKey.replace(/^draft:/, ''),
+  }
+
+  autosaveRecoveryByKey.set(recoveryKey, {
+    recoveryKey,
+    savedAt,
+    snapshot: normalizedSnapshot,
+  })
+  markAutosaveRecoveryDirty()
+  return { recoveryKey, savedAt }
+}
+
+function clearAutosaveRecovery(payload = {}) {
+  const recoveryKey = typeof payload?.recoveryKey === 'string' && payload.recoveryKey.trim().length > 0
+    ? payload.recoveryKey.trim()
+    : null
+  const normalizedFilePath = normalizeRecoveryFilePath(payload?.filePath)
+  let didDelete = false
+
+  if (recoveryKey && autosaveRecoveryByKey.delete(recoveryKey)) {
+    didDelete = true
+  }
+
+  if (recoveryKey && !recoveryKey.startsWith('draft:') && autosaveRecoveryByKey.delete(`draft:${recoveryKey}`)) {
+    didDelete = true
+  }
+
+  if (normalizedFilePath && autosaveRecoveryByKey.delete(`file:${normalizedFilePath}`)) {
+    didDelete = true
+  }
+
+  if (didDelete) {
+    markAutosaveRecoveryDirty()
+  }
+}
+
+function getLatestAutosaveRecovery() {
+  const entries = Array.from(autosaveRecoveryByKey.values())
+    .filter((entry) => !normalizeRecoveryFilePath(entry?.snapshot?.currentFilePath))
+  entries.sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
+  return entries[0] || null
+}
+
+function getAutosaveRecoveryForFile(filePath) {
+  const normalizedFilePath = normalizeRecoveryFilePath(filePath)
+
+  if (!normalizedFilePath) {
+    return null
+  }
+
+  return autosaveRecoveryByKey.get(`file:${normalizedFilePath}`) || null
 }
 
 function getModelContextWindow(model) {
@@ -4937,6 +5124,22 @@ async function confirmEditorWindowClose(window) {
     if (!saveResult || saveResult.status !== 'saved') {
       return
     }
+
+    clearAutosaveRecovery({
+      recoveryKey: snapshot.recoveryKey || null,
+      filePath: snapshot.currentFilePath || null,
+    })
+
+    if (saveResult.path && saveResult.path !== snapshot.currentFilePath) {
+      clearAutosaveRecovery({ filePath: saveResult.path })
+    }
+  }
+
+  if (response.action === 'discard') {
+    clearAutosaveRecovery({
+      recoveryKey: snapshot.recoveryKey || null,
+      filePath: snapshot.currentFilePath || null,
+    })
   }
 
   closeAuxiliaryWindowsForEditor(window)
@@ -5427,6 +5630,29 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
   return readUtf8File(filePath)
 })
 
+ipcMain.handle('mdv:autosave-recovery-upsert', async (_event, payload) => {
+  const snapshot = payload?.snapshot
+
+  if (!snapshot || typeof snapshot !== 'object') {
+    writeLog('WARN', 'ipc', 'autosave-recovery-upsert received invalid payload')
+    return null
+  }
+
+  writeLog('INFO', 'ipc', 'autosave-recovery-upsert', {
+    currentFilePath: snapshot.currentFilePath || null,
+    displayTitle: snapshot.displayTitle || null,
+  })
+  return upsertAutosaveRecovery(snapshot)
+})
+
+ipcMain.handle('mdv:autosave-recovery-clear', async (_event, payload) => {
+  clearAutosaveRecovery(payload)
+})
+
+ipcMain.handle('mdv:autosave-recovery-latest', async () => getLatestAutosaveRecovery())
+
+ipcMain.handle('mdv:autosave-recovery-for-file', async (_event, filePath) => getAutosaveRecoveryForFile(filePath))
+
 ipcMain.handle('mdv:mdast-get-capabilities', async () => {
   writeLog('INFO', 'ipc', 'mdast-get-capabilities')
   return getMdastCapabilities()
@@ -5852,6 +6078,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   writeLog('INFO', 'main', 'window-all-closed')
+  flushAutosaveRecoveryStoreSync()
   if (commandPollTimer) {
     clearInterval(commandPollTimer)
     commandPollTimer = null
