@@ -366,6 +366,15 @@ if ($LASTEXITCODE -gt 3) {
   throw "robocopy failed with code $LASTEXITCODE"
 }
 
+$sourceBuildResources = Join-Path $SourceRoot 'build'
+$workBuildResources = Join-Path $workRoot 'build'
+if (Test-Path $sourceBuildResources) {
+  robocopy $sourceBuildResources $workBuildResources /MIR > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "build resource copy failed with code $LASTEXITCODE"
+  }
+}
+
 Write-Host "Copied source from $SourceRoot"
 
 if (-not (Test-Path $nodeRoot)) {
