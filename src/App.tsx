@@ -386,14 +386,16 @@ type EditorSurfaceProps = {
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
   onReady?: (editor: ToastUiEditor) => void
+  onSelectionChange?: (editor: ToastUiEditor) => void
 }
 
-function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfaceProps) {
+function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange }: EditorSurfaceProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const initialValueRef = useRef(value)
   const editorInstanceRef = useRef<ToastUiEditor | null>(null)
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
+  const onSelectionChangeRef = useRef(onSelectionChange)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -402,6 +404,10 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
   useEffect(() => {
     onReadyRef.current = onReady
   }, [onReady])
+
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange
+  }, [onSelectionChange])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -420,15 +426,39 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
       events: {
         change: () => {
           onChangeRef.current(instance.getMarkdown())
+          onSelectionChangeRef.current?.(instance)
         },
       },
     })
 
+    const emitSelectionChange = () => {
+      onSelectionChangeRef.current?.(instance)
+    }
+
+    const host = hostRef.current
+    const selectionChangeHandler = () => {
+      const activeElement = document.activeElement
+
+      if (host && activeElement instanceof Node && host.contains(activeElement)) {
+        emitSelectionChange()
+      }
+    }
+
+    host?.addEventListener('keyup', emitSelectionChange)
+    host?.addEventListener('mouseup', emitSelectionChange)
+    host?.addEventListener('focusin', emitSelectionChange)
+    document.addEventListener('selectionchange', selectionChangeHandler)
+
     editorInstanceRef.current = instance
     editorRef.current = instance
     onReadyRef.current?.(instance)
+    emitSelectionChange()
 
     return () => {
+      host?.removeEventListener('keyup', emitSelectionChange)
+      host?.removeEventListener('mouseup', emitSelectionChange)
+      host?.removeEventListener('focusin', emitSelectionChange)
+      document.removeEventListener('selectionchange', selectionChangeHandler)
       editorInstanceRef.current = null
       editorRef.current = null
       instance.destroy()
@@ -786,6 +816,10 @@ function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
 function getActiveEditorRoot(editor: ToastUiEditor): HTMLElement {
   const slots = editor.getEditorElements()
   return editor.isMarkdownMode() ? slots.mdEditor : slots.wwEditor
+}
+
+function getEditorSelectionStartLine(editor: ToastUiEditor, markdown: string): number {
+  return normalizeSelectionToMarkdownSpan(editor, markdown).start.line
 }
 
 function findEditorSelectionAnchor(root: HTMLElement): HTMLElement | null {
@@ -1386,6 +1420,7 @@ function App() {
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
+  const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
@@ -1413,6 +1448,8 @@ function App() {
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
   const outlineRequestIdRef = useRef(0)
+  const outlineListRef = useRef<HTMLDivElement | null>(null)
+  const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: t.app.initialDocument,
     persistedMarkdown: t.app.initialDocument,
@@ -1716,6 +1753,56 @@ function App() {
       window.clearTimeout(refreshTimer)
     }
   }, [markdownText])
+
+  const syncActiveOutlineLine = (editor: ToastUiEditor | null = editorRef.current) => {
+    if (!editor) {
+      setActiveOutlineLine(null)
+      return
+    }
+
+    setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
+  }
+
+  useEffect(() => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      setActiveOutlineLine(null)
+      return
+    }
+
+    setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
+  }, [markdownText])
+
+  const activeOutlineIndex = useMemo(() => {
+    if (headingOutline.length === 0 || activeOutlineLine === null) {
+      return -1
+    }
+
+    let nextIndex = -1
+
+    for (let index = 0; index < headingOutline.length; index += 1) {
+      if (headingOutline[index].position.line <= activeOutlineLine) {
+        nextIndex = index
+        continue
+      }
+
+      break
+    }
+
+    return nextIndex
+  }, [activeOutlineLine, headingOutline])
+
+  useEffect(() => {
+    const container = outlineListRef.current
+    const activeItem = activeOutlineItemRef.current
+
+    if (!container || !activeItem) {
+      return
+    }
+
+    scrollElementIntoContainer(container, activeItem)
+  }, [activeOutlineIndex])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
@@ -3050,18 +3137,21 @@ function App() {
                   {headingOutline.length === 0 ? (
                     <div className="outline-empty">{t.app.outlineEmpty}</div>
                   ) : (
-                    <div className="outline-list">
-                      {headingOutline.map((item) => {
+                    <div ref={outlineListRef} className="outline-list">
+                      {headingOutline.map((item, index) => {
+                        const isActiveOutlineItem = index === activeOutlineIndex
                         const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
 
                         return (
                           <button
                             key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
                             type="button"
-                            className="outline-item"
+                            className={isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
                             style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
                             onClick={() => jumpToOutlineHeading(item)}
                             title={headingLabel}
+                            aria-current={isActiveOutlineItem ? 'location' : undefined}
+                            ref={isActiveOutlineItem ? activeOutlineItemRef : null}
                           >
                             <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
                             <span className="outline-item-label">{headingLabel}</span>
@@ -3091,6 +3181,8 @@ function App() {
                         setMarkdownText(canonicalMarkdown)
                       }
 
+                      syncActiveOutlineLine(editor)
+
                       if (!pendingSearchJump) {
                         return
                       }
@@ -3098,6 +3190,7 @@ function App() {
                       selectSpanInEditor(editor, pendingSearchJump)
                       setPendingSearchJump(null)
                     }}
+                    onSelectionChange={syncActiveOutlineLine}
                   />
                 </div>
                 <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>

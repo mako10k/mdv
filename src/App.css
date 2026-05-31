@@ -404,6 +404,15 @@
   outline: none;
 }
 
+.outline-item.active {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--bg-hover) 72%, var(--accent-soft) 28%);
+}
+
+.outline-item.active .outline-item-depth {
+  color: var(--text);
+}
+
 .outline-item-depth {
   font-size: 10px;
   font-weight: 700;
