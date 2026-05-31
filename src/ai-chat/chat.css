@@ -65,13 +65,59 @@ body,
   color: var(--text-muted);
 }
 
-.ai-chat-status {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: var(--bg-panel-strong);
+.ai-chat-toast-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-chat-toast {
+  max-width: min(30rem, 42vw);
+  padding: 7px 10px;
+  border-radius: 10px;
   border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+  box-shadow: var(--shadow);
   font-size: 11px;
+  line-height: 1.35;
+  color: var(--text);
+  backdrop-filter: blur(10px);
+  animation: ai-chat-toast-enter 160ms ease-out;
+}
+
+.ai-chat-toast-info {
   color: var(--text-muted);
+}
+
+.ai-chat-toast-success {
+  border-color: color-mix(in srgb, var(--link) 36%, var(--border));
+  background: color-mix(in srgb, var(--bg-panel) 82%, var(--link) 18%);
+}
+
+.ai-chat-toast-error {
+  border-color: color-mix(in srgb, #d96b6b 44%, var(--border));
+  background: color-mix(in srgb, var(--bg-panel) 82%, #7d1d1d 18%);
+}
+
+.ai-chat-toast-progress {
+  border-color: color-mix(in srgb, var(--link) 30%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--link) 18%, transparent), transparent 42%),
+    color-mix(in srgb, var(--bg-panel) 88%, var(--bg-panel-strong) 12%);
+}
+
+@keyframes ai-chat-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ai-chat-transcript {

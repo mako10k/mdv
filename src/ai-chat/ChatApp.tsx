@@ -48,6 +48,16 @@ type ExternalAnchor = {
   hostname: string
 }
 
+type StatusToastTone = 'info' | 'success' | 'error' | 'progress'
+
+type StatusToast = {
+  id: string
+  text: string
+  tone: StatusToastTone
+  sticky: boolean
+  slot: string | null
+}
+
 function createInitialMessages(welcome: string): Message[] {
   return [
     {
@@ -393,11 +403,12 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
   const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
-  const [statusText, setStatusText] = useState<string>(t.chat.statusBase)
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
   const [isSending, setIsSending] = useState(false)
   const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
   const inlineAttachmentTokenBudgetRef = useRef(inlineAttachmentTokenBudget)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
+  const statusToastTimersRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     i18nRef.current = t
@@ -438,7 +449,9 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
 
       localeRef.current = nextSettings.general.locale
       const nextTranslations = getTranslations(nextSettings.general.locale)
-      setStatusText(nextTranslations.chat.statusBase)
+      statusToastTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+      statusToastTimersRef.current.clear()
+      setStatusToasts([])
       setMessages((currentMessages) => currentMessages.map((message) => ({
         ...message,
         content: message.id === 'assistant-welcome' ? nextTranslations.chat.welcome : message.content,
@@ -464,6 +477,67 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const appendMessage = (message: Message, options?: { forceScroll?: boolean }) => {
     forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
     setMessages((currentMessages) => [...currentMessages, message])
+  }
+
+  const clearStatusToastTimer = (toastId: string) => {
+    const timerId = statusToastTimersRef.current.get(toastId)
+
+    if (timerId === undefined) {
+      return
+    }
+
+    window.clearTimeout(timerId)
+    statusToastTimersRef.current.delete(toastId)
+  }
+
+  const dismissStatusToast = (toastId: string) => {
+    clearStatusToastTimer(toastId)
+    setStatusToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== toastId))
+  }
+
+  const clearStatusToastSlot = (slot: string) => {
+    setStatusToasts((currentToasts) => {
+      currentToasts.forEach((toast) => {
+        if (toast.slot === slot) {
+          clearStatusToastTimer(toast.id)
+        }
+      })
+
+      return currentToasts.filter((toast) => toast.slot !== slot)
+    })
+  }
+
+  const showStatusToast = (text: string, options?: { tone?: StatusToastTone, sticky?: boolean, durationMs?: number, slot?: string }) => {
+    const tone = options?.tone ?? 'info'
+    const sticky = options?.sticky ?? false
+    const durationMs = options?.durationMs ?? (tone === 'error' ? 5200 : 3200)
+    const toast: StatusToast = {
+      id: crypto.randomUUID(),
+      text,
+      tone,
+      sticky,
+      slot: options?.slot ?? null,
+    }
+
+    setStatusToasts((currentToasts) => {
+      const nextToasts = currentToasts.filter((currentToast) => {
+        if (toast.slot && currentToast.slot === toast.slot) {
+          clearStatusToastTimer(currentToast.id)
+          return false
+        }
+
+        return true
+      })
+
+      return [...nextToasts, toast].slice(-4)
+    })
+
+    if (!sticky) {
+      const timerId = window.setTimeout(() => {
+        dismissStatusToast(toast.id)
+      }, durationMs)
+      statusToastTimersRef.current.set(toast.id, timerId)
+    }
   }
 
   const updateMessage = (messageId: string, updater: (message: Message) => Message, options?: { forceScroll?: boolean }) => {
@@ -566,7 +640,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       activeRequestIdRef.current = null
       activeAssistantMessageIdRef.current = null
       setIsSending(false)
-      setStatusText(t.chat.status.assistantReplied(event.model))
+      clearStatusToastSlot('request')
+      showStatusToast(t.chat.status.assistantReplied(event.model), { tone: 'success' })
       return
     }
 
@@ -591,7 +666,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     activeRequestIdRef.current = null
     activeAssistantMessageIdRef.current = null
     setIsSending(false)
-    setStatusText(t.chat.status.openAiRequestFailed)
+    clearStatusToastSlot('request')
+    showStatusToast(t.chat.status.openAiRequestFailed, { tone: 'error' })
   })
 
   useEffect(() => {
@@ -616,7 +692,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       const nextContexts = currentContexts.filter((item) => item.kind !== attachment.kind)
       return [...nextContexts, attachment]
     })
-    setStatusText(t.chat.status.contextQueued(attachment.label))
+    showStatusToast(t.chat.status.contextQueued(attachment.label))
   }
 
   const removePendingContext = (attachmentId: string) => {
@@ -626,7 +702,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     })
 
     if (hasTarget) {
-      setStatusText(t.chat.status.pendingContextRemoved)
+      showStatusToast(t.chat.status.pendingContextRemoved)
     }
   }
 
@@ -636,8 +712,22 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     }
 
     setPendingContexts([])
-    setStatusText(t.chat.status.pendingContextCleared)
+    showStatusToast(t.chat.status.pendingContextCleared)
   }
+
+  const handleExternalLinkResult = useEffectEvent((result: { status: 'opened' | 'cancelled' | 'blocked' } | null | undefined, hostname: string) => {
+    if (!result || result.status === 'opened') {
+      showStatusToast(i18nRef.current.chat.status.openedLink(hostname))
+      return
+    }
+
+    if (result.status === 'cancelled') {
+      showStatusToast(i18nRef.current.chat.status.cancelledExternalLink)
+      return
+    }
+
+    showStatusToast(i18nRef.current.chat.status.blockedExternalLink, { tone: 'error' })
+  })
 
   useEffect(() => {
     const root = rootRef.current
@@ -655,17 +745,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
 
       event.preventDefault()
       void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
-        if (!result || result.status === 'opened') {
-          setStatusText(i18nRef.current.chat.status.openedLink(anchor.hostname))
-          return
-        }
-
-        if (result.status === 'cancelled') {
-          setStatusText(i18nRef.current.chat.status.cancelledExternalLink)
-          return
-        }
-
-        setStatusText(i18nRef.current.chat.status.blockedExternalLink)
+        handleExternalLinkResult(result, anchor.hostname)
       })
     }
 
@@ -715,9 +795,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   }, [])
 
   const handleRefreshContext = () => {
-    setStatusText(t.chat.status.readingEditorContext)
+    showStatusToast(t.chat.status.readingEditorContext, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.getAiChatContext()
       .then((context) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('editor', {
           detail: formatContext(context ?? null, t.chat, t.common),
           detailContext: context ?? null,
@@ -727,7 +808,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
-        setStatusText(t.chat.status.contextFailed)
+        clearStatusToastSlot('context')
+        showStatusToast(t.chat.status.contextFailed, { tone: 'error' })
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -739,9 +821,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   }
 
   const handleReadDocument = () => {
-    setStatusText(t.chat.status.readingActiveDocument)
+    showStatusToast(t.chat.status.readingActiveDocument, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.readAiActiveDocument()
       .then((payload) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('document', {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
@@ -753,6 +836,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
+        clearStatusToastSlot('context')
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -760,14 +844,15 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText(t.chat.status.readFailed)
+        showStatusToast(t.chat.status.readFailed, { tone: 'error' })
       })
   }
 
   const handleReadSelection = () => {
-    setStatusText(t.chat.status.readingSelection)
+    showStatusToast(t.chat.status.readingSelection, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.readAiActiveSelection()
       .then((payload) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('selection', {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
@@ -779,6 +864,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
+        clearStatusToastSlot('context')
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -786,7 +872,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText(t.chat.status.selectionFailed)
+        showStatusToast(t.chat.status.selectionFailed, { tone: 'error' })
       })
   }
 
@@ -822,7 +908,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     setComposerText('')
     setPendingContexts([])
     setIsSending(true)
-    setStatusText(t.chat.status.sendingToOpenAi)
+    showStatusToast(t.chat.status.sendingToOpenAi, { slot: 'request', sticky: true, tone: 'progress' })
     activeRequestIdRef.current = requestId
     activeAssistantMessageIdRef.current = assistantMessageId
     pendingAssistantDeltaRef.current = ''
@@ -850,7 +936,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         activeRequestIdRef.current = null
         activeAssistantMessageIdRef.current = null
         setIsSending(false)
-        setStatusText(t.chat.status.openAiRequestFailed)
+        clearStatusToastSlot('request')
+        showStatusToast(t.chat.status.openAiRequestFailed, { tone: 'error' })
       })
   }
 
@@ -880,7 +967,17 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           <p className="ai-chat-subtitle">{t.chat.subtitle}</p>
         </div>
         <div className="ai-chat-header-actions">
-          <span className="ai-chat-status">{statusText}</span>
+          <div className="ai-chat-toast-stack" aria-live="polite" aria-relevant="additions text">
+            {statusToasts.map((toast) => (
+              <div
+                key={toast.id}
+                className={`ai-chat-toast ai-chat-toast-${toast.tone}`}
+                role={toast.tone === 'error' ? 'alert' : 'status'}
+              >
+                {toast.text}
+              </div>
+            ))}
+          </div>
           {variant === 'dock' && onRequestClose ? (
             <button type="button" className="ai-chat-close-button" onClick={onRequestClose} aria-label={t.common.close} title={t.common.close}>
               <span aria-hidden="true">×</span>
