@@ -39,6 +39,7 @@
     "preview": "vite preview",
     "test": "npm run test:e2e:install && npm run test:e2e",
     "test:e2e": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test",
+    "test:e2e:electron": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test -c playwright.electron.config.ts",
     "test:e2e:headed": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test --headed",
     "test:e2e:install": "playwright install chromium"
   },

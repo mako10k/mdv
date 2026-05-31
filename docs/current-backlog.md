@@ -107,6 +107,25 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 
 ただしこれは、editor core の P0、AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足、assistant 応答体験の重さ、tool surface の未完了が先に効くためである。
 
+### AI-P4 Subagent Orchestration
+
+1. AI-SA-001 Subagent session model と main chat 対称 contract を定義する
+2. AI-SA-002 サブエージェント依頼、分岐、専用 state branch を定義する
+3. AI-SA-003 join、wait-all、呼び出し元への context 差し戻し規則を定義する
+4. AI-SA-004 specialist / evaluator の role model と objective review flow を定義する
+5. AI-SA-005 subagent lifecycle、cancel、timeout、garbage collection を定義する
+
+詳細は [docs/ai-subagent-orchestration-design.md](docs/ai-subagent-orchestration-design.md) を参照する。
+
+目的:
+
+- タスク実行の並列化
+- 独立したコンテキストによる専門的作業
+- 独立したコンテキストによる客観的評価
+- agent 実装の実験
+
+この束は AI-P3 の後に置く。理由は、subagent orchestration は単なる chat UI 拡張ではなく、branch context、summary handoff、budget 制御、session lifecycle をまたぐため、rolling context / summary / protected area の基盤が先に必要だからである。
+
 ## Historical Documents
 
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) は separate chat window 前提を含む初期分解であり、履歴資料として保持する
@@ -121,6 +140,7 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 4. MD-BL-004 以降の editor comfort 項目
 5. AI-P2 の再分解と tool surface 残件の整理
 6. AI-P3 context management
+7. AI-P4 subagent orchestration
 
 注記:
 

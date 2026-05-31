@@ -57,7 +57,6 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   clearAutosaveRecovery: (payload) => ipcRenderer.invoke('mdv:autosave-recovery-clear', payload),
   getLatestAutosaveRecovery: () => ipcRenderer.invoke('mdv:autosave-recovery-latest'),
   getAutosaveRecoveryForFile: (filePath) => ipcRenderer.invoke('mdv:autosave-recovery-for-file', filePath),
-  hasPendingOpenFileRequests: () => pendingOpenFileRequests.length > 0,
   notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),

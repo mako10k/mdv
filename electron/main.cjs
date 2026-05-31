@@ -16,7 +16,16 @@ const {
   parseFetchAclText,
 } = require('./fetch-acl.cjs')
 
-const isDev = !app.isPackaged
+const e2eUserDataPath = typeof process.env.MDV_E2E_USER_DATA_DIR === 'string' && process.env.MDV_E2E_USER_DATA_DIR.trim().length > 0
+  ? path.resolve(process.env.MDV_E2E_USER_DATA_DIR.trim())
+  : null
+const forceStaticRenderer = process.env.MDV_FORCE_STATIC_RENDERER === '1'
+
+if (e2eUserDataPath) {
+  app.setPath('userData', e2eUserDataPath)
+}
+
+const isDev = !app.isPackaged && !forceStaticRenderer
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
@@ -33,9 +42,10 @@ app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
 app.setName(appDisplayName)
-app.setAppLogsPath()
+app.setAppLogsPath(e2eUserDataPath ? path.join(e2eUserDataPath, 'logs') : undefined)
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
+const e2eDialogResponseState = createE2eDialogResponseState()
 let allowedLinkRules = loadAllowedLinkRules()
 let pendingLaunchRequest = resolveLaunchRequest(process.argv)
 let managedMainWindow = null
@@ -70,6 +80,86 @@ const SEMANTIC_LAYERS = [
   { name: 'fine', maxChars: 420, overlapChars: 96, weight: 1, boundarySlackChars: 72 },
   { name: 'coarse', maxChars: 1800, overlapChars: 240, weight: 0.96, boundarySlackChars: 180 },
 ]
+
+function createE2eDialogResponseState() {
+  const rawValue = process.env.MDV_E2E_DIALOG_RESPONSES
+
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue)
+
+    return {
+      messageBox: Array.isArray(parsed?.messageBox) ? [...parsed.messageBox] : [],
+      saveDialog: Array.isArray(parsed?.saveDialog) ? [...parsed.saveDialog] : [],
+      openDialog: Array.isArray(parsed?.openDialog) ? [...parsed.openDialog] : [],
+    }
+  } catch (error) {
+    writeLog('WARN', 'main', 'Failed to parse MDV_E2E_DIALOG_RESPONSES', error instanceof Error ? error.message : String(error))
+    return null
+  }
+}
+
+function takeNextE2eDialogResponse(kind) {
+  if (!e2eDialogResponseState) {
+    return null
+  }
+
+  const queue = e2eDialogResponseState[kind]
+
+  if (!Array.isArray(queue) || queue.length === 0) {
+    return null
+  }
+
+  return queue.shift() ?? null
+}
+
+async function showMessageBox(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('messageBox')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showMessageBox response', injectedResponse)
+    return {
+      response: Number.isFinite(injectedResponse.response) ? injectedResponse.response : 0,
+      checkboxChecked: injectedResponse.checkboxChecked === true,
+    }
+  }
+
+  return dialog.showMessageBox(window ?? undefined, options)
+}
+
+async function showSaveDialog(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('saveDialog')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showSaveDialog response', injectedResponse)
+    return {
+      canceled: injectedResponse.canceled !== false,
+      filePath: typeof injectedResponse.filePath === 'string' ? injectedResponse.filePath : undefined,
+      bookmark: typeof injectedResponse.bookmark === 'string' ? injectedResponse.bookmark : undefined,
+    }
+  }
+
+  return dialog.showSaveDialog(window ?? undefined, options)
+}
+
+async function showOpenDialog(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('openDialog')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showOpenDialog response', injectedResponse)
+    return {
+      canceled: injectedResponse.canceled !== false,
+      filePaths: Array.isArray(injectedResponse.filePaths) ? injectedResponse.filePaths.filter((value) => typeof value === 'string') : [],
+      bookmarks: Array.isArray(injectedResponse.bookmarks) ? injectedResponse.bookmarks.filter((value) => typeof value === 'string') : undefined,
+    }
+  }
+
+  return dialog.showOpenDialog(window ?? undefined, options)
+}
+
 const MAIN_I18N = {
   ja: {
     untitledTitle: '無題.md',
@@ -2119,7 +2209,7 @@ function focusWindow(window) {
 
 async function confirmAiWriteAction(parentWindow, options) {
   const messages = getMainI18n()
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'warning',
     buttons: [messages.buttons.continue, messages.buttons.cancel],
     defaultId: 1,
@@ -3386,7 +3476,7 @@ function buildPendingFetchAclDetailLines(messages, decision) {
 
 async function promptPendingFetchAclDecision(parentWindow, requestHeaders, decision) {
   const messages = getMainI18n().fetchAclPrompt
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'question',
     buttons: [messages.allow, messages.deny, messages.runOnce, messages.skipOnce],
     defaultId: 2,
@@ -4778,7 +4868,7 @@ function registerAllowedLinkRule(rule) {
 async function confirmExternalNavigation(parentWindow, targetUrl) {
   const messages = getMainI18n()
   const suggestedRule = createAllowedLinkRule(targetUrl)
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'warning',
     buttons: [messages.externalLink.allowAndRemember, messages.externalLink.openOnce, messages.buttons.cancel],
     defaultId: 1,
@@ -4854,7 +4944,7 @@ async function saveContentToPath(parentWindow, payload) {
 
   if (!targetPath || forceDialog) {
     const messages = getMainI18n()
-    const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+    const result = await showSaveDialog(parentWindow, {
       defaultPath: currentPath || defaultFileName,
       filters: [
         { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -4878,7 +4968,7 @@ async function saveContentToPath(parentWindow, payload) {
 
   if (shouldPromptConflict) {
     const messages = getMainI18n()
-    const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+    const response = await showMessageBox(parentWindow, {
       type: 'warning',
       buttons: [messages.buttons.overwriteSave, messages.buttons.saveAs, messages.buttons.mergeSave, messages.buttons.cancel],
       defaultId: 3,
@@ -4894,7 +4984,7 @@ async function saveContentToPath(parentWindow, payload) {
     }
 
     if (response.response === 1) {
-      const saveAsResult = await dialog.showSaveDialog(parentWindow ?? undefined, {
+      const saveAsResult = await showSaveDialog(parentWindow, {
         defaultPath: defaultFileName,
         filters: [
           { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -4930,7 +5020,7 @@ async function saveContentToPath(parentWindow, payload) {
         nextContent = mergedContent
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        await dialog.showMessageBox(parentWindow ?? undefined, {
+        await showMessageBox(parentWindow, {
           type: 'error',
           buttons: [messages.buttons.close],
           defaultId: 0,
@@ -4966,7 +5056,7 @@ async function saveHtmlExportToPath(parentWindow, payload) {
     ? payload.defaultFileName.trim()
     : 'document.html'
   const messages = getMainI18n()
-  const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+  const result = await showSaveDialog(parentWindow, {
     defaultPath: defaultFileName,
     filters: [
       { name: messages.fileDialog.htmlFilter, extensions: ['html', 'htm'] },
@@ -5000,7 +5090,7 @@ async function showUnsavedChangesDialog(window, payload) {
     `${messages.unsaved.file}: ${currentFilePath || displayTitle}`,
     messages.unsaved.hasUnsavedChanges,
   ]
-  const response = await dialog.showMessageBox(window ?? undefined, {
+  const response = await showMessageBox(window, {
     type: 'warning',
     buttons: [messages.buttons.save, messages.buttons.cancel, proceedLabel],
     defaultId: 0,
@@ -5024,7 +5114,7 @@ async function showUnsavedChangesDialog(window, payload) {
 
 async function showUnresponsiveCloseDialog(window) {
   const messages = getMainI18n()
-  const response = await dialog.showMessageBox(window ?? undefined, {
+  const response = await showMessageBox(window, {
     type: 'warning',
     buttons: [messages.buttons.cancel, messages.buttons.close],
     defaultId: 0,
@@ -5507,6 +5597,7 @@ async function createWindow(initialLaunchRequest = null) {
   })
 
   launchStateByWindowId.set(mainWindow.id, {
+    filePath: initialLaunchRequest?.filePath || null,
     initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
   })
 
@@ -5603,7 +5694,7 @@ if (!hasSingleInstanceLock) {
 ipcMain.handle('mdv:open-file', async () => {
   const window = BrowserWindow.getFocusedWindow()
   const messages = getMainI18n()
-  const result = await dialog.showOpenDialog(window ?? undefined, {
+  const result = await showOpenDialog(window, {
     properties: ['openFile'],
     filters: [
       { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -5731,6 +5822,7 @@ ipcMain.on('mdv:settings-bootstrap', (event) => {
     settings: settingsState,
     hasPersistedSettings,
     hasReadableSettings,
+    hasInitialLaunchRequest: Boolean(launchState?.filePath),
     initialPanel: launchState?.initialPanel === 'write' ? 'write' : 'preview',
   }
 })

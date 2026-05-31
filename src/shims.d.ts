@@ -335,6 +335,7 @@ type MdvSettingsBootstrap = {
   settings: MdvSettings
   hasPersistedSettings: boolean
   hasReadableSettings: boolean
+  hasInitialLaunchRequest: boolean
   initialPanel: MdvInitialPanel
 }
 
@@ -459,7 +460,6 @@ interface Window {
     clearAutosaveRecovery: (payload?: { recoveryKey?: string | null; filePath?: string | null }) => Promise<void>
     getLatestAutosaveRecovery: () => Promise<MdvAutosaveRecoveryEntry | null>
     getAutosaveRecoveryForFile: (filePath: string) => Promise<MdvAutosaveRecoveryEntry | null>
-    hasPendingOpenFileRequests: () => boolean
     notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>

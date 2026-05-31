@@ -1367,7 +1367,7 @@ function App() {
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
   const [statusText, setStatusTextState] = useState<string>(t.common.ready)
   const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
-  const [isInitialLaunchOpenSettled, setIsInitialLaunchOpenSettled] = useState(() => !(window.mdvDesktop?.hasPendingOpenFileRequests() ?? false))
+  const [isInitialLaunchOpenSettled, setIsInitialLaunchOpenSettled] = useState(() => !(bootstrap?.hasInitialLaunchRequest ?? false))
   const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
   const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
