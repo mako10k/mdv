@@ -221,8 +221,9 @@ npm run dist:win:dir
 4. version bump と対応する Windows artifact を同じ release slice として commit する。
 5. その release commit を `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
 6. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+7. tag 作成直前は `npm run release:check` を通し、GitHub Release は `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` から行う。
 
-通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` を参照してください。
+通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` と `docs/release-workflow.md` を参照してください。
 
 ## ファイル操作
 
