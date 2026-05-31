@@ -116,6 +116,8 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 2. AI-CM-002 context 継続の永続化と復元 policy を定義する
 3. AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
 
+詳細は [docs/ai-context-lifecycle-design.md](docs/ai-context-lifecycle-design.md) を参照する。
+
 これらは [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) の Phase 1 範囲外であり、Phase 1 完了後の context lifecycle 拡張として扱う。
 
 ### AI-P4 Subagent Orchestration
