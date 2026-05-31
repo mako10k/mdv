@@ -4598,6 +4598,8 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         previousResponseId,
         inputCount: nextInput.length,
       })
+      let streamedText = ''
+
       const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
@@ -4612,6 +4614,8 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           return
         }
 
+        streamedText += event.delta
+
         onStreamEvent?.({
           type: 'text-delta',
           delta: event.delta,
@@ -4624,13 +4628,17 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
-      const iterationReply = typeof response.output_text === 'string' ? response.output_text : ''
+      const iterationReply = typeof response.output_text === 'string' && response.output_text.trim().length > 0
+        ? response.output_text
+        : streamedText
 
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
         iteration,
         responseId: previousResponseId,
         functionCallCount: functionCalls.length,
         outputItemCount: outputItems.length,
+        outputItemTypes: outputItems.map((item) => item?.type || 'unknown'),
+        streamedTextLength: streamedText.length,
       })
 
       if (functionCalls.length === 0) {
