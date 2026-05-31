@@ -230,7 +230,7 @@ npm run dist:win:dir
 - Open: ファイル選択ダイアログから読込
 - Save: 現在のパスに保存
 - Save As: 保存先を選んで保存
-- Drag and Drop: `.md` / `.markdown` / `.txt` を直接読込
+- Drag and Drop: `.md` / `.markdown` / `.txt` を直接読込。画像ファイルのドロップまたは貼り付けはドキュメント横の `assets/` へ取り込んで相対参照を挿入
 
 ## CodeBlock 拡張
 

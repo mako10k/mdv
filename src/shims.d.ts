@@ -74,14 +74,51 @@ type MdvRelativeAssetDataUrlResult = {
   dataUrl: string
 }
 
+type MdvDraftWorkspace = {
+  workspaceId: string
+  rootDir: string
+  markdownFilePath: string
+  assetDir: string
+  manifestPath: string
+}
+
+type MdvEnsureDraftWorkspacePayload = {
+  workspaceId?: string | null
+}
+
+type MdvImportImageAssetPayload = {
+  currentFilePath?: string | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  sourcePath?: string | null
+  bytesBase64?: string | null
+  mimeType?: string | null
+  suggestedName?: string | null
+  createdBy: 'paste' | 'drop'
+}
+
+type MdvImportImageAssetResult = {
+  filePath: string
+  relativePath: string
+  markdownFilePath: string
+  draftWorkspace?: MdvDraftWorkspace | null
+}
+
+type MdvPendingImportedAsset = {
+  filePath: string
+  relativePath: string
+}
+
 type MdvSavePayload = {
   path?: string | null
   content: string
   forceDialog?: boolean
+  recoveryKey?: string | null
   defaultFileName?: string | null
   displayTitle?: string | null
   expectedSnapshot?: MdvFileSnapshot | null
   baseContent?: string | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  pendingImportedAssets?: MdvPendingImportedAsset[]
 }
 
 type MdvSaveResult =
@@ -128,6 +165,8 @@ type MdvClientSnapshot = {
   persistedMarkdown: string
   currentFilePath: string | null
   fileSnapshot?: MdvFileSnapshot | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  pendingImportedAssets?: MdvPendingImportedAsset[]
   displayTitle: string
   activePanel: 'write' | 'preview'
   recoveryKey: string
@@ -471,11 +510,18 @@ type MdvAiChatStreamEvent =
 interface Window {
   mdvDesktop?: {
     platform: string
+    e2e?: {
+      recoveryPromptMode: 'accept' | 'decline' | 'interactive'
+    }
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     getMdastCapabilities: () => Promise<MdvJsonValue>
     extractMdastHeadingOutline: (markdown: string) => Promise<MdvMdastHeadingOutlineItem[]>
     readRelativeAssetAsDataUrl: (payload: MdvRelativeAssetDataUrlPayload) => Promise<MdvRelativeAssetDataUrlResult | null>
+    ensureDraftWorkspace: (payload?: MdvEnsureDraftWorkspacePayload) => Promise<MdvDraftWorkspace | null>
+    importImageAsset: (payload: MdvImportImageAssetPayload) => Promise<MdvImportImageAssetResult | null>
+    cleanupImportedAssets: (payload: { filePaths: string[] }) => Promise<void>
+    cleanupDraftWorkspace: (payload: { draftWorkspace?: MdvDraftWorkspace | null }) => Promise<void>
     saveFile: (payload: MdvSavePayload) => Promise<MdvSaveResult>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
     trackCurrentFile: (filePath?: string | null) => Promise<void>

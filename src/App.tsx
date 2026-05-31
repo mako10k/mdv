@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -601,6 +602,26 @@ function resolveDroppedNativePath(event: DragEvent<HTMLElement>): string | null 
   return null
 }
 
+function isImageFileName(fileName: string | null): boolean {
+  return Boolean(fileName && /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(fileName))
+}
+
+function isImageDropCandidate(file: File | null, nativePath: string | null): boolean {
+  if (!file) {
+    return false
+  }
+
+  if (nativePath) {
+    return isImageFileName(nativePath) || file.type.startsWith('image/')
+  }
+
+  if (file.type.startsWith('image/')) {
+    return true
+  }
+
+  return false
+}
+
 function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
   return event.ctrlKey || event.metaKey
 }
@@ -730,6 +751,16 @@ function ToolbarButton({ label, active = false, onClick, children }: ToolbarButt
 
 function escapeRegExpPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return btoa(binary)
 }
 
 function buildExactSearchExpression(query: string, options: ExactEditorSearchOptions): RegExp {
@@ -910,6 +941,16 @@ function getNextFootnoteId(markdown: string): string {
   return String(maxValue + 1 || 1)
 }
 
+function insertImageMarkdown(markdown: string, span: MdvAiNormalizedSpan, source: string, fallbackAlt: string): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const selectedText = markdown.slice(startOffset, endOffset)
+  const alt = selectedText.length > 0 ? selectedText : fallbackAlt
+  const insertedText = `![${alt}](${source})`
+  const sourceStartOffset = startOffset + insertedText.indexOf(source)
+
+  return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, sourceStartOffset, sourceStartOffset + source.length)
+}
+
 function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
   const { startOffset, endOffset } = getSpanOffsets(markdown, span)
   const selectedText = markdown.slice(startOffset, endOffset)
@@ -931,11 +972,7 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
   }
 
   if (command === 'image') {
-    const alt = selectedText.length > 0 ? selectedText : 'alt text'
-    const source = './image.png'
-    const insertedText = `![${alt}](${source})`
-    const sourceStartOffset = startOffset + insertedText.indexOf(source)
-    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, sourceStartOffset, sourceStartOffset + source.length)
+    return insertImageMarkdown(markdown, span, './image.png', 'alt text')
   }
 
   if (command === 'code-block') {
@@ -1589,10 +1626,13 @@ function App() {
     return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
   })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
+  const [currentDraftWorkspace, setCurrentDraftWorkspace] = useState<MdvDraftWorkspace | null>(null)
+  const [pendingImportedAssets, setPendingImportedAssets] = useState<MdvPendingImportedAsset[]>([])
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
   const [statusText, setStatusTextState] = useState<string>(t.common.ready)
   const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
   const [isInitialLaunchOpenSettled, setIsInitialLaunchOpenSettled] = useState(() => !(bootstrap?.hasInitialLaunchRequest ?? false))
+  const [isStartupRecoveryResolved, setIsStartupRecoveryResolved] = useState(false)
   const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
   const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
@@ -1646,6 +1686,8 @@ function App() {
     persistedMarkdown: t.app.initialDocument,
     currentFilePath: null,
     fileSnapshot: null,
+    draftWorkspace: null,
+    pendingImportedAssets: [],
     displayTitle: t.app.untitledTitle,
     activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
     recoveryKey: recoveryKeyRef.current,
@@ -2000,10 +2042,47 @@ function App() {
     persistedMarkdown,
     currentFilePath,
     fileSnapshot: currentFileSnapshotRef.current,
+    draftWorkspace: currentDraftWorkspace,
+    pendingImportedAssets,
     displayTitle,
     activePanel,
     recoveryKey: ensureRecoveryKey(),
   })
+
+  const collectReferencedImportedAssetPaths = (markdown: string) => {
+    const assetPaths = new Set<string>()
+    const expression = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+    let match = expression.exec(markdown)
+
+    while (match) {
+      const candidate = typeof match[1] === 'string' ? match[1].trim() : ''
+
+      if (candidate.startsWith('assets/')) {
+        assetPaths.add(candidate)
+      }
+
+      match = expression.exec(markdown)
+    }
+
+    return assetPaths
+  }
+
+  const cleanupCurrentDraftWorkspace = async (draftWorkspaceOverride?: MdvDraftWorkspace | null) => {
+    const draftWorkspace = draftWorkspaceOverride ?? currentDraftWorkspace
+
+    if (!draftWorkspace) {
+      return
+    }
+
+    await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace })
+    setCurrentDraftWorkspace((currentWorkspace) => {
+      if (!currentWorkspace || currentWorkspace.workspaceId !== draftWorkspace.workspaceId) {
+        return currentWorkspace
+      }
+
+      return null
+    })
+  }
 
   const invalidateEditorSearch = () => {
     setEditorSearchResults([])
@@ -2023,6 +2102,8 @@ function App() {
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
+    setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
+    setPendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
     const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
@@ -2037,11 +2118,18 @@ function App() {
       return
     }
 
+    if (currentDraftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    }
+
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = true
+    recoveryKeyRef.current = ''
     replaceLoadedDocument(payload.content)
     setCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
+    setCurrentDraftWorkspace(null)
+    setPendingImportedAssets([])
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
@@ -2053,11 +2141,18 @@ function App() {
   })
 
   const loadDetachedFile = (fileName: string, content: string) => {
+    if (currentDraftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    }
+
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = true
+    recoveryKeyRef.current = ''
     replaceLoadedDocument(content)
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
+    setCurrentDraftWorkspace(null)
+    setPendingImportedAssets([])
     setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
@@ -2125,11 +2220,49 @@ function App() {
       persistedMarkdown: persistedMarkdownRef.current,
       currentFilePath,
       fileSnapshot: currentFileSnapshotRef.current,
+      draftWorkspace: currentDraftWorkspace,
+      pendingImportedAssets,
       displayTitle,
       activePanel,
       recoveryKey: ensureRecoveryKey(),
     }
   }
+
+  useEffect(() => {
+    let active = true
+
+    if (!isStartupRecoveryResolved) {
+      return () => {
+        active = false
+      }
+    }
+
+    const requestedWorkspaceId = ensureRecoveryKey()
+
+    if (currentFilePath !== null) {
+      return () => {
+        active = false
+      }
+    }
+
+    if (currentDraftWorkspace) {
+      return () => {
+        active = false
+      }
+    }
+
+    void window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: requestedWorkspaceId }).then((workspace) => {
+      if (!active || !workspace || currentFilePathRef.current !== null || recoveryKeyRef.current !== requestedWorkspaceId) {
+        return
+      }
+
+      setCurrentDraftWorkspace(workspace)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [currentDraftWorkspace, currentFilePath, isStartupRecoveryResolved])
 
   const clearAutosaveRecovery = async (payload?: { recoveryKey?: string | null; filePath?: string | null }) => {
     await window.mdvDesktop?.clearAutosaveRecovery(payload ?? {
@@ -2159,6 +2292,16 @@ function App() {
       return handleSaveRef.current(false)
     }
 
+    if (pendingImportedAssets.length > 0) {
+      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: pendingImportedAssets.map((asset) => asset.filePath) })
+      setPendingImportedAssets([])
+    }
+
+    if (currentDraftWorkspace) {
+      await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: currentDraftWorkspace })
+      setCurrentDraftWorkspace(null)
+    }
+
     await clearAutosaveRecovery()
 
     return true
@@ -2182,14 +2325,33 @@ function App() {
     try {
       const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
       const previousFilePath = currentFilePath
+      let draftWorkspace = currentDraftWorkspace
+
+      if (!currentFilePath && !draftWorkspace) {
+        const recovery = await window.mdvDesktop?.getLatestAutosaveRecovery()
+        const recoverySnapshot = recovery?.snapshot
+        const matchesCurrentBuffer = recoverySnapshot
+          && !recoverySnapshot.currentFilePath
+          && recoverySnapshot.markdownText === liveMarkdown
+          && recoverySnapshot.recoveryKey === recoveryKeyRef.current
+
+        if (matchesCurrentBuffer && recoverySnapshot.draftWorkspace) {
+          draftWorkspace = recoverySnapshot.draftWorkspace
+          setCurrentDraftWorkspace(recoverySnapshot.draftWorkspace)
+        }
+      }
+
       const result = await window.mdvDesktop?.saveFile({
         path: currentFilePath,
         content: liveMarkdown,
         forceDialog,
+        recoveryKey: currentFilePath ? null : recoveryKeyRef.current,
         defaultFileName: displayTitle,
         displayTitle,
         expectedSnapshot: currentFileSnapshotRef.current,
         baseContent: persistedMarkdownRef.current,
+        draftWorkspace,
+        pendingImportedAssets,
       })
 
       if (!result || result.status === 'cancelled') {
@@ -2204,6 +2366,28 @@ function App() {
       invalidateEditorSearch()
       setCurrentFilePath(result.path)
       currentFileSnapshotRef.current = result.snapshot
+      setCurrentDraftWorkspace(null)
+      const referencedImportedAssets = collectReferencedImportedAssetPaths(result.content)
+      const abandonedImportedAssets = pendingImportedAssets
+        .filter((asset) => !referencedImportedAssets.has(asset.relativePath))
+
+      if (abandonedImportedAssets.length > 0) {
+        await window.mdvDesktop?.cleanupImportedAssets({
+          filePaths: abandonedImportedAssets.map((asset) => asset.filePath),
+        })
+      }
+
+      if (previousFilePath && previousFilePath !== result.path && pendingImportedAssets.length > 0) {
+        await window.mdvDesktop?.cleanupImportedAssets({
+          filePaths: pendingImportedAssets.map((asset) => asset.filePath),
+        })
+      }
+
+      if (!previousFilePath && draftWorkspace) {
+        await cleanupCurrentDraftWorkspace(draftWorkspace)
+      }
+
+      setPendingImportedAssets([])
       setDisplayTitle(basename(result.path))
       if (result.content !== liveMarkdown) {
         setMarkdownText(result.content)
@@ -2237,7 +2421,7 @@ function App() {
 
     const autosaveTimer = window.setTimeout(() => {
       const snapshot = buildLiveClientSnapshotRef.current()
-      const signature = `${snapshot.currentFilePath ?? ''}\u0000${snapshot.markdownText}\u0000${snapshot.persistedMarkdown}`
+      const signature = `${snapshot.currentFilePath ?? ''}\u0000${snapshot.markdownText}\u0000${snapshot.persistedMarkdown}\u0000${snapshot.draftWorkspace?.workspaceId ?? ''}\u0000${snapshot.pendingImportedAssets?.map((asset) => asset.filePath).join('|') ?? ''}`
 
       if (lastAutosaveSignatureRef.current === signature) {
         return
@@ -2257,19 +2441,29 @@ function App() {
     return () => {
       window.clearTimeout(autosaveTimer)
     }
-  }, [currentFilePath, displayTitle, activePanel, markdownText, hasUnsavedChanges, isPlaceholderDocument])
+  }, [currentFilePath, currentDraftWorkspace, pendingImportedAssets, displayTitle, activePanel, markdownText, hasUnsavedChanges, isPlaceholderDocument])
 
   useEffect(() => {
     let active = true
 
     const maybeRestoreStartupRecovery = async () => {
-      if (!isInitialLaunchOpenSettled || currentFilePath !== null || !isPlaceholderDocument) {
+      if (!isInitialLaunchOpenSettled) {
+        return
+      }
+
+      if (currentFilePath !== null || !isPlaceholderDocument) {
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
         return
       }
 
       const recovery = await window.mdvDesktop?.getLatestAutosaveRecovery()
 
       if (!active || !recovery || recovery.snapshot.currentFilePath || handledRecoveryKeysRef.current.has(recovery.recoveryKey)) {
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
         return
       }
 
@@ -2278,9 +2472,27 @@ function App() {
         ? basename(recovery.snapshot.currentFilePath)
         : recovery.snapshot.displayTitle
 
-      if (!window.confirm(t.app.recoveryRestorePrompt(recoveryName))) {
+      const recoveryPromptMode = window.mdvDesktop?.e2e?.recoveryPromptMode ?? 'interactive'
+      const shouldRestoreRecovery = recoveryPromptMode === 'accept'
+        ? true
+        : recoveryPromptMode === 'decline'
+          ? false
+          : window.confirm(t.app.recoveryRestorePrompt(recoveryName))
+
+      if (!shouldRestoreRecovery) {
+        if (recovery.snapshot.pendingImportedAssets?.length) {
+          await window.mdvDesktop?.cleanupImportedAssets({
+            filePaths: recovery.snapshot.pendingImportedAssets.map((asset) => asset.filePath),
+          })
+        }
+        if (recovery.snapshot.draftWorkspace) {
+          await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: recovery.snapshot.draftWorkspace })
+        }
         await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: recovery.snapshot.currentFilePath })
         setStatusText(t.app.status.discardedRecovery)
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
         return
       }
 
@@ -2288,6 +2500,9 @@ function App() {
       lastAutosaveRecoveryStorageKeyRef.current = recovery.recoveryKey
       lastAutosaveSignatureRef.current = null
       setStatusText(t.app.status.restoredRecovery(recoveryName))
+      if (active) {
+        setIsStartupRecoveryResolved(true)
+      }
     }
 
     void maybeRestoreStartupRecovery()
@@ -2319,8 +2534,22 @@ function App() {
 
       handledRecoveryKeysRef.current.add(recovery.recoveryKey)
       const recoveryName = basename(currentFilePath)
+      const recoveryPromptMode = window.mdvDesktop?.e2e?.recoveryPromptMode ?? 'interactive'
+      const shouldRestoreRecovery = recoveryPromptMode === 'accept'
+        ? true
+        : recoveryPromptMode === 'decline'
+          ? false
+          : window.confirm(t.app.recoveryRestorePrompt(recoveryName))
 
-      if (!window.confirm(t.app.recoveryRestorePrompt(recoveryName))) {
+      if (!shouldRestoreRecovery) {
+        if (recovery.snapshot.pendingImportedAssets?.length) {
+          await window.mdvDesktop?.cleanupImportedAssets({
+            filePaths: recovery.snapshot.pendingImportedAssets.map((asset) => asset.filePath),
+          })
+        }
+        if (recovery.snapshot.draftWorkspace) {
+          await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: recovery.snapshot.draftWorkspace })
+        }
         await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: currentFilePath })
         setStatusText(t.app.status.discardedRecovery)
         return
@@ -2363,6 +2592,79 @@ function App() {
     setPendingSearchJump(result.selection)
     setActivePanel('write')
     setStatusText(t.app.status.insertedMarkdownCommand(commandLabel))
+  }
+
+  const importImageIntoEditor = async (payload: {
+    file?: File | null
+    nativePath?: string | null
+    createdBy: 'paste' | 'drop'
+  }) => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return false
+    }
+
+    try {
+      let draftWorkspace = currentDraftWorkspace
+
+      if (!currentFilePath && !draftWorkspace) {
+        draftWorkspace = await window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: ensureRecoveryKey() }) ?? null
+
+        if (draftWorkspace) {
+          setCurrentDraftWorkspace(draftWorkspace)
+        }
+      }
+
+      let bytesBase64: string | null = null
+
+      if (!payload.nativePath && payload.file) {
+        bytesBase64 = bytesToBase64(new Uint8Array(await payload.file.arrayBuffer()))
+      }
+
+      const result = await window.mdvDesktop?.importImageAsset({
+        currentFilePath,
+        draftWorkspace,
+        sourcePath: payload.nativePath ?? null,
+        bytesBase64,
+        mimeType: payload.file?.type ?? null,
+        suggestedName: payload.file?.name ?? basename(payload.nativePath ?? null, 'image.png'),
+        createdBy: payload.createdBy,
+      })
+
+      if (!result) {
+        throw new Error('Image import returned no result')
+      }
+
+      if (result.draftWorkspace) {
+        setCurrentDraftWorkspace(result.draftWorkspace)
+      }
+
+      if (currentFilePath && !result.draftWorkspace) {
+        setPendingImportedAssets((currentAssets) => {
+          if (currentAssets.some((asset) => asset.filePath === result.filePath)) {
+            return currentAssets
+          }
+
+          return [...currentAssets, { filePath: result.filePath, relativePath: result.relativePath }]
+        })
+      }
+
+      const liveMarkdown = editor.getMarkdown()
+      const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
+      const imageResult = insertImageMarkdown(liveMarkdown, selection, result.relativePath, payload.file?.name || 'image')
+
+      invalidateEditorSearch()
+      setMarkdownText(imageResult.nextMarkdown)
+      editor.setMarkdown(imageResult.nextMarkdown)
+      setPendingSearchJump(imageResult.selection)
+      setActivePanel('write')
+      setStatusText(t.app.status.insertedImageAsset(basename(result.filePath, result.relativePath)))
+      return true
+    } catch (error) {
+      setStatusText(t.app.status.imageImportFailed(error instanceof Error ? error.message : String(error)))
+      return false
+    }
   }
 
   const focusEditorSearch = () => {
@@ -3007,14 +3309,42 @@ function App() {
     }
   }, [])
 
+  const handleImagePaste = useEffectEvent((event: ClipboardEvent) => {
+    const editor = editorRef.current
+
+    if (activePanel !== 'write' || !editor) {
+      return
+    }
+
+    const editorRoot = getActiveEditorRoot(editor)
+    const activeElement = document.activeElement
+
+    if (!(activeElement instanceof Node) || !editorRoot.contains(activeElement)) {
+      return
+    }
+
+    const imageItem = Array.from(event.clipboardData?.items ?? []).find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    const imageFile = imageItem?.getAsFile()
+
+    if (!imageFile) {
+      return
+    }
+
+    event.preventDefault()
+    void importImageIntoEditor({ file: imageFile, createdBy: 'paste' })
+  })
+
+  useEffect(() => {
+    document.addEventListener('paste', handleImagePaste)
+
+    return () => {
+      document.removeEventListener('paste', handleImagePaste)
+    }
+  }, [])
+
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
     setIsDraggingFile(false)
-
-    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
-      setStatusText(t.app.status.dropCancelled)
-      return
-    }
 
     const droppedFile = event.dataTransfer.files.item(0)
     if (!droppedFile) {
@@ -3022,6 +3352,17 @@ function App() {
     }
 
     const nativePath = resolveDroppedNativePath(event)
+
+    if (isImageDropCandidate(droppedFile, nativePath)) {
+      void importImageIntoEditor({ file: droppedFile, nativePath, createdBy: 'drop' })
+      return
+    }
+
+    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
+      setStatusText(t.app.status.dropCancelled)
+      return
+    }
+
     if (nativePath && window.mdvDesktop) {
       const payload = await window.mdvDesktop.readFile(nativePath)
       loadFilePayload(payload)

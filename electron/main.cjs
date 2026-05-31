@@ -32,6 +32,8 @@ const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 const secretsPath = path.join(app.getPath('userData'), 'secrets.json')
 const semanticCachePath = path.join(app.getPath('userData'), 'semantic-cache-v1.json')
 const autosaveRecoveryPath = path.join(app.getPath('userData'), 'autosave-recovery-v1.json')
+const stateRootPath = path.join(app.getPath('userData'), 'state')
+const draftWorkspaceRootPath = path.join(stateRootPath, 'drafts')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
@@ -439,10 +441,13 @@ function loadAutosaveRecoveryStore() {
         typeof snapshot.markdownText !== 'string'
         || typeof snapshot.persistedMarkdown !== 'string'
         || typeof snapshot.displayTitle !== 'string'
-        || typeof snapshot.recoveryKey !== 'string'
       ) {
         continue
       }
+
+      const normalizedRecoveryKey = typeof snapshot.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0
+        ? snapshot.recoveryKey.trim()
+        : entry.recoveryKey.replace(/^draft:/, '')
 
       autosaveRecoveryByKey.set(entry.recoveryKey, {
         recoveryKey: entry.recoveryKey,
@@ -452,9 +457,13 @@ function loadAutosaveRecoveryStore() {
           persistedMarkdown: snapshot.persistedMarkdown,
           currentFilePath: normalizeRecoveryFilePath(snapshot.currentFilePath),
           fileSnapshot: snapshot.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+          draftWorkspace: snapshot.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+          pendingImportedAssets: Array.isArray(snapshot.pendingImportedAssets)
+            ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+            : [],
           displayTitle: snapshot.displayTitle,
           activePanel: snapshot.activePanel === 'write' ? 'write' : 'preview',
-          recoveryKey: snapshot.recoveryKey,
+          recoveryKey: normalizedRecoveryKey,
         },
       })
     }
@@ -471,6 +480,10 @@ function upsertAutosaveRecovery(snapshot) {
     persistedMarkdown: typeof snapshot?.persistedMarkdown === 'string' ? snapshot.persistedMarkdown : '',
     currentFilePath: normalizeRecoveryFilePath(snapshot?.currentFilePath),
     fileSnapshot: snapshot?.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+    draftWorkspace: snapshot?.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+    pendingImportedAssets: Array.isArray(snapshot?.pendingImportedAssets)
+      ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+      : [],
     displayTitle: typeof snapshot?.displayTitle === 'string' && snapshot.displayTitle.trim().length > 0 ? snapshot.displayTitle.trim() : getMainI18n().untitledTitle,
     activePanel: snapshot?.activePanel === 'write' ? 'write' : 'preview',
     recoveryKey: typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0 ? snapshot.recoveryKey.trim() : recoveryKey.replace(/^draft:/, ''),
@@ -516,6 +529,20 @@ function getLatestAutosaveRecovery() {
   return entries[0] || null
 }
 
+function getAutosaveRecoveryByRecoveryKey(recoveryKey) {
+  const normalizedRecoveryKey = typeof recoveryKey === 'string' && recoveryKey.trim().length > 0
+    ? recoveryKey.trim()
+    : null
+
+  if (!normalizedRecoveryKey) {
+    return null
+  }
+
+  return autosaveRecoveryByKey.get(normalizedRecoveryKey)
+    || autosaveRecoveryByKey.get(`draft:${normalizedRecoveryKey}`)
+    || null
+}
+
 function getAutosaveRecoveryForFile(filePath) {
   const normalizedFilePath = normalizeRecoveryFilePath(filePath)
 
@@ -528,6 +555,423 @@ function getAutosaveRecoveryForFile(filePath) {
 
 function getModelContextWindow(model) {
   return MODEL_CONTEXT_WINDOW_BY_NAME[model] || DEFAULT_MODEL_CONTEXT_WINDOW
+}
+
+function normalizeWorkspaceId(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function buildDraftWorkspaceRecord(workspaceId) {
+  const rootDir = path.join(draftWorkspaceRootPath, workspaceId)
+
+  return {
+    workspaceId,
+    rootDir,
+    markdownFilePath: path.join(rootDir, 'document.md'),
+    assetDir: path.join(rootDir, 'assets'),
+    manifestPath: path.join(rootDir, 'manifest.json'),
+  }
+}
+
+async function ensureDraftWorkspace(payload = {}) {
+  const workspaceId = normalizeWorkspaceId(payload.workspaceId) || `wrk_${randomUUID()}`
+  const workspace = buildDraftWorkspaceRecord(workspaceId)
+
+  await fsPromises.mkdir(workspace.assetDir, { recursive: true })
+
+  const existingManifest = await readDraftWorkspaceManifest(workspace)
+
+  if (existingManifest) {
+    return workspace
+  }
+
+  const manifest = {
+    workspaceId,
+    kind: 'draft',
+    markdownFile: path.relative(workspace.rootDir, workspace.markdownFilePath),
+    assetDir: path.relative(workspace.rootDir, workspace.assetDir),
+    assets: [],
+  }
+
+  await fsPromises.writeFile(workspace.manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+
+  return workspace
+}
+
+function normalizeDraftWorkspacePayload(value) {
+  const workspaceId = normalizeWorkspaceId(value?.workspaceId)
+
+  if (!workspaceId) {
+    return null
+  }
+
+  return buildDraftWorkspaceRecord(workspaceId)
+}
+
+function ensurePosixRelativePath(value) {
+  return value.split(path.sep).join('/')
+}
+
+function isImageMimeType(mimeType) {
+  return typeof mimeType === 'string' && mimeType.startsWith('image/')
+}
+
+function getExtensionForMimeType(mimeType) {
+  switch ((mimeType || '').toLowerCase()) {
+    case 'image/png':
+      return '.png'
+    case 'image/jpeg':
+      return '.jpg'
+    case 'image/gif':
+      return '.gif'
+    case 'image/webp':
+      return '.webp'
+    case 'image/svg+xml':
+      return '.svg'
+    case 'image/bmp':
+      return '.bmp'
+    case 'image/x-icon':
+      return '.ico'
+    case 'image/avif':
+      return '.avif'
+    default:
+      return ''
+  }
+}
+
+function sanitizeAssetFileName(fileName, mimeType) {
+  const trimmedName = typeof fileName === 'string' ? fileName.trim() : ''
+  const normalizedName = trimmedName.length > 0 ? trimmedName : `image${getExtensionForMimeType(mimeType) || '.png'}`
+  const parsedName = path.parse(normalizedName)
+  const safeBaseName = (parsedName.name || 'image').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'image'
+  const extension = parsedName.ext || getExtensionForMimeType(mimeType) || '.png'
+  return `${safeBaseName}${extension.toLowerCase()}`
+}
+
+async function getUniqueFilePath(directoryPath, fileName) {
+  const parsedName = path.parse(fileName)
+  let candidateIndex = 1
+  let candidatePath = path.join(directoryPath, fileName)
+
+  while (true) {
+    try {
+      await fsPromises.access(candidatePath, fs.constants.F_OK)
+      candidateIndex += 1
+      candidatePath = path.join(directoryPath, `${parsedName.name}-${candidateIndex}${parsedName.ext}`)
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ENOENT') {
+        return candidatePath
+      }
+
+      throw error
+    }
+  }
+}
+
+async function readDraftWorkspaceManifest(draftWorkspace) {
+  try {
+    const parsed = JSON.parse(await fsPromises.readFile(draftWorkspace.manifestPath, 'utf8'))
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') {
+      return null
+    }
+
+    throw error
+  }
+}
+
+async function writeDraftWorkspaceManifest(draftWorkspace, manifest) {
+  await fsPromises.mkdir(draftWorkspace.rootDir, { recursive: true })
+  await fsPromises.writeFile(draftWorkspace.manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+}
+
+async function appendDraftWorkspaceAssetRecord(draftWorkspace, assetRecord) {
+  const manifest = await readDraftWorkspaceManifest(draftWorkspace) || {
+    workspaceId: draftWorkspace.workspaceId,
+    kind: 'draft',
+    markdownFile: path.relative(draftWorkspace.rootDir, draftWorkspace.markdownFilePath),
+    assetDir: path.relative(draftWorkspace.rootDir, draftWorkspace.assetDir),
+    assets: [],
+  }
+
+  const assets = Array.isArray(manifest.assets) ? manifest.assets : []
+  assets.push(assetRecord)
+  manifest.assets = assets
+  await writeDraftWorkspaceManifest(draftWorkspace, manifest)
+}
+
+function buildWorkspaceAssetContext(payload = {}) {
+  const currentFilePath = normalizeRecoveryFilePath(payload.currentFilePath)
+
+  if (currentFilePath) {
+    return {
+      markdownFilePath: currentFilePath,
+      assetDir: path.join(path.dirname(currentFilePath), 'assets'),
+      draftWorkspace: null,
+    }
+  }
+
+  const draftWorkspace = normalizeDraftWorkspacePayload(payload.draftWorkspace)
+
+  if (!draftWorkspace) {
+    return null
+  }
+
+  return {
+    markdownFilePath: draftWorkspace.markdownFilePath,
+    assetDir: draftWorkspace.assetDir,
+    draftWorkspace,
+  }
+}
+
+async function importImageAsset(payload = {}) {
+  const workspaceContext = buildWorkspaceAssetContext(payload)
+
+  if (!workspaceContext) {
+    return null
+  }
+
+  const sourcePath = normalizeRecoveryFilePath(payload.sourcePath)
+  const mimeType = typeof payload.mimeType === 'string' ? payload.mimeType.trim().toLowerCase() : ''
+  const suggestedName = typeof payload.suggestedName === 'string' ? payload.suggestedName.trim() : ''
+  let content = null
+
+  if (sourcePath) {
+    if (!isInlineExportImagePath(sourcePath)) {
+      return null
+    }
+
+    content = await fsPromises.readFile(sourcePath)
+  } else if (typeof payload.bytesBase64 === 'string' && payload.bytesBase64.length > 0) {
+    if (!isImageMimeType(mimeType)) {
+      return null
+    }
+
+    content = Buffer.from(payload.bytesBase64, 'base64')
+  }
+
+  if (!content) {
+    return null
+  }
+
+  await fsPromises.mkdir(workspaceContext.assetDir, { recursive: true })
+  const fileName = sanitizeAssetFileName(suggestedName || (sourcePath ? path.basename(sourcePath) : ''), mimeType || (sourcePath ? getMimeTypeForFile(sourcePath) : ''))
+  const targetPath = await getUniqueFilePath(workspaceContext.assetDir, fileName)
+  await fsPromises.writeFile(targetPath, content)
+
+  const relativePath = ensurePosixRelativePath(path.relative(path.dirname(workspaceContext.markdownFilePath), targetPath))
+
+  if (workspaceContext.draftWorkspace) {
+    const stat = await fsPromises.stat(targetPath)
+    await appendDraftWorkspaceAssetRecord(workspaceContext.draftWorkspace, {
+      assetId: `ast_${randomUUID()}`,
+      relativePath,
+      mimeType: mimeType || getMimeTypeForFile(targetPath),
+      byteSize: Number(stat.size) || content.length,
+      createdBy: payload.createdBy === 'drop' ? 'drop' : 'paste',
+    })
+  }
+
+  return {
+    filePath: targetPath,
+    relativePath,
+    markdownFilePath: workspaceContext.markdownFilePath,
+    draftWorkspace: workspaceContext.draftWorkspace,
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function rewriteMarkdownAssetPath(markdown, currentRelativePath, nextRelativePath) {
+  if (currentRelativePath === nextRelativePath) {
+    return markdown
+  }
+
+  const expression = new RegExp(`(\\!?(?:\\[[^\\]]*\\])\\()${escapeRegExp(currentRelativePath)}(?=[)#?])`, 'g')
+  return markdown.replace(expression, `$1${nextRelativePath}`)
+}
+
+function collectReferencedDraftAssetPaths(markdown) {
+  const assetPaths = new Set()
+  const expression = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+  let match = expression.exec(markdown)
+
+  while (match) {
+    const candidate = typeof match[1] === 'string' ? match[1].trim() : ''
+
+    if (candidate.startsWith('assets/')) {
+      assetPaths.add(candidate)
+    }
+
+    match = expression.exec(markdown)
+  }
+
+  return [...assetPaths]
+}
+
+function collectReferencedRelativeAssetPaths(markdown) {
+  return new Set(collectReferencedDraftAssetPaths(markdown))
+}
+
+function collectDraftWorkspaceMaterializationPaths(manifest, markdown) {
+  const assetRelativePaths = new Set()
+
+  for (const relativePath of collectReferencedDraftAssetPaths(markdown)) {
+    assetRelativePaths.add(relativePath)
+  }
+
+  return assetRelativePaths
+}
+
+async function cleanupImportedAssetFiles(filePaths) {
+  for (const filePath of Array.isArray(filePaths) ? filePaths : []) {
+    if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+      continue
+    }
+
+    try {
+      await fsPromises.unlink(filePath)
+    } catch (error) {
+      if (!error || typeof error !== 'object' || error.code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+}
+
+async function cleanupDraftWorkspace(payload = {}) {
+  const draftWorkspace = normalizeDraftWorkspacePayload(payload?.draftWorkspace)
+
+  if (!draftWorkspace) {
+    return
+  }
+
+  await fsPromises.rm(draftWorkspace.rootDir, { recursive: true, force: true })
+}
+
+async function resolveDraftWorkspaceForMaterialization(draftWorkspace, recoveryKey, markdown) {
+  const normalizedDraftWorkspace = normalizeDraftWorkspacePayload(draftWorkspace)
+  const recoveredEntry = getAutosaveRecoveryByRecoveryKey(recoveryKey)
+
+  if (recoveredEntry?.snapshot?.draftWorkspace) {
+    const recoveredDraftWorkspace = normalizeDraftWorkspacePayload(recoveredEntry.snapshot.draftWorkspace)
+
+    if (recoveredDraftWorkspace) {
+      const recoveredManifest = await readDraftWorkspaceManifest(recoveredDraftWorkspace)
+
+      if (collectDraftWorkspaceMaterializationPaths(recoveredManifest, markdown).size > 0) {
+        return recoveredDraftWorkspace
+      }
+    }
+  }
+
+  if (normalizedDraftWorkspace) {
+    const manifest = await readDraftWorkspaceManifest(normalizedDraftWorkspace)
+
+    if (collectDraftWorkspaceMaterializationPaths(manifest, markdown).size > 0) {
+      return normalizedDraftWorkspace
+    }
+  }
+
+  const latestRecovery = getLatestAutosaveRecovery()
+
+  if (!latestRecovery?.snapshot || latestRecovery.snapshot.markdownText !== markdown) {
+    return normalizedDraftWorkspace
+  }
+
+  const recoveredDraftWorkspace = normalizeDraftWorkspacePayload(latestRecovery.snapshot.draftWorkspace)
+
+  if (!recoveredDraftWorkspace) {
+    return normalizedDraftWorkspace
+  }
+
+  const recoveredManifest = await readDraftWorkspaceManifest(recoveredDraftWorkspace)
+
+  if (collectDraftWorkspaceMaterializationPaths(recoveredManifest, markdown).size === 0) {
+    return normalizedDraftWorkspace
+  }
+
+  return recoveredDraftWorkspace
+}
+
+async function materializeDraftWorkspaceAssets(draftWorkspace, targetMarkdownPath, markdown, recoveryKey = null) {
+  const normalizedDraftWorkspace = await resolveDraftWorkspaceForMaterialization(
+    draftWorkspace,
+    recoveryKey,
+    markdown,
+  )
+
+  if (!normalizedDraftWorkspace) {
+    return markdown
+  }
+
+  const manifest = await readDraftWorkspaceManifest(normalizedDraftWorkspace)
+  const assetRelativePaths = collectDraftWorkspaceMaterializationPaths(manifest, markdown)
+
+  if (assetRelativePaths.size === 0) {
+    return markdown
+  }
+
+  const targetAssetDir = path.join(path.dirname(targetMarkdownPath), 'assets')
+  await fsPromises.mkdir(targetAssetDir, { recursive: true })
+  let nextMarkdown = markdown
+
+  for (const relativePath of assetRelativePaths) {
+    const sourceAssetPath = path.resolve(normalizedDraftWorkspace.rootDir, relativePath)
+
+    try {
+      await fsPromises.access(sourceAssetPath, fs.constants.F_OK)
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ENOENT') {
+        continue
+      }
+
+      throw error
+    }
+
+    const targetAssetPath = await getUniqueFilePath(targetAssetDir, path.basename(relativePath))
+    await fsPromises.copyFile(sourceAssetPath, targetAssetPath)
+    const nextRelativePath = ensurePosixRelativePath(path.relative(path.dirname(targetMarkdownPath), targetAssetPath))
+    nextMarkdown = rewriteMarkdownAssetPath(nextMarkdown, relativePath, nextRelativePath)
+  }
+
+  return nextMarkdown
+}
+
+async function materializePendingImportedAssets(pendingImportedAssets, currentMarkdownPath, targetMarkdownPath, markdown) {
+  const assets = Array.isArray(pendingImportedAssets)
+    ? pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+    : []
+
+  if (assets.length === 0 || !currentMarkdownPath || currentMarkdownPath === targetMarkdownPath) {
+    return markdown
+  }
+
+  const referencedAssetPaths = collectReferencedRelativeAssetPaths(markdown)
+
+  if (referencedAssetPaths.size === 0) {
+    return markdown
+  }
+
+  const targetAssetDir = path.join(path.dirname(targetMarkdownPath), 'assets')
+  await fsPromises.mkdir(targetAssetDir, { recursive: true })
+  let nextMarkdown = markdown
+
+  for (const asset of assets) {
+    if (!referencedAssetPaths.has(asset.relativePath)) {
+      continue
+    }
+
+    const targetAssetPath = await getUniqueFilePath(targetAssetDir, path.basename(asset.relativePath))
+    await fsPromises.copyFile(asset.filePath, targetAssetPath)
+    const nextRelativePath = ensurePosixRelativePath(path.relative(path.dirname(targetMarkdownPath), targetAssetPath))
+    nextMarkdown = rewriteMarkdownAssetPath(nextMarkdown, asset.relativePath, nextRelativePath)
+  }
+
+  return nextMarkdown
 }
 
 function getInlineTokenBudget() {
@@ -5078,6 +5522,14 @@ async function saveContentToPath(parentWindow, payload) {
     }
   }
 
+  if (!currentPath && (payload?.draftWorkspace || payload?.recoveryKey)) {
+    nextContent = await materializeDraftWorkspaceAssets(payload.draftWorkspace, targetPath, nextContent, payload?.recoveryKey)
+  }
+
+  if (currentPath && targetPath !== currentPath && payload?.pendingImportedAssets) {
+    nextContent = await materializePendingImportedAssets(payload.pendingImportedAssets, currentPath, targetPath, nextContent)
+  }
+
   await fsPromises.writeFile(targetPath, nextContent, 'utf8')
   const stat = await fsPromises.stat(targetPath)
   writeLog('INFO', 'ipc', 'save-file wrote', targetPath)
@@ -5219,6 +5671,7 @@ async function confirmEditorWindowClose(window) {
   }
 
   if (!closeState?.isDirty) {
+    await cleanupDraftWorkspace({ draftWorkspace: closeState?.snapshot?.draftWorkspace || null })
     closeAuxiliaryWindowsForEditor(window)
     approveAndCloseWindow(window)
     return
@@ -5229,6 +5682,7 @@ async function confirmEditorWindowClose(window) {
     markdownText: '',
     persistedMarkdown: '',
     currentFilePath: null,
+    pendingImportedAssets: [],
     displayTitle: messages.untitledTitle,
     activePanel: 'write',
   }
@@ -5246,13 +5700,29 @@ async function confirmEditorWindowClose(window) {
     const saveResult = await saveContentToPath(window, {
       path: snapshot.currentFilePath,
       content: snapshot.markdownText,
+      recoveryKey: snapshot.recoveryKey || null,
       defaultFileName: snapshot.displayTitle || messages.untitledTitle,
       expectedSnapshot: snapshot.fileSnapshot || null,
       baseContent: snapshot.persistedMarkdown,
+      draftWorkspace: snapshot.draftWorkspace || null,
+      pendingImportedAssets: snapshot.pendingImportedAssets || [],
     })
 
     if (!saveResult || saveResult.status !== 'saved') {
       return
+    }
+
+    const referencedAssetPaths = new Set(collectReferencedDraftAssetPaths(saveResult.content))
+    await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || [])
+      .filter((asset) => typeof asset?.relativePath === 'string' && !referencedAssetPaths.has(asset.relativePath))
+      .map((asset) => asset.filePath))
+
+    if (snapshot.currentFilePath && saveResult.path !== snapshot.currentFilePath) {
+      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
+    }
+
+    if (!snapshot.currentFilePath && snapshot.draftWorkspace) {
+      await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace })
     }
 
     clearAutosaveRecovery({
@@ -5266,6 +5736,8 @@ async function confirmEditorWindowClose(window) {
   }
 
   if (response.action === 'discard') {
+    await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
+    await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace || null })
     clearAutosaveRecovery({
       recoveryKey: snapshot.recoveryKey || null,
       filePath: snapshot.currentFilePath || null,
@@ -6119,6 +6591,36 @@ ipcMain.handle('mdv:open-external-link', async (event, href) => {
 
   const parentWindow = BrowserWindow.fromWebContents(event.sender)
   return openExternalLink(parentWindow, href)
+})
+
+ipcMain.handle('mdv:ensure-draft-workspace', async (_event, payload) => {
+  const workspace = await ensureDraftWorkspace(payload)
+  writeLog('INFO', 'ipc', 'ensure-draft-workspace', { workspaceId: workspace.workspaceId, rootDir: workspace.rootDir })
+  return workspace
+})
+
+ipcMain.handle('mdv:import-image-asset', async (_event, payload) => {
+  const result = await importImageAsset(payload)
+
+  if (result) {
+    writeLog('INFO', 'ipc', 'import-image-asset', {
+      filePath: result.filePath,
+      relativePath: result.relativePath,
+      markdownFilePath: result.markdownFilePath,
+    })
+  } else {
+    writeLog('WARN', 'ipc', 'import-image-asset returned null')
+  }
+
+  return result
+})
+
+ipcMain.handle('mdv:cleanup-imported-assets', async (_event, payload) => {
+  await cleanupImportedAssetFiles(payload?.filePaths)
+})
+
+ipcMain.handle('mdv:cleanup-draft-workspace', async (_event, payload) => {
+  await cleanupDraftWorkspace(payload)
 })
 
 ipcMain.handle('mdv:save-file', async (_event, payload) => {
