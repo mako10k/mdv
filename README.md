@@ -209,6 +209,8 @@ npm run dist:win:dir
 - `0.y.0` は user-visible な機能追加、大きな UX 変更、互換性に影響しうる挙動変更、永続 workflow や契約変更に使います。
 - `0.y.z` の patch はバグ修正、UI 調整、配布物再生成、packaging/runtime 修正など、同じ feature line の中で閉じる変更に使います。
 - 同じ source commit 系列を再 packaging しただけで tracked binary だけが更新された場合は、意図した配布ラインが変わらない限り version は据え置きにします。
+- 外向けの binary release は、1 つの release commit、同じ version の annotated tag `vX.Y.Z`、その commit から生成した配布物を 1 組として扱います。
+- tag だけを先に切ったり、既存 tag のまま配布物だけ差し替えたりしません。tag がない build は検証用または内部 packaging refresh であり、正式 release とは扱いません。
 - `1.0.0` は、設定保存、ファイル入出力、AI tool contract など主要な互換性ルールを明示して守る段階に入るまで予約します。
 
 リリースを切るときの手順:
@@ -217,7 +219,8 @@ npm run dist:win:dir
 2. `npm run lint && npm run build` を通す。
 3. `npm run dist:win:host:noadmin:full` で配布物を更新する。
 4. version bump と対応する Windows artifact を同じ release slice として commit する。
-5. `main` へ push したあと、annotated tag `vX.Y.Z` を作る。
+5. その release commit を `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
+6. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
 
 通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` を参照してください。
 
