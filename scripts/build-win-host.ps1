@@ -1,10 +1,13 @@
 param(
   [string]$SourceRoot,
   [string]$NodeVersion = "v22.22.3",
-  [ValidateSet('full', 'diff')]
-  [string]$Mode = 'full',
+  [ValidateSet('generate', 'deploy', 'promote')]
+  [string]$Action = 'generate',
   [ValidateSet('all', 'portable', 'installer', 'none')]
   [string]$PackageTargets = 'all',
+  [ValidateSet('release', 'candidate')]
+  [string]$ArtifactSource = 'release',
+  [switch]$Clean,
   [switch]$RequireElevation
 )
 
@@ -15,6 +18,17 @@ if (-not $SourceRoot) {
 }
 
 $tempRoot = [System.IO.Path]::GetTempPath().TrimEnd('\')
+$workRoot = Join-Path $tempRoot 'mdv-winbuild'
+$nodeZip = Join-Path $tempRoot "node-$NodeVersion-win-x64.zip"
+$nodeRoot = Join-Path $tempRoot "node-$NodeVersion-win-x64"
+$releaseArtifactDest = Join-Path $SourceRoot 'release\windows-host'
+$candidateArtifactDest = Join-Path $SourceRoot 'release\windows-host-candidate'
+$artifactStageDest = Join-Path $SourceRoot 'release\windows-host-staging'
+$artifactBackupDest = Join-Path $SourceRoot 'release\windows-host-backup'
+$localRunDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest'
+$localRunStageDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-staging'
+$localRunBackupDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-backup'
+$buildStatePath = Join-Path $tempRoot 'mdv-winbuild-state.json'
 
 function Test-IsAdministrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -27,8 +41,10 @@ function Restart-Elevated {
     [string]$ScriptPath,
     [string]$ResolvedSourceRoot,
     [string]$ResolvedNodeVersion,
-    [string]$ResolvedMode,
-    [string]$ResolvedPackageTargets
+    [string]$ResolvedAction,
+    [string]$ResolvedPackageTargets,
+    [string]$ResolvedArtifactSource,
+    [bool]$ResolvedClean
   )
 
   $argumentList = @(
@@ -37,28 +53,22 @@ function Restart-Elevated {
     '-File', ('"{0}"' -f $ScriptPath)
     '-SourceRoot', ('"{0}"' -f $ResolvedSourceRoot)
     '-NodeVersion', ('"{0}"' -f $ResolvedNodeVersion)
-    '-Mode', ('"{0}"' -f $ResolvedMode)
+    '-Action', ('"{0}"' -f $ResolvedAction)
     '-PackageTargets', ('"{0}"' -f $ResolvedPackageTargets)
+    '-ArtifactSource', ('"{0}"' -f $ResolvedArtifactSource)
   )
+
+  if ($ResolvedClean) {
+    $argumentList += '-Clean'
+  }
 
   $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argumentList -Wait -PassThru
   exit $process.ExitCode
 }
 
 if ($RequireElevation -and -not (Test-IsAdministrator)) {
-  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion -ResolvedMode $Mode -ResolvedPackageTargets $PackageTargets
+  Restart-Elevated -ScriptPath $PSCommandPath -ResolvedSourceRoot $SourceRoot -ResolvedNodeVersion $NodeVersion -ResolvedAction $Action -ResolvedPackageTargets $PackageTargets -ResolvedArtifactSource $ArtifactSource -ResolvedClean $Clean.IsPresent
 }
-
-$workRoot = Join-Path $tempRoot 'mdv-winbuild'
-$nodeZip = Join-Path $tempRoot "node-$NodeVersion-win-x64.zip"
-$nodeRoot = Join-Path $tempRoot "node-$NodeVersion-win-x64"
-$artifactDest = Join-Path $SourceRoot 'release\windows-host'
-$artifactStageDest = Join-Path $SourceRoot 'release\windows-host-staging'
-$artifactBackupDest = Join-Path $SourceRoot 'release\windows-host-backup'
-$localRunDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest'
-$localRunStageDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-staging'
-$localRunBackupDest = Join-Path $env:LOCALAPPDATA 'MarkDownViewer\latest-backup'
-$buildStatePath = Join-Path $tempRoot 'mdv-winbuild-state.json'
 
 function Get-OptionalFileHash {
   param(
@@ -144,14 +154,9 @@ function Write-BuildState {
 function Test-DependenciesNeedInstall {
   param(
     [string]$Root,
-    [string]$RequestedMode,
     [string]$StatePath,
     [string]$ResolvedNodeVersion
   )
-
-  if ($RequestedMode -eq 'full') {
-    return $true
-  }
 
   if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
     return $true
@@ -171,20 +176,12 @@ function Prepare-ArtifactDestination {
     [string]$PreferredPath
   )
 
-  try {
-    if (Test-Path $PreferredPath) {
-      Remove-Item $PreferredPath -Recurse -Force
-    }
-
-    New-Item -ItemType Directory -Path $PreferredPath | Out-Null
-    return $PreferredPath
-  } catch {
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $fallbackPath = Join-Path (Split-Path $PreferredPath -Parent) "windows-host-$timestamp"
-    New-Item -ItemType Directory -Path $fallbackPath | Out-Null
-    Write-Warning "Preferred artifact directory is locked. Using $fallbackPath"
-    return $fallbackPath
+  if (Test-Path $PreferredPath) {
+    Remove-DirectoryWithRetry -TargetPath $PreferredPath
   }
+
+  New-Item -ItemType Directory -Path $PreferredPath | Out-Null
+  return $PreferredPath
 }
 
 function Ensure-Directory {
@@ -283,22 +280,129 @@ function Restore-SwappedDirectory {
   }
 }
 
-function Remove-LocalRunDestination {
-  param(
-    [string]$TargetPath
-  )
-
-  Stop-MarkDownViewerProcess
-
-  Remove-DirectoryWithRetry -TargetPath $TargetPath
-}
-
 function Stop-MarkDownViewerProcess {
   $runningProcesses = Get-Process 'MarkDownViewer' -ErrorAction SilentlyContinue
   if ($runningProcesses) {
     $runningProcesses | Stop-Process -Force
     $runningProcesses | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
   }
+}
+
+function Sync-Directory {
+  param(
+    [string]$SourcePath,
+    [string]$DestinationPath,
+    [string]$Mode = '/MIR',
+    [string]$ErrorLabel
+  )
+
+  robocopy $SourcePath $DestinationPath $Mode > $null
+  if ($LASTEXITCODE -gt 3) {
+    throw "$ErrorLabel failed with code $LASTEXITCODE"
+  }
+}
+
+function Get-ArtifactDirectory {
+  param(
+    [string]$Kind
+  )
+
+  switch ($Kind) {
+    'release' {
+      return $releaseArtifactDest
+    }
+    'candidate' {
+      return $candidateArtifactDest
+    }
+    default {
+      throw "Unsupported artifact source: $Kind"
+    }
+  }
+}
+
+function Read-PackageVersion {
+  $packageJsonPath = Join-Path $SourceRoot 'package.json'
+  $packageJson = Get-Content $packageJsonPath -Raw | ConvertFrom-Json
+
+  if (-not $packageJson.version) {
+    throw "package.json at $packageJsonPath does not contain a version"
+  }
+
+  return [string]$packageJson.version
+}
+
+function Assert-PromotableCandidateArtifacts {
+  $version = Read-PackageVersion
+  $versionedExeName = "MarkDownViewer-$version-win.exe"
+  $requiredPaths = @(
+    (Join-Path $candidateArtifactDest "portable\$versionedExeName"),
+    (Join-Path $candidateArtifactDest "installer\$versionedExeName"),
+    (Join-Path $candidateArtifactDest "installer\$versionedExeName.blockmap"),
+    (Join-Path $candidateArtifactDest 'win-unpacked\MarkDownViewer.exe')
+  )
+
+  $missingPaths = @($requiredPaths | Where-Object { -not (Test-Path $_) })
+  if ($missingPaths.Count -gt 0) {
+    throw "Candidate artifacts are incomplete for promotion:`n$($missingPaths -join "`n")"
+  }
+}
+
+function Update-LocalRunnableCopy {
+  param(
+    [string]$ArtifactRoot
+  )
+
+  $unpackedSource = Join-Path $ArtifactRoot 'win-unpacked'
+  if (-not (Test-Path $unpackedSource)) {
+    throw "win-unpacked executable is missing at $unpackedSource"
+  }
+
+  Ensure-Directory -TargetPath (Split-Path $localRunStageDest -Parent)
+  if (Test-Path $localRunStageDest) {
+    Remove-DirectoryWithRetry -TargetPath $localRunStageDest
+  }
+
+  Sync-Directory -SourcePath $unpackedSource -DestinationPath $localRunStageDest -ErrorLabel 'local runnable staging'
+
+  Stop-MarkDownViewerProcess
+
+  $localSwap = $null
+  try {
+    $localSwap = Swap-StagedDirectory -StagePath $localRunStageDest -LivePath $localRunDest -BackupPath $localRunBackupDest
+  } catch {
+    Restore-SwappedDirectory -SwapResult $localSwap
+    throw
+  }
+
+  Finalize-SwappedDirectory -SwapResult $localSwap
+  Write-Host "Runnable local copy updated at $localRunDest"
+  Write-Host "Run the local Windows copy: $localRunDest\MarkDownViewer.exe"
+}
+
+function Promote-CandidateArtifacts {
+  if (-not (Test-Path $candidateArtifactDest)) {
+    throw "Candidate artifacts do not exist at $candidateArtifactDest"
+  }
+
+  Assert-PromotableCandidateArtifacts
+
+  Ensure-Directory -TargetPath (Split-Path $artifactStageDest -Parent)
+  if (Test-Path $artifactStageDest) {
+    Remove-DirectoryWithRetry -TargetPath $artifactStageDest
+  }
+
+  Sync-Directory -SourcePath $candidateArtifactDest -DestinationPath $artifactStageDest -ErrorLabel 'artifact staging'
+
+  $artifactSwap = $null
+  try {
+    $artifactSwap = Swap-StagedDirectory -StagePath $artifactStageDest -LivePath $releaseArtifactDest -BackupPath $artifactBackupDest
+  } catch {
+    Restore-SwappedDirectory -SwapResult $artifactSwap
+    throw
+  }
+
+  Finalize-SwappedDirectory -SwapResult $artifactSwap
+  Write-Host "Canonical release artifacts updated at $releaseArtifactDest"
 }
 
 function Get-PackageBuildPlans {
@@ -354,12 +458,51 @@ function Clear-PackageOutputDirectories {
   }
 }
 
-if ($Mode -eq 'full' -and (Test-Path $workRoot)) {
+function Validate-ActionArguments {
+  if ($Action -eq 'generate') {
+    if ($ArtifactSource -ne 'release') {
+      throw 'ArtifactSource is only supported for deploy.'
+    }
+
+    return
+  }
+
+  if ($Clean) {
+    throw 'Clean is only supported for generate.'
+  }
+
+  if ($PackageTargets -ne 'all') {
+    throw 'PackageTargets is only supported for generate.'
+  }
+
+  if ($Action -eq 'promote' -and $ArtifactSource -ne 'release') {
+    throw 'ArtifactSource is only supported for deploy.'
+  }
+}
+
+Validate-ActionArguments
+
+if ($Action -eq 'deploy') {
+  $artifactRoot = Get-ArtifactDirectory -Kind $ArtifactSource
+  if (-not (Test-Path $artifactRoot)) {
+    throw "Artifact source does not exist: $artifactRoot"
+  }
+
+  Update-LocalRunnableCopy -ArtifactRoot $artifactRoot
+  exit 0
+}
+
+if ($Action -eq 'promote') {
+  Promote-CandidateArtifacts
+  exit 0
+}
+
+if ($Clean -and (Test-Path $workRoot)) {
   Remove-Item $workRoot -Recurse -Force
 }
 
 Ensure-Directory -TargetPath $workRoot
-Write-Host "Prepared temp workspace at $workRoot (mode: $Mode)"
+Write-Host "Prepared temp workspace at $workRoot (action: $Action)"
 
 robocopy $SourceRoot $workRoot /MIR /XD node_modules dist release .git > $null
 if ($LASTEXITCODE -gt 3) {
@@ -369,10 +512,7 @@ if ($LASTEXITCODE -gt 3) {
 $sourceBuildResources = Join-Path $SourceRoot 'build'
 $workBuildResources = Join-Path $workRoot 'build'
 if (Test-Path $sourceBuildResources) {
-  robocopy $sourceBuildResources $workBuildResources /MIR > $null
-  if ($LASTEXITCODE -gt 3) {
-    throw "build resource copy failed with code $LASTEXITCODE"
-  }
+  Sync-Directory -SourcePath $sourceBuildResources -DestinationPath $workBuildResources -ErrorLabel 'build resource copy'
 }
 
 Write-Host "Copied source from $SourceRoot"
@@ -395,7 +535,7 @@ if (-not (Test-Path $mdastPackageJson)) {
   throw "mdast-control submodule is not initialized in the source tree. Run 'git submodule update --init --recursive vendor/mdast-control' before Windows host packaging."
 }
 
-if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion) {
+if (Test-DependenciesNeedInstall -Root $workRoot -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion) {
   if (Test-Path $buildStatePath) {
     Remove-Item $buildStatePath -Force
   }
@@ -415,7 +555,7 @@ if (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath
 
 $mdastNodeModules = Join-Path $workRoot 'vendor\mdast-control\node_modules'
 $mdastInstallState = Join-Path $mdastNodeModules '.mdv-install-state.json'
-if ((-not (Test-Path $mdastNodeModules)) -or (-not (Test-Path $mdastInstallState)) -or (Test-DependenciesNeedInstall -Root $workRoot -RequestedMode $Mode -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion)) {
+if ((-not (Test-Path $mdastNodeModules)) -or (-not (Test-Path $mdastInstallState)) -or (Test-DependenciesNeedInstall -Root $workRoot -StatePath $buildStatePath -ResolvedNodeVersion $NodeVersion)) {
   Write-Host "Installing mdast submodule dependencies in $workRoot\vendor\mdast-control"
   & "$nodeRoot\node.exe" (Join-Path $workRoot 'scripts\mdast-submodule.mjs') install
   if (Test-ExternalCommandFailed) {
@@ -423,8 +563,8 @@ if ((-not (Test-Path $mdastNodeModules)) -or (-not (Test-Path $mdastInstallState
   }
 }
 
-Write-Host "Building Windows unpacked app"
-Write-Host "Building renderer assets"
+Write-Host 'Building Windows unpacked app'
+Write-Host 'Building renderer assets'
 & "$nodeRoot\npm.cmd" run build
 if (Test-ExternalCommandFailed) {
   throw "build failed with code $LASTEXITCODE"
@@ -469,56 +609,8 @@ foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
   }
 }
 
-if ($Mode -eq 'full') {
-  $artifactDest = Prepare-ArtifactDestination -PreferredPath $artifactDest
+$candidateOutputPath = Prepare-ArtifactDestination -PreferredPath $candidateArtifactDest
+Sync-Directory -SourcePath (Join-Path $workRoot 'release') -DestinationPath $candidateOutputPath -Mode '/E' -ErrorLabel 'candidate artifact copy'
 
-  robocopy (Join-Path $workRoot 'release') $artifactDest /E > $null
-  if ($LASTEXITCODE -gt 3) {
-    throw "artifact copy failed with code $LASTEXITCODE"
-  }
-} else {
-  Ensure-Directory -TargetPath (Split-Path $artifactStageDest -Parent)
-  robocopy (Join-Path $workRoot 'release') $artifactStageDest /MIR > $null
-  if ($LASTEXITCODE -gt 3) {
-    throw "artifact staging failed with code $LASTEXITCODE"
-  }
-
-  Ensure-Directory -TargetPath (Split-Path $localRunStageDest -Parent)
-  robocopy (Join-Path $workRoot 'release\win-unpacked') $localRunStageDest /MIR > $null
-  if ($LASTEXITCODE -gt 3) {
-    throw "local runnable staging failed with code $LASTEXITCODE"
-  }
-
-  Stop-MarkDownViewerProcess
-
-  $artifactSwap = $null
-  $localSwap = $null
-
-  try {
-    $artifactSwap = Swap-StagedDirectory -StagePath $artifactStageDest -LivePath $artifactDest -BackupPath $artifactBackupDest
-    $localSwap = Swap-StagedDirectory -StagePath $localRunStageDest -LivePath $localRunDest -BackupPath $localRunBackupDest
-  } catch {
-    Restore-SwappedDirectory -SwapResult $localSwap
-    Restore-SwappedDirectory -SwapResult $artifactSwap
-    throw
-  }
-
-  Finalize-SwappedDirectory -SwapResult $localSwap
-  Finalize-SwappedDirectory -SwapResult $artifactSwap
-}
-
-Write-Host "Artifacts copied to $artifactDest"
-
-if ($Mode -eq 'full') {
-  Remove-LocalRunDestination -TargetPath $localRunDest
-  New-Item -ItemType Directory -Path $localRunDest | Out-Null
-  robocopy (Join-Path $artifactDest 'win-unpacked') $localRunDest /E > $null
-  if ($LASTEXITCODE -gt 3) {
-    throw "local runnable copy failed with code $LASTEXITCODE"
-  }
-}
-
-Write-Host "Runnable local copy updated at $localRunDest"
-
-$localExe = Join-Path $localRunDest 'MarkDownViewer.exe'
-Write-Host "Run the local Windows copy: $localExe"
+Write-Host "Candidate artifacts copied to $candidateOutputPath"
+Write-Host 'Use deploy to refresh the local runnable copy or promote to replace canonical release artifacts.'
