@@ -59,6 +59,44 @@ async function selectEditorLinesFromStart(page: Page, lineCount: number) {
   await page.keyboard.up('Shift')
 }
 
+async function selectEditorCharactersFromStart(page: Page, startOffset: number, length: number) {
+  const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+
+  await editor.click()
+  await page.keyboard.press(moveEditorCursorToStartShortcut)
+
+  for (let index = 0; index < startOffset; index += 1) {
+    await page.keyboard.press('ArrowRight')
+  }
+
+  await page.keyboard.down('Shift')
+
+  for (let index = 0; index < length; index += 1) {
+    await page.keyboard.press('ArrowRight')
+  }
+
+  await page.keyboard.up('Shift')
+}
+
+async function placeEditorCursorFromStart(page: Page, offset: number) {
+  const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+
+  await editor.click()
+  await page.keyboard.press(moveEditorCursorToStartShortcut)
+
+  for (let index = 0; index < offset; index += 1) {
+    await page.keyboard.press('ArrowRight')
+  }
+}
+
+async function switchToastEditorMode(page: Page, mode: 'markdown' | 'wysiwyg') {
+  const modeIndex = mode === 'markdown' ? 0 : 1
+  const modeTab = page.locator('.toastui-editor-mode-switch .tab-item').nth(modeIndex)
+
+  await modeTab.click()
+  await expect(modeTab).toHaveClass(/active/)
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
@@ -220,5 +258,104 @@ test.describe('find and replace', () => {
 
     await expect(page.locator('.editor-search-count')).toHaveText('0')
     await expect(page.locator('.editor-search-results')).toHaveCount(0)
+  })
+})
+
+test.describe('markdown insert commands', () => {
+  test('heading command expands a partial selection to the whole line', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'partial line')
+    await selectEditorCharactersFromStart(page, 8, 4)
+
+    await page.locator('.topbar').getByRole('button', { name: /(見出しを挿入|Insert heading)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('## partial line')
+  })
+
+  test('heading command expands the current line when only the caret is active', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'caret line')
+    await placeEditorCursorFromStart(page, 5)
+
+    await page.locator('.topbar').getByRole('button', { name: /(見出しを挿入|Insert heading)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('## caret line')
+  })
+
+  test('quote command expands the current line when only the caret is active', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'quoted line')
+    await placeEditorCursorFromStart(page, 6)
+
+    await page.locator('.topbar').getByRole('button', { name: /(引用を挿入|Insert quote)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('> quoted line')
+  })
+
+  test('link command wraps the current selection and updates the preview', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'wrap me')
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+    await page.keyboard.press(selectAllShortcut)
+    await page.locator('.topbar').getByRole('button', { name: /(リンクを挿入|Insert link)/ }).click()
+
+    await expect(editor).toContainText('[wrap me](https://example.com)')
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel')).toContainText('wrap me')
+    await expect(page.locator('.preview-panel a')).toHaveAttribute('href', 'https://example.com')
+  })
+
+  test('image command wraps the current selection and updates the preview image', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'diagram alt')
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+    await page.keyboard.press(selectAllShortcut)
+    await page.locator('.topbar').getByRole('button', { name: /(画像を挿入|Insert image)/ }).click()
+
+    await expect(editor).toContainText('![diagram alt](./image.png)')
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel img')).toHaveAttribute('alt', 'diagram alt')
+    await expect(page.locator('.preview-panel img')).toHaveAttribute('src', /image\.png$/)
+  })
+
+  test('code block command still inserts fenced Markdown after switching to WYSIWYG mode', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, '# Insert\n\nParagraph\n')
+    await switchToastEditorMode(page, 'wysiwyg')
+
+    const wysiwygEditor = page.locator('.toastui-editor-ww-container .ProseMirror').first()
+    await wysiwygEditor.click()
+    await page.keyboard.press(selectAllShortcut)
+    await page.locator('.topbar').getByRole('button', { name: /(コードブロックを挿入|Insert code block)/ }).click()
+
+    await switchToastEditorMode(page, 'markdown')
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('```')
+  })
+
+  test('footnote command replaces the selection with a marker and appends a definition', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'note me')
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+    await page.keyboard.press(selectAllShortcut)
+    await page.locator('.topbar').getByRole('button', { name: /(脚注を挿入|Insert footnote)/ }).click()
+
+    await expect(editor).toContainText('[^1]')
+    await expect(editor).toContainText('[^1]: note me')
+  })
+
+  test('horizontal rule command inserts a thematic break on its own block', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'before\n\nafter')
+    await placeEditorCursorFromStart(page, 6)
+
+    await page.locator('.topbar').getByRole('button', { name: /(水平線を挿入|Insert horizontal rule)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText(/before[\s\S]*---[\s\S]*after/)
   })
 })

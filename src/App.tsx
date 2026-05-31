@@ -707,6 +707,13 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote'
+
+type MarkdownInsertResult = {
+  nextMarkdown: string
+  selection: MdvAiNormalizedSpan | null
+}
+
 function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
@@ -807,6 +814,162 @@ function runExactEditorSearch(
 
 function replaceOffsets(markdown: string, startOffset: number, endOffset: number, replacement: string): string {
   return `${markdown.slice(0, startOffset)}${replacement}${markdown.slice(endOffset)}`
+}
+
+function createMarkdownInsertResult(
+  markdown: string,
+  startOffset: number,
+  endOffset: number,
+  replacement: string,
+  selectionStartOffset: number,
+  selectionEndOffset: number,
+): MarkdownInsertResult {
+  const nextMarkdown = replaceOffsets(markdown, startOffset, endOffset, replacement)
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, selectionStartOffset, selectionEndOffset),
+  }
+}
+
+function getSpanOffsets(markdown: string, span: MdvAiNormalizedSpan) {
+  return {
+    startOffset: markdownPosToOffset(markdown, span.start),
+    endOffset: markdownPosToOffset(markdown, span.end),
+  }
+}
+
+function expandOffsetsToSelectedLines(markdown: string, startOffset: number, endOffset: number) {
+  const lineStartOffset = markdown.lastIndexOf('\n', Math.max(0, startOffset - 1)) + 1
+  const normalizedEndOffset = endOffset > startOffset && markdown[endOffset - 1] === '\n'
+    ? endOffset - 1
+    : endOffset
+  const nextLineBreakOffset = markdown.indexOf('\n', normalizedEndOffset)
+
+  return {
+    startOffset: lineStartOffset,
+    endOffset: nextLineBreakOffset === -1 ? markdown.length : nextLineBreakOffset,
+  }
+}
+
+function prefixSelectedLines(markdown: string, span: MdvAiNormalizedSpan, prefix: string, emptyPlaceholder: string): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const lineOffsets = expandOffsetsToSelectedLines(markdown, startOffset, endOffset)
+
+  if (startOffset === endOffset) {
+    const currentLineText = markdown.slice(lineOffsets.startOffset, lineOffsets.endOffset)
+
+    if (currentLineText.length > 0) {
+      const nextText = `${prefix}${currentLineText}`
+
+      return createMarkdownInsertResult(
+        markdown,
+        lineOffsets.startOffset,
+        lineOffsets.endOffset,
+        nextText,
+        lineOffsets.startOffset,
+        lineOffsets.startOffset + nextText.length,
+      )
+    }
+
+    const insertedText = `${prefix}${emptyPlaceholder}`
+    const placeholderStartOffset = lineOffsets.startOffset + prefix.length
+    return createMarkdownInsertResult(
+      markdown,
+      lineOffsets.startOffset,
+      lineOffsets.endOffset,
+      insertedText,
+      placeholderStartOffset,
+      placeholderStartOffset + emptyPlaceholder.length,
+    )
+  }
+
+  const selectedText = markdown.slice(lineOffsets.startOffset, lineOffsets.endOffset)
+  const nextText = selectedText
+    .split(/\r?\n/)
+    .map((line) => line.length > 0 ? `${prefix}${line}` : line)
+    .join('\n')
+
+  return createMarkdownInsertResult(
+    markdown,
+    lineOffsets.startOffset,
+    lineOffsets.endOffset,
+    nextText,
+    lineOffsets.startOffset,
+    lineOffsets.startOffset + nextText.length,
+  )
+}
+
+function getNextFootnoteId(markdown: string): string {
+  const matches = Array.from(markdown.matchAll(/^\[\^(\d+)\]:/gm))
+  const maxValue = matches.reduce((currentMax, match) => {
+    const nextValue = Number.parseInt(match[1], 10)
+    return Number.isFinite(nextValue) ? Math.max(currentMax, nextValue) : currentMax
+  }, 0)
+
+  return String(maxValue + 1 || 1)
+}
+
+function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const selectedText = markdown.slice(startOffset, endOffset)
+
+  if (command === 'heading') {
+    return prefixSelectedLines(markdown, span, '## ', 'Heading')
+  }
+
+  if (command === 'quote') {
+    return prefixSelectedLines(markdown, span, '> ', 'Quote')
+  }
+
+  if (command === 'link') {
+    const label = selectedText.length > 0 ? selectedText : 'link text'
+    const href = 'https://example.com'
+    const insertedText = `[${label}](${href})`
+    const hrefStartOffset = startOffset + insertedText.indexOf(href)
+    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, hrefStartOffset, hrefStartOffset + href.length)
+  }
+
+  if (command === 'image') {
+    const alt = selectedText.length > 0 ? selectedText : 'alt text'
+    const source = './image.png'
+    const insertedText = `![${alt}](${source})`
+    const sourceStartOffset = startOffset + insertedText.indexOf(source)
+    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, sourceStartOffset, sourceStartOffset + source.length)
+  }
+
+  if (command === 'code-block') {
+    const body = selectedText.length > 0 ? selectedText : 'code'
+    const insertedText = `\`\`\`\n${body}\n\`\`\``
+    const bodyStartOffset = startOffset + 4
+    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, bodyStartOffset, bodyStartOffset + body.length)
+  }
+
+  if (command === 'horizontal-rule') {
+    const insertionOffset = endOffset
+    const beforeText = markdown.slice(0, insertionOffset).replace(/\n*$/, '')
+    const afterText = markdown.slice(insertionOffset).replace(/^\n*/, '')
+    const nextMarkdown = `${beforeText}${beforeText.length > 0 ? '\n\n' : ''}---${afterText.length > 0 ? '\n\n' : ''}${afterText}`
+    const caretOffset = beforeText.length + (beforeText.length > 0 ? 5 : 3)
+
+    return {
+      nextMarkdown,
+      selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
+    }
+  }
+
+  const footnoteId = getNextFootnoteId(markdown)
+  const marker = `[^${footnoteId}]`
+  const definitionText = selectedText.length > 0 ? selectedText : 'Footnote'
+  const needsSeparator = markdown.length === 0 ? '' : markdown.endsWith('\n') ? '\n' : '\n\n'
+  const definitionPrefix = `${needsSeparator}[^${footnoteId}]: `
+  const nextMarkdown = `${replaceOffsets(markdown, startOffset, endOffset, marker)}${definitionPrefix}${definitionText}`
+  const definitionStartOffset = nextMarkdown.length - definitionText.length
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, definitionStartOffset, definitionStartOffset + definitionText.length),
+  }
 }
 
 function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
@@ -1027,6 +1190,34 @@ function ExportIcon() {
       <path d="M12 11v5M9.5 13.5 12 11l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
+}
+
+function HeadingCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">H</span>
+}
+
+function LinkCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">[]</span>
+}
+
+function ImageCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">IMG</span>
+}
+
+function CodeBlockCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">&lt;/&gt;</span>
+}
+
+function QuoteCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">&#34;</span>
+}
+
+function HorizontalRuleCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">---</span>
+}
+
+function FootnoteCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">FN</span>
 }
 
 async function copyTextToClipboard(text: string) {
@@ -2155,6 +2346,25 @@ function App() {
     setStatusText(statusMessage)
   }
 
+  const applyMarkdownInsertCommand = (command: MarkdownInsertCommand, commandLabel: string) => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return
+    }
+
+    const liveMarkdown = editor.getMarkdown()
+    const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
+    const result = runMarkdownInsertCommand(command, liveMarkdown, selection)
+
+    invalidateEditorSearch()
+    setMarkdownText(result.nextMarkdown)
+    editor.setMarkdown(result.nextMarkdown)
+    setPendingSearchJump(result.selection)
+    setActivePanel('write')
+    setStatusText(t.app.status.insertedMarkdownCommand(commandLabel))
+  }
+
   const focusEditorSearch = () => {
     searchInputRef.current?.focus()
     searchInputRef.current?.select()
@@ -3071,6 +3281,41 @@ function App() {
             <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
               <SaveAsIcon />
             </ToolbarButton>
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertHeading} onClick={() => applyMarkdownInsertCommand('heading', t.app.insertHeading)}>
+                <HeadingCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertLink} onClick={() => applyMarkdownInsertCommand('link', t.app.insertLink)}>
+                <LinkCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertImage} onClick={() => applyMarkdownInsertCommand('image', t.app.insertImage)}>
+                <ImageCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertCodeBlock} onClick={() => applyMarkdownInsertCommand('code-block', t.app.insertCodeBlock)}>
+                <CodeBlockCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertQuote} onClick={() => applyMarkdownInsertCommand('quote', t.app.insertQuote)}>
+                <QuoteCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertHorizontalRule} onClick={() => applyMarkdownInsertCommand('horizontal-rule', t.app.insertHorizontalRule)}>
+                <HorizontalRuleCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
+                <FootnoteCommandIcon />
+              </ToolbarButton>
+            ) : null}
             <ToolbarButton
               label={`${t.chat.title} (Ctrl/Cmd+I)`}
               active={isAssistantDockOpen}
