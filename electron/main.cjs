@@ -7,6 +7,7 @@ const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
 const { createPatch, applyPatch } = require('diff')
 const OpenAI = require('openai')
+const { createOpenAiResponseStream } = require('./openai-response-stream.cjs')
 const { extractHeadingOutline, getMdastCapabilities } = require('./mdast-adapter.cjs')
 const {
   addFetchAclDecisionRule,
@@ -4597,7 +4598,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         previousResponseId,
         inputCount: nextInput.length,
       })
-      const responseStream = client.responses.stream({
+      const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
         input: nextInput,
