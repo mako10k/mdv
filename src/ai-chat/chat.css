@@ -286,6 +286,17 @@ body,
   align-self: flex-start;
 }
 
+.chat-bubble.streaming {
+  border-style: dashed;
+}
+
+.chat-bubble-streaming-indicator {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font: 700 16px/1 var(--mono);
+  letter-spacing: 0.18em;
+}
+
 .chat-bubble.user {
   align-self: flex-end;
   background: color-mix(in srgb, var(--link) 12%, var(--bg-panel));

@@ -4129,7 +4129,7 @@ function mapAiChatMessageToOpenAiInput(message) {
   }
 }
 
-async function requestOpenAiChatResponse(editorWindow, messages) {
+async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) {
   const input = Array.isArray(messages)
     ? messages
       .map(mapAiChatMessageToOpenAiInput)
@@ -4153,19 +4153,35 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         previousResponseId,
         inputCount: nextInput.length,
       })
-      const response = await client.responses.create({
+      const responseStream = await client.responses.create({
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
         input: nextInput,
         previous_response_id: previousResponseId || undefined,
         tools: openAiTools,
         store: true,
+        stream: true,
       })
+
+      responseStream.on('response.output_text.delta', (event) => {
+        if (typeof event.delta !== 'string' || event.delta.length === 0) {
+          return
+        }
+
+        onStreamEvent?.({
+          type: 'text-delta',
+          delta: event.delta,
+        })
+      })
+
+      const response = await responseStream.finalResponse()
 
       previousResponseId = typeof response.id === 'string' ? response.id : null
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
+      const iterationReply = typeof response.output_text === 'string' ? response.output_text : ''
+
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
         iteration,
         responseId: previousResponseId,
@@ -4174,7 +4190,7 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
       })
 
       if (functionCalls.length === 0) {
-        const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+        const reply = iterationReply.trim()
 
         if (!reply) {
           throw new Error('OpenAI SDK returned no output_text')
@@ -4220,6 +4236,11 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
           title: `${functionCall.name} call`,
           content: formatToolEventContent(args),
         })
+        onStreamEvent?.({
+          type: 'tool-event',
+          title: `${functionCall.name} call`,
+          content: formatToolEventContent(args),
+        })
 
         if (!result) {
           try {
@@ -4238,6 +4259,11 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         })
 
         toolEvents.push({
+          title: `${functionCall.name} result`,
+          content: formatToolEventContent(result),
+        })
+        onStreamEvent?.({
+          type: 'tool-event',
           title: `${functionCall.name} result`,
           content: formatToolEventContent(result),
         })
@@ -4262,6 +4288,20 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 
     throw error
   }
+}
+
+function emitAiChatStreamEvent(targetWindow, payload) {
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return
+  }
+
+  const targetContents = targetWindow.webContents
+
+  if (!targetContents || targetContents.isDestroyed()) {
+    return
+  }
+
+  targetContents.send('mdv:ai-chat-stream-event', payload)
 }
 
 function broadcastSettingsChanged() {
@@ -6018,24 +6058,56 @@ ipcMain.handle('mdv:ai-chat-list-buffers', async (event) => {
 ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
   const sourceWindow = BrowserWindow.fromWebContents(_event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  const requestId = typeof payload?.requestId === 'string' && payload.requestId.trim().length > 0
+    ? payload.requestId.trim()
+    : randomUUID()
+
   writeLog('INFO', 'ai-chat', 'OpenAI chat request start', {
+    requestId,
     messageCount: Array.isArray(payload?.messages) ? payload.messages.length : 0,
     model: settingsState.ai.openai.model,
   })
 
-  try {
-    const result = await requestOpenAiChatResponse(editorWindow, payload?.messages)
-    writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
-      responseId: result.responseId,
-      model: result.model,
-    })
-    return result
-  } catch (error) {
-    writeLog('ERROR', 'ai-chat', 'OpenAI chat request failed', {
-      model: settingsState.ai.openai.model,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    throw error
+  void (async () => {
+    try {
+      const result = await requestOpenAiChatResponse(editorWindow, payload?.messages, (event) => {
+        emitAiChatStreamEvent(sourceWindow, {
+          requestId,
+          ...event,
+        })
+      })
+
+      writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
+        requestId,
+        responseId: result.responseId,
+        model: result.model,
+      })
+
+      emitAiChatStreamEvent(sourceWindow, {
+        requestId,
+        type: 'completed',
+        reply: result.reply,
+        model: result.model,
+        responseId: result.responseId,
+      })
+    } catch (error) {
+      writeLog('ERROR', 'ai-chat', 'OpenAI chat request failed', {
+        requestId,
+        model: settingsState.ai.openai.model,
+        error: error instanceof Error ? error.message : String(error),
+      })
+
+      emitAiChatStreamEvent(sourceWindow, {
+        requestId,
+        type: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  })()
+
+  return {
+    status: 'started',
+    requestId,
   }
 })
 

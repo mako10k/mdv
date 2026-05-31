@@ -438,12 +438,35 @@ type MdvAiChatMessage = {
   title?: string
 }
 
-type MdvAiChatResponse = {
-  reply: string
-  model: string
-  responseId: string | null
-  toolEvents?: MdvAiToolEvent[]
+type MdvAiChatDispatchResponse = {
+  status: 'started'
+  requestId: string
 }
+
+type MdvAiChatStreamEvent =
+  | {
+      requestId: string
+      type: 'text-delta'
+      delta: string
+    }
+  | {
+      requestId: string
+      type: 'tool-event'
+      title: string
+      content: string
+    }
+  | {
+      requestId: string
+      type: 'completed'
+      reply: string
+      model: string
+      responseId: string | null
+    }
+  | {
+      requestId: string
+      type: 'failed'
+      error: string
+    }
 
 interface Window {
   mdvDesktop?: {
@@ -475,7 +498,8 @@ interface Window {
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert' | 'append'; title?: string }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
-    sendAiChatMessage: (payload: { messages: MdvAiChatMessage[] }) => Promise<MdvAiChatResponse>
+    sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
+    onAiChatStreamEvent: (callback: (event: MdvAiChatStreamEvent) => void) => () => void
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
       getSettings: () => Promise<MdvSettings>

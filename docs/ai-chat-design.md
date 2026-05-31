@@ -864,12 +864,16 @@ main process から editor window へ要求する操作:
 assistant surface から main process へ送る操作:
 
 - sendChatMessage
-- cancelChatRequest
 
 main process から assistant surface へ送るイベント:
 
-- chat-event
-- chat-status
+- ai-chat-stream-event
+
+注記:
+
+- 現行実装の `sendChatMessage` は `requestId` 付き dispatch ack を返した後に `ai-chat-stream-event` で text delta / tool event / completed / failed を段階配送する
+- これにより、assistant bubble 単位の先行生成、text chunk 単位の追記、tool event の途中表示を既存 Electron IPC 上で扱う
+- `cancelChatRequest` は現時点では未実装であり、上記 stream 契約に対する将来拡張として扱う
 
 ### Event Flow
 

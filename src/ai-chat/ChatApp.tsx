@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 import ChatMarkdown from './ChatMarkdown'
@@ -40,6 +40,7 @@ type Message = MdvAiChatMessage & {
   id: string
   contextAttachments?: ContextAttachment[]
   excludeFromModel?: boolean
+  isStreaming?: boolean
 }
 
 type ExternalAnchor = {
@@ -385,6 +386,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const forceScrollOnNextRenderRef = useRef(false)
+  const activeRequestIdRef = useRef<string | null>(null)
+  const activeAssistantMessageIdRef = useRef<string | null>(null)
+  const pendingAssistantDeltaRef = useRef('')
+  const pendingAssistantDeltaTimerRef = useRef<number | null>(null)
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
   const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
@@ -460,6 +465,151 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
     setMessages((currentMessages) => [...currentMessages, message])
   }
+
+  const updateMessage = (messageId: string, updater: (message: Message) => Message, options?: { forceScroll?: boolean }) => {
+    forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
+    setMessages((currentMessages) => currentMessages.map((message) => (message.id === messageId ? updater(message) : message)))
+  }
+
+  const appendToolMessage = (message: Message, options?: { forceScroll?: boolean }) => {
+    forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
+    setMessages((currentMessages) => {
+      const assistantMessageId = activeAssistantMessageIdRef.current
+
+      if (!assistantMessageId) {
+        return [...currentMessages, message]
+      }
+
+      const assistantMessage = currentMessages.find((entry) => entry.id === assistantMessageId) ?? null
+      const nextMessages = assistantMessage
+        ? currentMessages.filter((entry) => entry.id !== assistantMessageId)
+        : currentMessages
+
+      if (!assistantMessage) {
+        return [...nextMessages, message]
+      }
+
+      return [...nextMessages, message, assistantMessage]
+    })
+  }
+
+  const flushPendingAssistantDelta = (options?: { forceScroll?: boolean }) => {
+    const assistantMessageId = activeAssistantMessageIdRef.current
+    const nextDelta = pendingAssistantDeltaRef.current
+
+    if (!assistantMessageId || nextDelta.length === 0) {
+      return
+    }
+
+    pendingAssistantDeltaRef.current = ''
+    updateMessage(assistantMessageId, (message) => ({
+      ...message,
+      content: message.content + nextDelta,
+    }), options)
+  }
+
+  const schedulePendingAssistantDeltaFlush = () => {
+    if (pendingAssistantDeltaTimerRef.current !== null) {
+      return
+    }
+
+    pendingAssistantDeltaTimerRef.current = window.setTimeout(() => {
+      pendingAssistantDeltaTimerRef.current = null
+      flushPendingAssistantDelta({ forceScroll: shouldStickToBottomRef.current })
+    }, 40)
+  }
+
+  const handleAiChatStreamEvent = useEffectEvent((event: MdvAiChatStreamEvent) => {
+    if (event.requestId !== activeRequestIdRef.current) {
+      return
+    }
+
+    if (event.type === 'text-delta') {
+      if (event.delta.length === 0) {
+        return
+      }
+
+      pendingAssistantDeltaRef.current += event.delta
+      schedulePendingAssistantDeltaFlush()
+      return
+    }
+
+    if (pendingAssistantDeltaTimerRef.current !== null) {
+      window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+      pendingAssistantDeltaTimerRef.current = null
+    }
+
+    flushPendingAssistantDelta({ forceScroll: true })
+
+    if (event.type === 'tool-event') {
+      appendToolMessage({
+        id: crypto.randomUUID(),
+        role: 'tool',
+        title: event.title,
+        content: event.content,
+      }, { forceScroll: true })
+      return
+    }
+
+    const assistantMessageId = activeAssistantMessageIdRef.current
+
+    if (event.type === 'completed') {
+      if (assistantMessageId) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          title: event.model,
+          content: event.reply,
+          isStreaming: false,
+        }), { forceScroll: true })
+      }
+
+      activeRequestIdRef.current = null
+      activeAssistantMessageIdRef.current = null
+      setIsSending(false)
+      setStatusText(t.chat.status.assistantReplied(event.model))
+      return
+    }
+
+    if (assistantMessageId) {
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        title: 'openai error',
+        content: event.error,
+        excludeFromModel: true,
+        isStreaming: false,
+      }), { forceScroll: true })
+    } else {
+      appendMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        title: 'openai error',
+        content: event.error,
+        excludeFromModel: true,
+      }, { forceScroll: true })
+    }
+
+    activeRequestIdRef.current = null
+    activeAssistantMessageIdRef.current = null
+    setIsSending(false)
+    setStatusText(t.chat.status.openAiRequestFailed)
+  })
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onAiChatStreamEvent((event) => {
+      handleAiChatStreamEvent(event)
+    })
+
+    return () => {
+      unsubscribe?.()
+
+      if (pendingAssistantDeltaTimerRef.current !== null) {
+        window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+        pendingAssistantDeltaTimerRef.current = null
+      }
+
+      pendingAssistantDeltaRef.current = ''
+    }
+  }, [])
 
   const queueContextAttachment = (attachment: ContextAttachment) => {
     setPendingContexts((currentContexts) => {
@@ -657,7 +807,15 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       content: trimmedMessage,
       contextAttachments: pendingContexts,
     }
-    const nextMessages = [...messages, userMessage]
+    const requestId = crypto.randomUUID()
+    const assistantMessageId = crypto.randomUUID()
+    const assistantPlaceholder: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+    }
+    const nextMessages = [...messages, userMessage, assistantPlaceholder]
 
     forceScrollOnNextRenderRef.current = true
     setMessages(nextMessages)
@@ -665,39 +823,34 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     setPendingContexts([])
     setIsSending(true)
     setStatusText(t.chat.status.sendingToOpenAi)
+    activeRequestIdRef.current = requestId
+    activeAssistantMessageIdRef.current = assistantMessageId
+    pendingAssistantDeltaRef.current = ''
 
     void window.mdvDesktop?.sendAiChatMessage({
-      messages: toModelMessages(nextMessages, t.chat),
+      requestId,
+      messages: toModelMessages([...messages, userMessage], t.chat),
     })
-      .then((response) => {
-        response.toolEvents?.forEach((toolEvent) => {
-          appendMessage({
-            id: crypto.randomUUID(),
-            role: 'tool',
-            title: toolEvent.title,
-            content: toolEvent.content,
-          })
-        })
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          title: response.model,
-          content: response.reply,
-        })
-        setStatusText(t.chat.status.assistantReplied(response.model))
-      })
       .catch((error: unknown) => {
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'assistant',
+        if (pendingAssistantDeltaTimerRef.current !== null) {
+          window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+          pendingAssistantDeltaTimerRef.current = null
+        }
+
+        pendingAssistantDeltaRef.current = ''
+
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
           title: 'openai error',
           content: toErrorMessage(error),
           excludeFromModel: true,
-        })
-        setStatusText(t.chat.status.openAiRequestFailed)
-      })
-      .finally(() => {
+          isStreaming: false,
+        }), { forceScroll: true })
+
+        activeRequestIdRef.current = null
+        activeAssistantMessageIdRef.current = null
         setIsSending(false)
+        setStatusText(t.chat.status.openAiRequestFailed)
       })
   }
 
@@ -764,7 +917,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           return (
             <article
               key={message.id}
-              className={`chat-bubble ${message.role}`}
+              className={message.isStreaming ? `chat-bubble ${message.role} streaming` : `chat-bubble ${message.role}`}
             >
               {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
               {message.contextAttachments?.length ? (
@@ -776,6 +929,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
                   ))}
                 </div>
               ) : null}
+              {message.isStreaming && message.content.trim().length === 0 ? <div className="chat-bubble-streaming-indicator" aria-hidden="true">...</div> : null}
               <ChatMarkdown markdown={message.id === 'assistant-welcome' ? t.chat.welcome : message.content} theme={resolvedTheme} />
             </article>
           )

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const pendingOpenFileRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
+const aiChatStreamListeners = new Set()
 const windowCloseApprovedListeners = new Set()
 const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
@@ -22,6 +23,12 @@ ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
 ipcRenderer.on('mdv:ai-editor-request', (_event, request) => {
   for (const listener of aiEditorRequestListeners) {
     listener(request)
+  }
+})
+
+ipcRenderer.on('mdv:ai-chat-stream-event', (_event, payload) => {
+  for (const listener of aiChatStreamListeners) {
+    listener(payload)
   }
 })
 
@@ -73,6 +80,13 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   writeAiTarget: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-target', payload),
   listAiBuffers: () => ipcRenderer.invoke('mdv:ai-chat-list-buffers'),
   sendAiChatMessage: (payload) => ipcRenderer.invoke('mdv:ai-chat-send-message', payload),
+  onAiChatStreamEvent: (callback) => {
+    aiChatStreamListeners.add(callback)
+
+    return () => {
+      aiChatStreamListeners.delete(callback)
+    }
+  },
   settings: {
     getBootstrapSettings: () => settingsBootstrap,
     getSettings: () => ipcRenderer.invoke('mdv:settings-get'),
