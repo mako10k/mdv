@@ -263,8 +263,9 @@ test.describe('find and replace', () => {
 
 test.describe('AI chat streaming', () => {
   test('ignores unrelated stream events and applies tool/completed events to the active request only', async ({ page }) => {
-    await page.goto('/')
-    await page.evaluate(() => {
+    const aiPage = await page.context().newPage()
+
+    await aiPage.addInitScript(() => {
       type TestChatMessage = {
         role: 'user' | 'assistant' | 'tool'
         content: string
@@ -313,7 +314,7 @@ test.describe('AI chat streaming', () => {
           onSettingsChanged: (callback: (settings: TestSettings) => void) => () => void
           updateSettings: (patch: Partial<TestSettings>) => Promise<TestSettings>
           migrateLegacyTheme: () => Promise<void>
-          getProviderStatus: () => Promise<{ openaiApiKeyConfigured: boolean; tavilyApiKeyConfigured: boolean }>
+          getProviderStatus: () => Promise<{ openaiConfigured: boolean; tavilyConfigured: boolean }>
         }
         sendAiChatMessage: (payload: TestDispatchPayload) => Promise<{ status: 'started'; requestId: string }>
         onAiChatStreamEvent: (callback: (event: TestStreamEvent) => void) => () => void
@@ -351,8 +352,8 @@ test.describe('AI chat streaming', () => {
           updateSettings: async () => baseSettings,
           migrateLegacyTheme: async () => {},
           getProviderStatus: async () => ({
-            openaiApiKeyConfigured: true,
-            tavilyApiKeyConfigured: false,
+            openaiConfigured: true,
+            tavilyConfigured: false,
           }),
         },
         sendAiChatMessage: async (payload: TestDispatchPayload) => {
@@ -367,6 +368,13 @@ test.describe('AI chat streaming', () => {
               requestId: payload.requestId,
               type: 'text-delta',
               delta: 'Working',
+            })
+
+            streamCallback?.({
+              requestId: payload.requestId,
+              type: 'tool-event',
+              title: 'read_selection',
+              content: 'Selection loaded',
             })
 
             streamCallback?.({
@@ -393,13 +401,17 @@ test.describe('AI chat streaming', () => {
         },
       }
     })
+    await aiPage.goto('/')
 
-    await openAiDock(page)
-    await page.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).fill('Summarize this')
-    await page.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
+    await openAiDock(aiPage)
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).fill('Summarize this')
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
 
-    await expect(page.getByText('Working reply')).toBeVisible()
-    await expect(page.getByText('ignore me')).toHaveCount(0)
+    await expect(aiPage.getByText('Working reply')).toBeVisible()
+  await expect(aiPage.getByText('Selection loaded')).toBeVisible()
+    await expect(aiPage.getByText('ignore me')).toHaveCount(0)
+
+    await aiPage.close()
   })
 })
 

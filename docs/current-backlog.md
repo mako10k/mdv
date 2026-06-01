@@ -43,25 +43,44 @@
 
 ### P1 Editor Comfort
 
-1. MD-BL-004 Markdown 挿入コマンド群
-2. MD-BL-005 画像貼り付け / 画像ドロップの相対配置
-3. MD-BL-006 表編集補助
-4. MD-BL-007 リスト継続と task list 操作補助
+1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
+2. MD-BL-005 画像 / メディア asset workflow と参照管理
+3. MD-BL-012 起動時 placeholder ちらつき抑制
+4. MD-BL-006 表編集補助
+5. MD-BL-007 リスト継続と task list 操作補助
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
 注記:
 
-- MD-BL-005 には単なる挿入 UI だけでなく、draft workspace、asset manager、assetId continuity を含む local asset foundation を含める
+- MD-BL-004 には MDV topbar と Toast UI toolbar の責務重複整理、footnote を含む挿入コマンドの caret / selection anchor 安定化を含める
+- MD-BL-005 には単なる挿入 UI だけでなく、draft workspace、asset manager、assetId continuity、base64 data URL の相対 asset 正規化を含む local asset foundation を含める
 
 ### P2 Editor Expansion
 
-1. MD-BL-008 Preview 同期強化
-2. MD-BL-009 スペルチェック
-3. MD-BL-010 最近使った文書 / クイックオープン
-4. MD-BL-011 PDF 出力
+1. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
+2. MD-BL-014 検索 surface の再設計
+3. MD-BL-008 Preview 同期強化
+4. MD-BL-009 スペルチェック
+5. MD-BL-010 最近使った文書 / クイックオープン
+6. MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
+
+注記:
+
+- MD-BL-014 は現行の editor 内検索 surface を捨てる話ではなく、workspace-first を既定に保ったまま、必要なら detached search window を secondary mode として評価する
+
+## Usernote Intake
+
+2026-06-01 時点の usernote メモは、次の backlog へ反映した。
+
+1. 起動時に placeholder 文書がちらつく: MD-BL-012
+2. MDV topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
+3. base64 埋め込みを避ける media link / asset manager: MD-BL-005
+4. 検索ボックスの別 window 化検討: MD-BL-014
+5. 最上位 toolbox の grouping / menu / overflow: MD-BL-013
+6. footnote 挿入が caret とずれる: MD-BL-004
 
 ## Active AI Backlog
 
@@ -150,11 +169,13 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 1. MD-BL-003 Autosave / Crash Recovery
 2. MD-BL-002 見出しアウトライン追従強化
 3. AI-P1 Response UX
-4. MD-BL-004 以降の editor comfort 項目
-5. AI-P2 の再分解と tool surface 残件の整理
-6. AI-P3 context management
-7. AI-CM context lifecycle
-8. AI-P4 subagent orchestration
+4. MD-BL-004, MD-BL-005, MD-BL-012
+5. MD-BL-006, MD-BL-007
+6. MD-BL-013, MD-BL-014, MD-BL-008
+7. AI-P2 の再分解と tool surface 残件の整理
+8. AI-P3 context management
+9. AI-CM context lifecycle
+10. AI-P4 subagent orchestration
 
 注記:
 
