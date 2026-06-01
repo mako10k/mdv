@@ -514,6 +514,7 @@ interface Window {
     platform: string
     e2e?: {
       recoveryPromptMode: 'accept' | 'decline' | 'interactive'
+      startupRecoveryDelayMs?: number
     }
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>

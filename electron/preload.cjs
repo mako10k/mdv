@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
       : process.env.MDV_E2E_AUTO_DECLINE_RECOVERY === '1'
         ? 'decline'
         : 'interactive',
+    startupRecoveryDelayMs: Number.parseInt(process.env.MDV_E2E_STARTUP_RECOVERY_DELAY_MS ?? '0', 10) || 0,
   },
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),

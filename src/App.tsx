@@ -1631,6 +1631,16 @@ async function waitForRenderedPreviewReady(previewRoot: HTMLDivElement | null) {
   throw new Error('Rendered preview is still updating. Retry once rendering completes.')
 }
 
+async function waitForDelay(delayMs: number) {
+  if (delayMs <= 0) {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs)
+  })
+}
+
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const { t } = useI18n()
@@ -2492,6 +2502,16 @@ function App() {
         if (active) {
           setIsStartupRecoveryResolved(true)
         }
+        return
+      }
+
+      const startupRecoveryDelayMs = window.mdvDesktop?.e2e?.startupRecoveryDelayMs ?? 0
+
+      if (startupRecoveryDelayMs > 0) {
+        await waitForDelay(startupRecoveryDelayMs)
+      }
+
+      if (!active) {
         return
       }
 

@@ -40,16 +40,21 @@ async function reserveDebugPort() {
   })
 }
 
-async function launchElectronApp(userDataDir: string, debugPort: number) {
+async function launchElectronApp(options: {
+  userDataDir: string
+  debugPort: number
+  env?: Record<string, string>
+}) {
   return electron.launch({
     args: ['.'],
     cwd: repoRoot,
     env: {
       ...process.env,
       MDV_FORCE_STATIC_RENDERER: '1',
-      MDV_E2E_USER_DATA_DIR: userDataDir,
+      MDV_E2E_USER_DATA_DIR: options.userDataDir,
       MDV_E2E_DIALOG_RESPONSES: JSON.stringify({}),
-      MDV_DEBUG_CHANNEL_PORT: String(debugPort),
+      MDV_DEBUG_CHANNEL_PORT: String(options.debugPort),
+      ...(options.env ?? {}),
     },
   })
 }
@@ -71,7 +76,7 @@ test('debug channel emits readiness events and accepts external publish', async 
 
   await fs.mkdir(userDataDir, { recursive: true })
 
-  const app = await launchElectronApp(userDataDir, debugPort)
+  const app = await launchElectronApp({ userDataDir, debugPort })
 
   try {
     await app.firstWindow()
@@ -102,6 +107,70 @@ test('debug channel emits readiness events and accepts external publish', async 
 
     const publishedEvent = await publishedEventPromise
     expect((publishedEvent.payload as { source?: string }).source).toBe('spec')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('debug channel reports startup recovery pending and resolved states', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-debug-channel-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const debugPort = await reserveDebugPort()
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(
+    path.join(userDataDir, 'autosave-recovery-v1.json'),
+    JSON.stringify({
+      version: 1,
+      entries: [
+        {
+          recoveryKey: 'draft:startup-shell-recovery',
+          savedAt: new Date().toISOString(),
+          snapshot: {
+            markdownText: '# Startup Recovery\n\nrestored after pending shell\n',
+            persistedMarkdown: '',
+            currentFilePath: null,
+            fileSnapshot: null,
+            displayTitle: '無題.md',
+            activePanel: 'write',
+            recoveryKey: 'startup-shell-recovery',
+          },
+        },
+      ],
+    }, null, 2),
+    'utf8',
+  )
+
+  const app = await launchElectronApp({
+    userDataDir,
+    debugPort,
+    env: {
+      MDV_E2E_AUTO_ACCEPT_RECOVERY: '1',
+      MDV_E2E_STARTUP_RECOVERY_DELAY_MS: '1200',
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    const appReady = await waitForDebugEvent({
+      port: debugPort,
+      eventType: 'app:ready',
+      replay: true,
+      timeoutMs: 15_000,
+    })
+    const interactiveReady = await waitForDebugEvent({
+      port: debugPort,
+      eventType: 'renderer:workspace-interactive',
+      replay: true,
+      timeoutMs: 15_000,
+    })
+
+    expect((interactiveReady.payload as { payload?: { isPlaceholderDocument?: boolean } }).payload?.isPlaceholderDocument).toBe(false)
+    expect(Date.parse(interactiveReady.timestamp) - Date.parse(appReady.timestamp)).toBeGreaterThanOrEqual(500)
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('restored after pending shell')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
