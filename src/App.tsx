@@ -638,6 +638,10 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
     return 'redo'
   }
 
+  if (key === 'n') {
+    return 'new-document'
+  }
+
   if (key === 'o') {
     return 'open'
   }
@@ -1160,6 +1164,16 @@ function SaveAsIcon() {
       <path d="M5.5 4h10.8L20 7.7v10.8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
       <path d="M8 4.5v5h7v-5" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M12 13v5M9.5 15.5 12 13l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function NewDocumentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M13.5 3.5v4h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M12 10v6M9 13h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
 }
@@ -2368,6 +2382,37 @@ function App() {
     loadFilePayload(payload ?? null)
   }
 
+  const handleCreateNewDocument = async () => {
+    if (!await confirmUnsavedChangesBeforeProceed(t.app.createNewDocument)) {
+      setStatusText(t.app.status.newDocumentCancelled)
+      return
+    }
+
+    if (pendingImportedAssets.length > 0) {
+      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: pendingImportedAssets.map((asset) => asset.filePath) })
+    }
+
+    if (currentDraftWorkspace) {
+      await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: currentDraftWorkspace })
+    }
+
+    await clearAutosaveRecovery()
+
+    invalidateEditorSearch()
+    shouldCanonicalizeLoadedBaselineRef.current = true
+    recoveryKeyRef.current = ''
+    replaceLoadedDocument(i18nRef.current.app.initialDocument)
+    setCurrentFilePath(null)
+    currentFileSnapshotRef.current = null
+    setCurrentDraftWorkspace(null)
+    setPendingImportedAssets([])
+    setDisplayTitle(i18nRef.current.app.untitledTitle)
+    persistedMarkdownRef.current = i18nRef.current.app.initialDocument
+    setPersistedMarkdown(i18nRef.current.app.initialDocument)
+    setActivePanel('write')
+    setStatusText(t.app.status.createdNewDocument)
+  }
+
   const handleSave = async (forceDialog = false) => {
     try {
       const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
@@ -3137,6 +3182,11 @@ function App() {
       return
     }
 
+    if (action === 'new-document') {
+      void handleCreateNewDocument()
+      return
+    }
+
     if (action === 'open') {
       void handleOpen()
       return
@@ -3675,6 +3725,9 @@ function App() {
                   </select>
                 </label>
                 <ToolbarGroup label={t.app.fileActions}>
+                  <ToolbarButton label={`${t.app.createNewDocument} (Ctrl/Cmd+N)`} onClick={() => void handleCreateNewDocument()}>
+                    <NewDocumentIcon />
+                  </ToolbarButton>
                   <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
                     <OpenIcon />
                   </ToolbarButton>

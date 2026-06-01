@@ -199,12 +199,17 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 
 #### MD-BL-015 新規ドキュメント作成導線
 
-- 種別: 追加
+- 種別: 完了
 - 目的: 既存文書を壊さずに新規メモ作成へすぐ入れるようにする
 - 内容:
   - Ctrl/Cmd+N で新規 untitled document を開く
   - 新規作成時は editor mode を既定にする
   - topbar または menu に discoverable な導線を追加する
+- 完了内容:
+  - Ctrl/Cmd+N shortcut を追加
+  - File menu に新規文書導線を追加
+  - topbar file actions に新規文書ボタンを追加
+  - unsaved-changes 確認、draft workspace cleanup、pending asset cleanup を維持したまま untitled editor document へ reset する
 - 完了条件:
   - keyboard shortcut から新規文書を開ける
   - 既存の unsaved-changes 確認と矛盾しない
@@ -284,15 +289,14 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 4. MD-BL-005 画像 / メディア asset workflow と参照管理
 5. MD-BL-012 起動時 placeholder ちらつき抑制
 6. MD-BL-006 表編集補助
-7. MD-BL-015 新規ドキュメント作成導線
-8. MD-BL-016 保存同期と外部変更追従の polish
-7. MD-BL-007 リスト継続と task list 操作補助
-8. MD-BL-013 workspace topbar grouping / overflow 再設計
-9. MD-BL-014 検索 surface の再設計
-10. MD-BL-008 Preview 同期強化
-11. MD-BL-009 スペルチェック
-12. MD-BL-010 最近使った文書 / クイックオープン
-13. MD-BL-011 PDF 出力
+7. MD-BL-016 保存同期と外部変更追従の polish
+8. MD-BL-007 リスト継続と task list 操作補助
+9. MD-BL-013 workspace topbar grouping / overflow 再設計
+10. MD-BL-014 検索 surface の再設計
+11. MD-BL-008 Preview 同期強化
+12. MD-BL-009 スペルチェック
+13. MD-BL-010 最近使った文書 / クイックオープン
+14. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 

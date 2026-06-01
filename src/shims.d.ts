@@ -188,6 +188,7 @@ type MdvServerCommand = {
 
 type MdvMenuAction =
   | 'redo'
+  | 'new-document'
   | 'open'
   | 'save'
   | 'save-as'

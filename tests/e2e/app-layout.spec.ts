@@ -126,7 +126,16 @@ test('editor mode groups topbar commands and hides the Toast UI toolbar', async 
   await expect(page.getByRole('group', { name: /(挿入操作|Insert actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(出力操作|Output actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(ワークスペース操作|Workspace actions)/ })).toBeVisible()
+  await expect(page.getByRole('group', { name: /(ファイル操作|File actions)/ }).locator('.icon-button').nth(0)).toHaveAttribute('title', /(新規文書を作成する|Create new document)/)
   await expect(computedStyle(page, '.toastui-editor-toolbar', 'display')).resolves.toBe('none')
+})
+
+test('new document button opens an untitled editor document', async ({ page }) => {
+  await page.getByRole('group', { name: /(ファイル操作|File actions)/ }).locator('.icon-button').nth(0).click()
+
+  await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
+  await expect.poll(async () => page.title()).toMatch(/(無題\.md\*?|Untitled\.md\*?) - MDV/i)
+  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('MarkDownViewer')
 })
 
 test('preview mode with AI dock does not overlap the rendered surface', async ({ page }) => {

@@ -61,12 +61,11 @@
 
 1. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
 2. MD-BL-014 検索 surface の再設計
-3. MD-BL-015 新規ドキュメント作成導線
-4. MD-BL-016 保存同期と外部変更追従の polish
-5. MD-BL-008 Preview 同期強化
-6. MD-BL-009 スペルチェック
-7. MD-BL-010 最近使った文書 / クイックオープン
-8. MD-BL-011 PDF 出力
+3. MD-BL-016 保存同期と外部変更追従の polish
+4. MD-BL-008 Preview 同期強化
+5. MD-BL-009 スペルチェック
+6. MD-BL-010 最近使った文書 / クイックオープン
+7. MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -182,6 +181,10 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) は separate chat window 前提を含む初期分解であり、履歴資料として保持する
 - [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md) は editor backlog の詳細定義として使う
 - [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) は context management Phase 1 の詳細定義として使う
+
+## Recent Progress
+
+- MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
 
 ## Recommended Execution Order
 

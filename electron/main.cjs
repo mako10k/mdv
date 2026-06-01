@@ -345,6 +345,7 @@ const MAIN_I18N = {
     untitledTitle: '無題.md',
     menu: {
       file: 'ファイル',
+      newDocument: '新規文書',
       open: '開く',
       save: '保存',
       saveAs: '名前を付けて保存',
@@ -415,6 +416,7 @@ const MAIN_I18N = {
     untitledTitle: 'Untitled.md',
     menu: {
       file: 'File',
+      newDocument: 'New Document',
       open: 'Open',
       save: 'Save',
       saveAs: 'Save As',
@@ -7037,6 +7039,12 @@ function createApplicationMenu() {
     {
       label: messages.file,
       submenu: [
+        {
+          label: messages.newDocument,
+          accelerator: 'CmdOrCtrl+N',
+          click: () => sendMenuAction('new-document'),
+        },
+        { type: 'separator' },
         {
           label: messages.open,
           accelerator: 'CmdOrCtrl+O',

@@ -8,7 +8,7 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 - 見出しアウトラインとエディタ内検索
 - assistant dock と editor context 添付
 - ドラッグアンドドロップでファイル読込
-- Open / Save / Save As / Print / HTML Export
+- 新規文書、Open / Save / Save As / Print / HTML Export
 - fenced code block の renderer 差し替え
 - Windows 向け standalone 配布
 
@@ -258,6 +258,7 @@ npm run dist:win:dir
 
 ## ファイル操作
 
+- New Document: `Ctrl/Cmd+N`、File menu、topbar から untitled 文書を editor mode で開始
 - Open: ファイル選択ダイアログから読込
 - Save: 現在のパスに保存
 - Save As: 保存先を選んで保存
