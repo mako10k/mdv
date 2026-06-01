@@ -675,6 +675,14 @@
   font-size: 1.9rem;
 }
 
+.markdown-fragment [data-mdv-preview-active='true'] {
+  background: color-mix(in srgb, var(--selection) 42%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-strong) 45%, transparent);
+  padding-inline: 0.2em;
+  scroll-margin-top: 24px;
+}
+
 .editor-panel .toastui-editor-contents h2,
 .editor-panel .ProseMirror h2,
 .markdown-fragment h2 {

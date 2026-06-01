@@ -49,6 +49,31 @@ function getOutlineHeadingLabel(item: MdvMdastHeadingOutlineItem, fallbackLabel:
   return item.text.trim() || fallbackLabel(item.position.line)
 }
 
+function extractMarkdownHeadingLines(markdown: string): Array<{ line: number }> {
+  const headings: Array<{ line: number }> = []
+  const lines = markdown.split('\n')
+  let inFencedCodeBlock = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+
+    if (/^```/.test(line)) {
+      inFencedCodeBlock = !inFencedCodeBlock
+      continue
+    }
+
+    if (inFencedCodeBlock) {
+      continue
+    }
+
+    if (/^#{1,6}\s+\S/.test(line)) {
+      headings.push({ line: index + 1 })
+    }
+  }
+
+  return headings
+}
+
 const markdownParser = new MarkdownIt({
   html: true,
   breaks: true,
@@ -1719,6 +1744,7 @@ function App() {
   const outlineRequestIdRef = useRef(0)
   const outlineListRef = useRef<HTMLDivElement | null>(null)
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
+  const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: t.app.initialDocument,
     persistedMarkdown: t.app.initialDocument,
@@ -1735,6 +1761,7 @@ function App() {
   const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
+  const previewHeadingLines = useMemo(() => extractMarkdownHeadingLines(markdownText), [markdownText])
   const hasUnsavedChanges = markdownText !== persistedMarkdown
   const visibleDisplayTitle = hasUnsavedChanges ? `${displayTitle}*` : displayTitle
   const isStartupPending = !isInitialLaunchOpenSettled || !isStartupRecoveryResolved
@@ -2068,6 +2095,14 @@ function App() {
     setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
   }, [markdownText])
 
+  useEffect(() => {
+    if (activePanel !== 'preview') {
+      return
+    }
+
+    syncActiveOutlineLine(editorRef.current)
+  }, [activePanel, markdownText])
+
   const activeOutlineIndex = useMemo(() => {
     if (headingOutline.length === 0 || activeOutlineLine === null) {
       return -1
@@ -2087,6 +2122,29 @@ function App() {
     return nextIndex
   }, [activeOutlineLine, headingOutline])
 
+  const activePreviewHeadingIndex = useMemo(() => {
+    const headings = headingOutline.length > 0
+      ? headingOutline.map((item) => ({ line: item.position.line }))
+      : previewHeadingLines
+
+    if (headings.length === 0 || activeOutlineLine === null) {
+      return -1
+    }
+
+    let nextIndex = -1
+
+    for (let index = 0; index < headings.length; index += 1) {
+      if (headings[index].line <= activeOutlineLine) {
+        nextIndex = index
+        continue
+      }
+
+      break
+    }
+
+    return nextIndex
+  }, [activeOutlineLine, headingOutline, previewHeadingLines])
+
   useEffect(() => {
     const container = outlineListRef.current
     const activeItem = activeOutlineItemRef.current
@@ -2097,6 +2155,33 @@ function App() {
 
     scrollElementIntoContainer(container, activeItem)
   }, [activeOutlineIndex])
+
+  useEffect(() => {
+    const previewRoot = previewRootRef.current
+
+    if (activePreviewHeadingRef.current) {
+      activePreviewHeadingRef.current.removeAttribute('data-mdv-preview-active')
+      activePreviewHeadingRef.current = null
+    }
+
+    if (!previewRoot || activePreviewHeadingIndex < 0) {
+      return
+    }
+
+    const headings = Array.from(previewRoot.querySelectorAll<HTMLElement>('.markdown-fragment h1, .markdown-fragment h2, .markdown-fragment h3, .markdown-fragment h4, .markdown-fragment h5, .markdown-fragment h6'))
+    const activeHeading = headings[activePreviewHeadingIndex] ?? null
+
+    if (!activeHeading) {
+      return
+    }
+
+    activeHeading.setAttribute('data-mdv-preview-active', 'true')
+    activePreviewHeadingRef.current = activeHeading
+
+    if (activePanel === 'preview') {
+      scrollElementIntoContainer(previewRoot, activeHeading)
+    }
+  }, [activePanel, activePreviewHeadingIndex, segments])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,

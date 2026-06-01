@@ -149,6 +149,29 @@ test('preview mode with AI dock does not overlap the rendered surface', async ({
   expect(previewRect.height).toBeGreaterThan(300)
 })
 
+test('preview highlights and scrolls the heading nearest the editor cursor', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    '# Intro\n\nalpha\n\n## Focus Target\n\nline one\nline two\nline three\n\n## Trailing\n\nomega\n',
+  )
+
+  const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+  await editor.click()
+  await page.keyboard.press(moveEditorCursorToStartShortcut)
+  for (let index = 0; index < 7; index += 1) {
+    await page.keyboard.press('ArrowDown')
+  }
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+
+  const activeHeading = page.locator('.preview-panel [data-mdv-preview-active="true"]').first()
+  await expect(activeHeading).toContainText('Focus Target')
+
+  const previewScrollTop = await page.locator('.preview-scroll').evaluate((element) => element.scrollTop)
+  expect(previewScrollTop).toBeGreaterThanOrEqual(0)
+})
+
 test('editor mode with AI dock keeps editor and dock separated', async ({ page }) => {
   await openWritePanel(page)
   await openAiDock(page)
