@@ -313,6 +313,15 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 4. 検索ボックスの別 window 検討: MD-BL-014
 5. topbar の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入位置ずれ: MD-BL-004
+7. Ctrl/Cmd+N で editor mode の新規文書を開く: MD-BL-015
+8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
+9. 破損画像や末尾添付の削除・整理導線: MD-BL-005
+
+非 editor-fit-gap 項目:
+
+1. 公開 README と開発文書の責務分離は [docs/current-backlog.md](docs/current-backlog.md) の DOC-BL-001 で扱う
+2. iteration limit 到達時の継続 / 中断選択は [docs/current-backlog.md](docs/current-backlog.md) の AI-UX-004 で扱う
+3. Electron 側肥大化の解消と TypeScript 化は [docs/current-backlog.md](docs/current-backlog.md) の ENG-BL-001 で扱う
 
 ## 補足
 

@@ -96,6 +96,12 @@
 11. 破損画像や末尾添付の削除・整理導線: MD-BL-005
 12. Electron 側肥大化の解消と TS ライブラリ化: ENG-BL-001
 
+補足:
+
+- 10 は editor backlog ではなく、assistant interaction の product gap として AI-P2 に置く
+- 11 は新しい独立 PBI を増やさず、MD-BL-005 の media reference manager / orphan cleanup / 削除導線 refinement として吸収する
+- 12 は user-facing 機能ではないため Supporting Backlog の ENG-BL-001 に置く
+
 ## Active AI Backlog
 
 ### AI-P1 Response UX
