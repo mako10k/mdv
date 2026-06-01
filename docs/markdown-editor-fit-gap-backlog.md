@@ -217,12 +217,17 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 
 #### MD-BL-016 保存同期と外部変更追従の polish
 
-- 種別: 変更
+- 種別: 完了
 - 目的: 保存まわりと外部編集追従の理解コストを下げる
 - 内容:
   - conflict save 時の merge preview を改善する
   - clean 状態で外部変更されたファイルを画面へ明示的に追従反映する
   - status 表示と confirmation copy を整理する
+- 完了内容:
+  - save conflict dialog に各 action の説明を追加
+  - merge save 前に結果 preview を確認し、そこから Save As へ分岐できるようにした
+  - clean buffer の on-disk change は editor へ自動反映し、status で明示するようにした
+  - dirty buffer の on-disk change は保存時に競合確認が入ることを status で維持した
 - 完了条件:
   - clean buffer の外部変更が自然に画面へ反映される
   - merge save 経路で何が起きるかを user が判別できる

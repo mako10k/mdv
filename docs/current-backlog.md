@@ -61,11 +61,10 @@
 
 1. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
 2. MD-BL-014 検索 surface の再設計
-3. MD-BL-016 保存同期と外部変更追従の polish
-4. MD-BL-008 Preview 同期強化
-5. MD-BL-009 スペルチェック
-6. MD-BL-010 最近使った文書 / クイックオープン
-7. MD-BL-011 PDF 出力
+3. MD-BL-008 Preview 同期強化
+4. MD-BL-009 スペルチェック
+5. MD-BL-010 最近使った文書 / クイックオープン
+6. MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -175,6 +174,10 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 - agent 実装の実験
 
 この束は AI-P3 の後に置く。理由は、subagent orchestration は単なる chat UI 拡張ではなく、branch context、summary handoff、budget 制御、session lifecycle をまたぐため、rolling context / summary / protected area の基盤が先に必要だからである。
+
+## Recent Progress
+
+- MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
 
 ## Historical Documents
 

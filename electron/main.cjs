@@ -340,6 +340,19 @@ async function showOpenDialog(window, options) {
   return dialog.showOpenDialog(window ?? undefined, options)
 }
 
+function buildMergePreviewText(baseContent, editorContent, mergedContent, currentDiskContent) {
+  const sections = [
+    { label: 'Merged result', content: mergedContent },
+    { label: 'Current file on disk', content: currentDiskContent },
+    { label: 'Your editor content', content: editorContent },
+    { label: 'Last synchronized content', content: baseContent },
+  ]
+
+  return sections
+    .map(({ label, content }) => `=== ${label} ===\n${typeof content === 'string' && content.length > 0 ? content : '(empty)'}`)
+    .join('\n\n')
+}
+
 const MAIN_I18N = {
   ja: {
     untitledTitle: '無題.md',
@@ -407,7 +420,16 @@ const MAIN_I18N = {
     saveConflict: {
       title: 'ローカルファイルが更新されています',
       message: '前回同期時からローカルファイルが変更されています。',
-      detail: (targetPath) => `保存先: ${targetPath}`,
+      detail: (targetPath) => [
+        `保存先: ${targetPath}`,
+        '上書き保存: ローカルファイルをそのまま置き換えます。',
+        '名前を付けて保存: 現在の編集中内容を別ファイルへ保存します。',
+        'マージ保存: 前回同期内容を基準に、ローカル変更と編集中変更の両方を自動マージします。',
+      ].join('\n'),
+      mergePreviewTitle: 'マージ結果を確認',
+      mergePreviewMessage: '自動マージで保存する内容を確認してください。',
+      mergePreviewDetail: (targetPath, previewText) => `保存先: ${targetPath}\n\n${previewText}`,
+      mergePreviewContinue: 'この内容でマージ保存',
       mergeFailedTitle: 'マージ保存に失敗しました',
       mergeFailedMessage: '競合を自動マージできなかったため、保存せず編集へ戻ります。',
     },
@@ -478,7 +500,16 @@ const MAIN_I18N = {
     saveConflict: {
       title: 'The local file changed',
       message: 'The local file changed since the last synchronized version.',
-      detail: (targetPath) => `Save target: ${targetPath}`,
+      detail: (targetPath) => [
+        `Save target: ${targetPath}`,
+        'Overwrite Save: replace the local file with your current editor content.',
+        'Save As: keep the local file as-is and write your current editor content to another file.',
+        'Merge Save: auto-merge the local file changes and your editor changes against the last synchronized content.',
+      ].join('\n'),
+      mergePreviewTitle: 'Review merged result',
+      mergePreviewMessage: 'Confirm the content that will be written by merge save.',
+      mergePreviewDetail: (targetPath, previewText) => `Save target: ${targetPath}\n\n${previewText}`,
+      mergePreviewContinue: 'Merge Save This Result',
       mergeFailedTitle: 'Merge save failed',
       mergeFailedMessage: 'The app could not merge the changes automatically. The document was not saved and editing will continue.',
     },
@@ -6504,7 +6535,43 @@ async function saveContentToPath(parentWindow, payload) {
           throw new Error('The local file changed in a way that could not be merged automatically.')
         }
 
-        nextContent = mergedContent
+        const mergePreview = await showMessageBox(parentWindow, {
+          type: 'question',
+          buttons: [messages.saveConflict.mergePreviewContinue, messages.buttons.saveAs, messages.buttons.cancel],
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+          title: messages.saveConflict.mergePreviewTitle,
+          message: messages.saveConflict.mergePreviewMessage,
+          detail: messages.saveConflict.mergePreviewDetail(
+            targetPath,
+            buildMergePreviewText(baseContent, content, mergedContent, currentDiskFile.content),
+          ),
+        })
+
+        if (mergePreview.response === 2) {
+          return { status: 'cancelled' }
+        }
+
+        if (mergePreview.response === 1) {
+          const saveAsResult = await showSaveDialog(parentWindow, {
+            defaultPath: defaultFileName,
+            filters: [
+              { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
+              { name: messages.fileDialog.allFilesFilter, extensions: ['*'] },
+            ],
+          })
+
+          if (saveAsResult.canceled || !saveAsResult.filePath) {
+            writeLog('INFO', 'ipc', 'save-file cancelled during save-as after merge preview')
+            return { status: 'cancelled' }
+          }
+
+          targetPath = saveAsResult.filePath
+          nextContent = content
+        } else {
+          nextContent = mergedContent
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         await showMessageBox(parentWindow, {

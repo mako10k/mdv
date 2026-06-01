@@ -51,6 +51,29 @@ async function replaceMarkdownDocument(page: import('@playwright/test').Page, ma
   await page.keyboard.insertText(markdown)
 }
 
+async function triggerPrimaryShortcut(
+  page: import('@playwright/test').Page,
+  key: string,
+  options?: { shiftKey?: boolean },
+) {
+  await page.evaluate(({ shortcutKey, isMac, shiftKey }) => {
+    const event = new KeyboardEvent('keydown', {
+      key: shortcutKey,
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: !isMac,
+      metaKey: isMac,
+      shiftKey,
+    })
+
+    window.dispatchEvent(event)
+  }, {
+    shortcutKey: key,
+    isMac: process.platform === 'darwin',
+    shiftKey: options?.shiftKey === true,
+  })
+}
+
 function acceptBrowserDialogs(page: import('@playwright/test').Page) {
   page.on('dialog', async (dialog) => {
     try {
@@ -239,7 +262,7 @@ test('conflict Save As clears stale recovery entries for both old and new paths'
     await replaceMarkdownDocument(page, '# Original\n\nupdated in editor\n')
     await fs.writeFile(originalFilePath, '# Original\n\nchanged on disk\n', 'utf8')
 
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
     await expect(page.locator('.statusbar-status')).toContainText('saved-as.md')
     await expect.poll(async () => fs.readFile(saveAsFilePath, 'utf8')).toContain('updated in editor')
 
@@ -305,13 +328,101 @@ test('conflict Save As cancel preserves recovery entries and disk content', asyn
     await replaceMarkdownDocument(page, '# Save As Cancel\n\neditor update\n')
     await fs.writeFile(originalFilePath, '# Save As Cancel\n\ndisk update\n', 'utf8')
 
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).not.toContainText('保存しました')
     await expect.poll(async () => page.title()).toContain('save-as-cancel.md* - MDV')
     await expect.poll(async () => fs.readFile(originalFilePath, 'utf8')).toContain('disk update')
     const entries = await readRecoveryStoreEntries(userDataDir)
     expectRecoveryKeys(entries, [`file:${originalFilePath}`, `file:${unrelatedFilePath}`])
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('merge preview can redirect conflict save into Save As before writing', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const originalFilePath = path.join(tempRoot, 'merge-preview.md')
+  const saveAsFilePath = path.join(tempRoot, 'merge-preview-saved-as.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(
+    originalFilePath,
+    '# Merge Preview\n\nline-01\nline-02\nline-03\nline-04\nline-05\nline-06\nline-07\nline-08\nline-09\nline-10\nline-11\nline-12\n',
+    'utf8',
+  )
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [originalFilePath],
+    dialogResponses: {
+      messageBox: [{ response: 2 }, { response: 1 }],
+      saveDialog: [{ canceled: false, filePath: saveAsFilePath }],
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await expect.poll(async () => page.title()).toContain('merge-preview.md - MDV')
+    await openWritePanel(page)
+    await replaceMarkdownDocument(
+      page,
+      '# Merge Preview\n\nline-01\nline-02 editor\nline-03\nline-04\nline-05\nline-06\nline-07\nline-08\nline-09\nline-10\nline-11\nline-12\n',
+    )
+    await fs.writeFile(
+      originalFilePath,
+      '# Merge Preview\n\nline-01\nline-02\nline-03\nline-04\nline-05\nline-06\nline-07\nline-08\nline-09\nline-10\nline-11 disk\nline-12\n',
+      'utf8',
+    )
+
+    await triggerPrimaryShortcut(page, 's')
+
+    await expect(page.locator('.statusbar-status')).toContainText('merge-preview-saved-as.md')
+    await expect.poll(async () => fs.readFile(saveAsFilePath, 'utf8')).toContain('line-02 editor')
+    await expect.poll(async () => fs.readFile(saveAsFilePath, 'utf8')).not.toContain('line-11 disk')
+    await expect.poll(async () => fs.readFile(originalFilePath, 'utf8')).toContain('line-11 disk')
+    await expect.poll(async () => fs.readFile(originalFilePath, 'utf8')).not.toContain('line-02 editor')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('clean tracked files auto-reload on-disk changes and report the refresh', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const filePath = path.join(tempRoot, 'external-refresh.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(filePath, '# External Refresh\n\nbase\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await openWritePanel(page)
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('base')
+
+    await fs.writeFile(filePath, '# External Refresh\n\nchanged on disk\n', 'utf8')
+
+    await expect(editor).toContainText('changed on disk')
+    await expect(page.locator('.statusbar-status')).toContainText(/(自動反映|Auto-reloaded)/)
+    await expect(page.locator('.statusbar-status')).toContainText('external-refresh.md')
+    await expect.poll(async () => page.title()).toContain('external-refresh.md - MDV')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
@@ -796,7 +907,7 @@ test('pasted image into an unsaved document is materialized on first save', asyn
     })
 
     await expect(editor).toContainText('![diagram.svg](assets/diagram.svg)')
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('pasted-image.md')
     await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![diagram.svg](assets/diagram.svg)')
@@ -847,7 +958,7 @@ test('removed draft image reference is not materialized on first save', async ()
 
     await expect(editor).toContainText('![removed-diagram.svg](assets/removed-diagram.svg)')
     await replaceMarkdownDocument(page, '# Removed Draft Image\n\nno image\n')
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('removed-draft-image.md')
     await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('no image')
@@ -935,7 +1046,7 @@ test('restored unsaved pasted image draft is materialized on first save after re
     await openWritePanel(page)
     await expect(editor).toContainText('![restored-diagram.svg](assets/restored-diagram.svg)')
 
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('restored-image.md')
     await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![restored-diagram.svg](assets/restored-diagram.svg)')
@@ -1074,7 +1185,7 @@ test('save as moves imported saved-document assets beside the new markdown file'
     await expect(editor).toContainText('![save-as-image-source.svg](assets/save-as-image-source.svg)')
     await expect.poll(async () => fs.readFile(originalImportedAssetPath, 'utf8')).toContain('<svg')
 
-    await page.keyboard.press(`${primaryModifier}+Shift+S`)
+    await triggerPrimaryShortcut(page, 's', { shiftKey: true })
 
     await expect(page.locator('.statusbar-status')).toContainText('save-as-target.md')
     await expect.poll(async () => fs.readFile(saveAsPath, 'utf8')).toContain('![save-as-image-source.svg](assets/save-as-image-source.svg)')
@@ -1193,7 +1304,7 @@ test('dropped image into a saved document is stored beside the file and saved as
     }, `file://${sourceAssetPath}`)
 
     await expect(editor).toContainText('![dropped-diagram.svg](assets/dropped-diagram.svg)')
-    await page.keyboard.press(`${primaryModifier}+S`)
+    await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('drop-target.md')
     await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('![dropped-diagram.svg](assets/dropped-diagram.svg)')
