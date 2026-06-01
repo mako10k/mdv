@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -423,6 +424,7 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
   const onSelectionChangeRef = useRef(onSelectionChange)
+  const selectionFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -441,6 +443,20 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
       return
     }
 
+    const emitSelectionChange = () => {
+      if (selectionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionFrameRef.current)
+      }
+
+      selectionFrameRef.current = window.requestAnimationFrame(() => {
+        selectionFrameRef.current = null
+        const currentInstance = editorInstanceRef.current
+        if (currentInstance) {
+          onSelectionChangeRef.current?.(currentInstance)
+        }
+      })
+    }
+
     const instance = new ToastUiEditor({
       el: hostRef.current,
       height: '100%',
@@ -453,14 +469,10 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
       events: {
         change: () => {
           onChangeRef.current(instance.getMarkdown())
-          onSelectionChangeRef.current?.(instance)
+          emitSelectionChange()
         },
       },
     })
-
-    const emitSelectionChange = () => {
-      onSelectionChangeRef.current?.(instance)
-    }
 
     const host = hostRef.current
     const selectionChangeHandler = () => {
@@ -486,6 +498,10 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
       host?.removeEventListener('mouseup', emitSelectionChange)
       host?.removeEventListener('focusin', emitSelectionChange)
       document.removeEventListener('selectionchange', selectionChangeHandler)
+      if (selectionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionFrameRef.current)
+        selectionFrameRef.current = null
+      }
       editorInstanceRef.current = null
       editorRef.current = null
       instance.destroy()
@@ -2075,14 +2091,14 @@ function App() {
     }
   }, [markdownText])
 
-  const syncActiveOutlineLine = (editor: ToastUiEditor | null = editorRef.current) => {
+  const syncActiveOutlineLine = useCallback((editor: ToastUiEditor | null = editorRef.current) => {
     if (!editor) {
       setActiveOutlineLine(null)
       return
     }
 
     setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
-  }
+  }, [editorRef, markdownText])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -2101,7 +2117,7 @@ function App() {
     }
 
     syncActiveOutlineLine(editorRef.current)
-  }, [activePanel, markdownText])
+  }, [activePanel, markdownText, syncActiveOutlineLine])
 
   const activeOutlineIndex = useMemo(() => {
     if (headingOutline.length === 0 || activeOutlineLine === null) {

@@ -31,16 +31,7 @@
 
 ### P0 Editor Core
 
-1. MD-BL-002 見出しアウトライン追従強化
-
-理由:
-
-- Markdown エディタとしての日常使用に直結する
-- AI 依存なしに価値が伝わる
-- 現在の viewer-first UI と矛盾しない
-- autosave / recovery はこの束から完了扱いへ移したため、P0 は構造ナビの追従性強化に絞る
-
-詳細は [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md) を参照する。
+現時点で未着手の P0 はない。見出しアウトライン追従強化は完了し、次の優先は AI-P1 Response UX へ移る。
 
 ### P1 Editor Comfort
 
@@ -183,6 +174,7 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 
 ## Recent Progress
 
+- MD-BL-002 見出しアウトライン追従強化は完了。outline pane に active heading 表示を追加し、editor caret に追従して現在位置の見出しを強調できるようにした。
 - MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
 
 ## Historical Documents
@@ -197,15 +189,14 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 
 ## Recommended Execution Order
 
-1. MD-BL-002 見出しアウトライン追従強化
-2. AI-P1 Response UX
-3. MD-BL-004, MD-BL-005, MD-BL-012
-4. MD-BL-006, MD-BL-007
-5. MD-BL-013, MD-BL-014, MD-BL-008
-6. AI-P2 の再分解と tool surface 残件の整理
-7. AI-P3 context management
-8. AI-CM context lifecycle
-9. AI-P4 subagent orchestration
+1. AI-P1 Response UX
+2. MD-BL-004, MD-BL-005, MD-BL-012
+3. MD-BL-006, MD-BL-007
+4. MD-BL-013, MD-BL-014, MD-BL-008
+5. AI-P2 の再分解と tool surface 残件の整理
+6. AI-P3 context management
+7. AI-CM context lifecycle
+8. AI-P4 subagent orchestration
 
 注記:
 

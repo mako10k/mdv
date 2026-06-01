@@ -47,7 +47,7 @@ MDV は次の点ですでに強い。
 | ドラッグ&ドロップ読込 | Fit | ローカルファイルとして接続したまま読込できる | なし |
 | プレビュー確認 | Partial Fit | Preview、印刷、HTML export はある | side-by-side 常時比較、スクロール同期、カーソル連動がない |
 | 文内検索 | Fit | exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは未整理 |
-| 長文ナビゲーション | Partial Fit | 見出しアウトラインと見出しジャンプはある | 現在カーソル位置に応じた active heading、TOC、さらに長文での追従強化が必要 |
+| 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | Toast UI Editor 標準 toolbar と MDV topbar の挿入コマンドはある | command surface が二重化しており、役割分担、grouping、overflow、footnote を含む insert anchor 安定性が弱い |
 | 画像・添付資産 | Partial Fit | pasted / dropped image を assets/ に materialize する基盤は入った | media reference manager、base64 data URL の明示的な退避 / 正規化、asset rename / continuity の UX が未完 |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
@@ -60,16 +60,15 @@ MDV は次の点ですでに強い。
 
 ## 結論
 
-Markdown 編集という観点での優先 gap は次の 4 つに集約される。
+Markdown 編集という観点での優先 gap は次の 3 つに集約される。
 
 1. Markdown command surface の重複と挿入アンカー不安定
 2. 画像 / media asset workflow と参照管理の不足分
-3. active heading と構造追従性の不足
-4. 起動 / 検索 / topbar の workspace UX 整理不足
+3. 起動 / 検索 / topbar の workspace UX 整理不足
 
-見出しアウトラインとジャンプは今回の時点で一段前進しているため、以後は「長文構造ナビゲーションそのもの」ではなく「active heading と追従性の強化」として扱う。
+見出しアウトラインと jump に加えて active heading 追従も完了したため、以後は「長文構造ナビゲーションそのもの」ではなく、filter / collapse のような副次改善が必要になったときだけ別途扱う。
 
-逆に、AI 連携強化や高度な workspace 機能より先に、上の 4 つを埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
+逆に、AI 連携強化や高度な workspace 機能より先に、上の 3 つを埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
 
 ## バックログ
 
@@ -90,12 +89,14 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 
 #### MD-BL-002 見出しアウトライン追従強化
 
-- 種別: 変更
+- 種別: 完了
 - 目的: 既存の見出しアウトラインを長文編集中にさらに使いやすくする
-- 内容:
+- 完了内容:
   - 既存 outline pane に現在カーソル位置に応じた active heading 表示を追加
-  - 必要なら outline filter / collapse を追加
-- 完了条件:
+  - active heading を `aria-current="location"` と視覚強調の両方で示す
+  - preview 側の該当見出しも同じ行基準でハイライトし、outline / preview の現在位置認知を揃える
+  - Electron E2E で editor caret 追従を固定する
+- 完了確認:
   - 現在位置が outline 側で追従表示される
   - 1000 行超の文書でも実用速度で動く
 
@@ -288,20 +289,17 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 
 ## 実装順の推奨
 
-1. MD-BL-001 Find & Replace
-2. MD-BL-002 見出しアウトライン追従強化
-3. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
-4. MD-BL-005 画像 / メディア asset workflow と参照管理
-5. MD-BL-012 起動時 placeholder ちらつき抑制
-6. MD-BL-006 表編集補助
-7. MD-BL-016 保存同期と外部変更追従の polish
-8. MD-BL-007 リスト継続と task list 操作補助
-9. MD-BL-013 workspace topbar grouping / overflow 再設計
-10. MD-BL-014 検索 surface の再設計
-11. MD-BL-008 Preview 同期強化
-12. MD-BL-009 スペルチェック
-13. MD-BL-010 最近使った文書 / クイックオープン
-14. MD-BL-011 PDF 出力
+1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
+2. MD-BL-005 画像 / メディア asset workflow と参照管理
+3. MD-BL-012 起動時 placeholder ちらつき抑制
+4. MD-BL-006 表編集補助
+5. MD-BL-007 リスト継続と task list 操作補助
+6. MD-BL-013 workspace topbar grouping / overflow 再設計
+7. MD-BL-014 検索 surface の再設計
+8. MD-BL-008 Preview 同期強化
+9. MD-BL-009 スペルチェック
+10. MD-BL-010 最近使った文書 / クイックオープン
+11. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
