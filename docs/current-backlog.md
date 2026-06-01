@@ -61,16 +61,25 @@
 
 1. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
 2. MD-BL-014 検索 surface の再設計
-3. MD-BL-008 Preview 同期強化
-4. MD-BL-009 スペルチェック
-5. MD-BL-010 最近使った文書 / クイックオープン
-6. MD-BL-011 PDF 出力
+3. MD-BL-015 新規ドキュメント作成導線
+4. MD-BL-016 保存同期と外部変更追従の polish
+5. MD-BL-008 Preview 同期強化
+6. MD-BL-009 スペルチェック
+7. MD-BL-010 最近使った文書 / クイックオープン
+8. MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
 注記:
 
 - MD-BL-014 は現行の editor 内検索 surface を捨てる話ではなく、workspace-first を既定に保ったまま、必要なら detached search window を secondary mode として評価する
+
+### Supporting Backlog
+
+1. DOC-BL-001 README と開発文書の責務分離
+2. ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+
+これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
 ## Usernote Intake
 
@@ -82,6 +91,12 @@
 4. 検索ボックスの別 window 化検討: MD-BL-014
 5. 最上位 toolbox の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入が caret とずれる: MD-BL-004
+7. Ctrl/Cmd+N で editor mode の新規文書を開く: MD-BL-015
+8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
+9. 公開 README と開発文書の責務分離: DOC-BL-001
+10. iteration limit 到達時の継続 / 中断選択: AI-UX-004
+11. 破損画像や末尾添付の削除・整理導線: MD-BL-005
+12. Electron 側肥大化の解消と TS ライブラリ化: ENG-BL-001
 
 ## Active AI Backlog
 
@@ -115,6 +130,7 @@
 5. AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
 6. AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
 7. AI-UX-003 INSTRUCTION / SKILL / HOOK の責務境界と優先順位を整理する
+8. AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
 

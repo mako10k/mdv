@@ -119,6 +119,16 @@ test('editor mode keeps the outline and a non-zero Toast UI surface', async ({ p
   expect(toastRect.height).toBeGreaterThan(300)
 })
 
+test('editor mode groups topbar commands and hides the Toast UI toolbar', async ({ page }) => {
+  await openWritePanel(page)
+
+  await expect(page.getByRole('group', { name: /(ファイル操作|File actions)/ })).toBeVisible()
+  await expect(page.getByRole('group', { name: /(挿入操作|Insert actions)/ })).toBeVisible()
+  await expect(page.getByRole('group', { name: /(出力操作|Output actions)/ })).toBeVisible()
+  await expect(page.getByRole('group', { name: /(ワークスペース操作|Workspace actions)/ })).toBeVisible()
+  await expect(computedStyle(page, '.toastui-editor-toolbar', 'display')).resolves.toBe('none')
+})
+
 test('preview mode with AI dock does not overlap the rendered surface', async ({ page }) => {
   await openAiDock(page)
   await expect(page.locator('.outline-panel')).toHaveCount(0)

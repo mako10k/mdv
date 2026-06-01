@@ -8,6 +8,7 @@ import {
   type DragEvent,
   type MutableRefObject,
   type ReactElement,
+  type ReactNode,
 } from 'react'
 import ToastUiEditor from '@toast-ui/editor'
 import MarkdownIt from 'markdown-it'
@@ -699,6 +700,11 @@ type ToolbarButtonProps = {
   children: ReactElement
 }
 
+type ToolbarGroupProps = {
+  label: string
+  children: ReactNode
+}
+
 type EditorSearchMode = 'exact' | 'semantic'
 
 function isEditorSearchMode(value: string): value is EditorSearchMode {
@@ -746,6 +752,14 @@ function ToolbarButton({ label, active = false, onClick, children }: ToolbarButt
     >
       {children}
     </button>
+  )
+}
+
+function ToolbarGroup({ label, children }: ToolbarGroupProps) {
+  return (
+    <div className="action-group" role="group" aria-label={label}>
+      {children}
+    </div>
   )
 }
 
@@ -1699,6 +1713,7 @@ function App() {
   const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
   const hasUnsavedChanges = markdownText !== persistedMarkdown
   const visibleDisplayTitle = hasUnsavedChanges ? `${displayTitle}*` : displayTitle
+  const isStartupPending = !isInitialLaunchOpenSettled || !isStartupRecoveryResolved
   const isPlaceholderDocument = currentFilePath === null
     && displayTitle === t.app.untitledTitle
     && markdownText === t.app.initialDocument
@@ -3416,22 +3431,26 @@ function App() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >
-        <header className="topbar">
+        <header className={isStartupPending ? 'topbar topbar-pending' : 'topbar'}>
           <div className="title-strip">
             <h1>{visibleDisplayTitle}</h1>
           </div>
 
-          <div className="view-switch">
-            <ToolbarButton label={`${t.app.editor} (Ctrl/Cmd+1)`} active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
-              <EditorIcon />
-            </ToolbarButton>
-            <ToolbarButton label={`${t.app.rendered} (Ctrl/Cmd+2)`} active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
-              <RenderedIcon />
-            </ToolbarButton>
-          </div>
+          {isStartupPending ? (
+            <div className="startup-topbar-status" role="status" aria-live="polite">{t.app.startingWorkspace}</div>
+          ) : (
+            <>
+              <div className="view-switch">
+                <ToolbarButton label={`${t.app.editor} (Ctrl/Cmd+1)`} active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
+                  <EditorIcon />
+                </ToolbarButton>
+                <ToolbarButton label={`${t.app.rendered} (Ctrl/Cmd+2)`} active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
+                  <RenderedIcon />
+                </ToolbarButton>
+              </div>
 
-          <div className="action-strip">
-            <div className="editor-search-shell" role="search">
+              <div className="action-strip">
+                <div className="editor-search-shell" role="search">
               <select
                 className="editor-search-mode"
                 aria-label={t.app.searchMode}
@@ -3613,242 +3632,249 @@ function App() {
                   {isEditorSearchResultsVisible ? <CloseIcon /> : <ResultsIcon />}
                 </button>
               ) : null}
-            </div>
-            <label className="theme-select-shell" title={t.common.theme}>
-              <span>{t.common.theme}</span>
-              <select
-                className="theme-select"
-                value={themeMode}
-                onChange={(event) => {
-                  const nextThemeMode = event.currentTarget.value
+                </div>
+                <label className="theme-select-shell" title={t.common.theme}>
+                  <span>{t.common.theme}</span>
+                  <select
+                    className="theme-select"
+                    value={themeMode}
+                    onChange={(event) => {
+                      const nextThemeMode = event.currentTarget.value
 
-                  if (!isThemeMode(nextThemeMode)) {
-                    setStatusText(t.common.invalidThemeMode)
-                    return
-                  }
-
-                  void setThemeMode(nextThemeMode)
-                }}
-              >
-                <option value="system">{t.common.system}</option>
-                <option value="light">{t.common.light}</option>
-                <option value="dark">{t.common.dark}</option>
-              </select>
-            </label>
-            <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
-              <OpenIcon />
-            </ToolbarButton>
-            <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} onClick={() => void handleSave(false)}>
-              <SaveIcon />
-            </ToolbarButton>
-            <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
-              <SaveAsIcon />
-            </ToolbarButton>
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertHeading} onClick={() => applyMarkdownInsertCommand('heading', t.app.insertHeading)}>
-                <HeadingCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertLink} onClick={() => applyMarkdownInsertCommand('link', t.app.insertLink)}>
-                <LinkCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertImage} onClick={() => applyMarkdownInsertCommand('image', t.app.insertImage)}>
-                <ImageCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertCodeBlock} onClick={() => applyMarkdownInsertCommand('code-block', t.app.insertCodeBlock)}>
-                <CodeBlockCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertQuote} onClick={() => applyMarkdownInsertCommand('quote', t.app.insertQuote)}>
-                <QuoteCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertHorizontalRule} onClick={() => applyMarkdownInsertCommand('horizontal-rule', t.app.insertHorizontalRule)}>
-                <HorizontalRuleCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
-                <FootnoteCommandIcon />
-              </ToolbarButton>
-            ) : null}
-            <ToolbarButton
-              label={`${t.chat.title} (Ctrl/Cmd+I)`}
-              active={isAssistantDockOpen}
-              onClick={() => {
-                if (isAssistantDockOpen) {
-                  closeAssistantDock()
-                  return
-                }
-
-                openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
-              }}
-            >
-              <span className="toolbar-text-icon" aria-hidden="true">AI</span>
-            </ToolbarButton>
-            {activePanel === 'write' ? (
-              <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
-                <CopyIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
-                <CopyIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
-                <PrintIcon />
-              </ToolbarButton>
-            ) : null}
-            {activePanel === 'preview' ? (
-              <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
-                <ExportIcon />
-              </ToolbarButton>
-            ) : null}
-            <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
-              <SettingsIcon />
-            </ToolbarButton>
-          </div>
-        </header>
-
-        <div className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}>
-          <div className="workspace-main-column">
-            {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
-              <section className="editor-search-results" aria-label={t.app.searchResults}>
-                {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
-                {editorSearchResults.map((result, index) => (
-                  <button
-                    key={result.id}
-                    type="button"
-                    className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
-                    onClick={() => jumpToEditorSearchResult(result, index)}
-                  >
-                    <span className="editor-search-result-meta">{result.meta}</span>
-                    <span className="editor-search-result-preview">{result.preview}</span>
-                  </button>
-                ))}
-              </section>
-            ) : null}
-
-            <div className={activePanel === 'write' ? 'single-panel single-panel-with-outline' : 'single-panel single-panel-preview-only'}>
-              {activePanel === 'write' ? (
-                <aside className="panel outline-panel" aria-label={t.app.outline}>
-                  <div className="outline-panel-header">{t.app.outline}</div>
-                  {headingOutline.length === 0 ? (
-                    <div className="outline-empty">{t.app.outlineEmpty}</div>
-                  ) : (
-                    <div ref={outlineListRef} className="outline-list">
-                      {headingOutline.map((item, index) => {
-                        const isActiveOutlineItem = index === activeOutlineIndex
-                        const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
-
-                        return (
-                          <button
-                            key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
-                            type="button"
-                            className={isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
-                            style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
-                            onClick={() => jumpToOutlineHeading(item)}
-                            title={headingLabel}
-                            aria-current={isActiveOutlineItem ? 'location' : undefined}
-                            ref={isActiveOutlineItem ? activeOutlineItemRef : null}
-                          >
-                            <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
-                            <span className="outline-item-label">{headingLabel}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </aside>
-              ) : null}
-              <div className="panel-stack full-panel">
-                <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>
-                  <EditorSurface
-                    key={editorSessionKey}
-                    value={markdownText}
-                    onChange={(nextMarkdown) => {
-                      invalidateEditorSearch()
-                      setMarkdownText(nextMarkdown)
-                    }}
-                    editorRef={editorRef}
-                    onReady={(editor) => {
-                      if (shouldCanonicalizeLoadedBaselineRef.current) {
-                        const canonicalMarkdown = editor.getMarkdown()
-                        shouldCanonicalizeLoadedBaselineRef.current = false
-                        persistedMarkdownRef.current = canonicalMarkdown
-                        setPersistedMarkdown(canonicalMarkdown)
-                        setMarkdownText(canonicalMarkdown)
-                      }
-
-                      syncActiveOutlineLine(editor)
-
-                      if (!pendingSearchJump) {
+                      if (!isThemeMode(nextThemeMode)) {
+                        setStatusText(t.common.invalidThemeMode)
                         return
                       }
 
-                      selectSpanInEditor(editor, pendingSearchJump)
-                      setPendingSearchJump(null)
+                      void setThemeMode(nextThemeMode)
                     }}
-                    onSelectionChange={syncActiveOutlineLine}
-                  />
-                </div>
-                <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
-                  <div ref={previewRootRef} className="preview-scroll compact-preview">
-                    {segments.map((segment, index) => {
-                      if (segment.type === 'markdown') {
-                        return (
-                          <section
-                            key={`md-${index}`}
-                            className="markdown-fragment"
-                            dangerouslySetInnerHTML={{
-                              __html: renderMarkdownSegment(segment.value),
-                            }}
-                          />
-                        )
+                  >
+                    <option value="system">{t.common.system}</option>
+                    <option value="light">{t.common.light}</option>
+                    <option value="dark">{t.common.dark}</option>
+                  </select>
+                </label>
+                <ToolbarGroup label={t.app.fileActions}>
+                  <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
+                    <OpenIcon />
+                  </ToolbarButton>
+                  <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} onClick={() => void handleSave(false)}>
+                    <SaveIcon />
+                  </ToolbarButton>
+                  <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
+                    <SaveAsIcon />
+                  </ToolbarButton>
+                </ToolbarGroup>
+                {activePanel === 'write' ? (
+                  <ToolbarGroup label={t.app.insertActions}>
+                    <ToolbarButton label={t.app.insertHeading} onClick={() => applyMarkdownInsertCommand('heading', t.app.insertHeading)}>
+                      <HeadingCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertLink} onClick={() => applyMarkdownInsertCommand('link', t.app.insertLink)}>
+                      <LinkCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertImage} onClick={() => applyMarkdownInsertCommand('image', t.app.insertImage)}>
+                      <ImageCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertCodeBlock} onClick={() => applyMarkdownInsertCommand('code-block', t.app.insertCodeBlock)}>
+                      <CodeBlockCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertQuote} onClick={() => applyMarkdownInsertCommand('quote', t.app.insertQuote)}>
+                      <QuoteCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertHorizontalRule} onClick={() => applyMarkdownInsertCommand('horizontal-rule', t.app.insertHorizontalRule)}>
+                      <HorizontalRuleCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
+                      <FootnoteCommandIcon />
+                    </ToolbarButton>
+                  </ToolbarGroup>
+                ) : null}
+                <ToolbarGroup label={t.app.outputActions}>
+                  {activePanel === 'write' ? (
+                    <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
+                      <CopyIcon />
+                    </ToolbarButton>
+                  ) : null}
+                  {activePanel === 'preview' ? (
+                    <ToolbarButton label={t.app.copyRendered} onClick={() => void handleCopyRendered()}>
+                      <CopyIcon />
+                    </ToolbarButton>
+                  ) : null}
+                  {activePanel === 'preview' ? (
+                    <ToolbarButton label={t.app.printRendered} onClick={handlePrintRendered}>
+                      <PrintIcon />
+                    </ToolbarButton>
+                  ) : null}
+                  {activePanel === 'preview' ? (
+                    <ToolbarButton label={t.app.exportHtml} onClick={() => void handleExportHtml()}>
+                      <ExportIcon />
+                    </ToolbarButton>
+                  ) : null}
+                </ToolbarGroup>
+                <ToolbarGroup label={t.app.workspaceActions}>
+                  <ToolbarButton
+                    label={`${t.chat.title} (Ctrl/Cmd+I)`}
+                    active={isAssistantDockOpen}
+                    onClick={() => {
+                      if (isAssistantDockOpen) {
+                        closeAssistantDock()
+                        return
                       }
 
-                      const Renderer =
-                        rendererRegistry.get(segment.language) ?? DefaultCodeBlock
+                      openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
+                    }}
+                  >
+                    <span className="toolbar-text-icon" aria-hidden="true">AI</span>
+                  </ToolbarButton>
+                  <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
+                    <SettingsIcon />
+                  </ToolbarButton>
+                </ToolbarGroup>
+              </div>
+            </>
+          )}
+        </header>
 
-                      return (
-                        <Renderer
-                          key={`code-${index}`}
-                          code={segment.code}
-                          language={segment.language}
-                          theme={resolvedTheme}
-                        />
-                      )
-                    })}
+        {isStartupPending ? (
+          <div className="workspace-startup-shell" role="status" aria-live="polite">
+            <div className="workspace-startup-card">
+              <div className="workspace-startup-eyebrow">MDV</div>
+              <strong>{t.app.startingWorkspace}</strong>
+            </div>
+          </div>
+        ) : (
+          <div className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}>
+            <div className="workspace-main-column">
+              {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
+                <section className="editor-search-results" aria-label={t.app.searchResults}>
+                  {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
+                  {editorSearchResults.map((result, index) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
+                      onClick={() => jumpToEditorSearchResult(result, index)}
+                    >
+                      <span className="editor-search-result-meta">{result.meta}</span>
+                      <span className="editor-search-result-preview">{result.preview}</span>
+                    </button>
+                  ))}
+                </section>
+              ) : null}
+
+              <div className={activePanel === 'write' ? 'single-panel single-panel-with-outline' : 'single-panel single-panel-preview-only'}>
+                {activePanel === 'write' ? (
+                  <aside className="panel outline-panel" aria-label={t.app.outline}>
+                    <div className="outline-panel-header">{t.app.outline}</div>
+                    {headingOutline.length === 0 ? (
+                      <div className="outline-empty">{t.app.outlineEmpty}</div>
+                    ) : (
+                      <div ref={outlineListRef} className="outline-list">
+                        {headingOutline.map((item, index) => {
+                          const isActiveOutlineItem = index === activeOutlineIndex
+                          const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+
+                          return (
+                            <button
+                              key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                              type="button"
+                              className={isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
+                              style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                              onClick={() => jumpToOutlineHeading(item)}
+                              title={headingLabel}
+                              aria-current={isActiveOutlineItem ? 'location' : undefined}
+                              ref={isActiveOutlineItem ? activeOutlineItemRef : null}
+                            >
+                              <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                              <span className="outline-item-label">{headingLabel}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </aside>
+                ) : null}
+                <div className="panel-stack full-panel">
+                  <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>
+                    <EditorSurface
+                      key={editorSessionKey}
+                      value={markdownText}
+                      onChange={(nextMarkdown) => {
+                        invalidateEditorSearch()
+                        setMarkdownText(nextMarkdown)
+                      }}
+                      editorRef={editorRef}
+                      onReady={(editor) => {
+                        if (shouldCanonicalizeLoadedBaselineRef.current) {
+                          const canonicalMarkdown = editor.getMarkdown()
+                          shouldCanonicalizeLoadedBaselineRef.current = false
+                          persistedMarkdownRef.current = canonicalMarkdown
+                          setPersistedMarkdown(canonicalMarkdown)
+                          setMarkdownText(canonicalMarkdown)
+                        }
+
+                        syncActiveOutlineLine(editor)
+
+                        if (!pendingSearchJump) {
+                          return
+                        }
+
+                        selectSpanInEditor(editor, pendingSearchJump)
+                        setPendingSearchJump(null)
+                      }}
+                      onSelectionChange={syncActiveOutlineLine}
+                    />
+                  </div>
+                  <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
+                    <div ref={previewRootRef} className="preview-scroll compact-preview">
+                      {segments.map((segment, index) => {
+                        if (segment.type === 'markdown') {
+                          return (
+                            <section
+                              key={`md-${index}`}
+                              className="markdown-fragment"
+                              dangerouslySetInnerHTML={{
+                                __html: renderMarkdownSegment(segment.value),
+                              }}
+                            />
+                          )
+                        }
+
+                        const Renderer =
+                          rendererRegistry.get(segment.language) ?? DefaultCodeBlock
+
+                        return (
+                          <Renderer
+                            key={`code-${index}`}
+                            code={segment.code}
+                            language={segment.language}
+                            theme={resolvedTheme}
+                          />
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <aside
-            className={isAssistantDockOpen ? 'assistant-dock panel' : 'assistant-dock panel assistant-dock-hidden'}
-            aria-label={t.chat.title}
-            aria-hidden={!isAssistantDockOpen}
-            hidden={!isAssistantDockOpen}
-          >
-            <ChatApp
-              variant="dock"
-              autoFocusNonce={assistantFocusNonce}
-              onRequestClose={() => {
-                closeAssistantDock()
-              }}
-            />
-          </aside>
-        </div>
+            <aside
+              className={isAssistantDockOpen ? 'assistant-dock panel' : 'assistant-dock panel assistant-dock-hidden'}
+              aria-label={t.chat.title}
+              aria-hidden={!isAssistantDockOpen}
+              hidden={!isAssistantDockOpen}
+            >
+              <ChatApp
+                variant="dock"
+                autoFocusNonce={assistantFocusNonce}
+                onRequestClose={() => {
+                  closeAssistantDock()
+                }}
+              />
+            </aside>
+          </div>
+        )}
 
         <div className="statusbar">
           <span>{t.app.statusbarHelp}</span>

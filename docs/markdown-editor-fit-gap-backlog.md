@@ -139,7 +139,7 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
   - Markdown に `![](...)` を自動挿入
   - 保存先未確定文書では app-managed draft workspace へ保存し、初回保存時に実ディレクトリへ materialize する
   - data URL / base64 埋め込みを常用導線にせず、必要時も相対 asset へ正規化できるようにする
-  - media reference manager を追加し、rename / continuity / orphan cleanup を UI から扱えるようにする
+  - media reference manager を追加し、rename / continuity / orphan cleanup / 破損添付の削除を UI から扱えるようにする
 - 完了条件:
   - 保存済み Markdown の隣接 assets ディレクトリへ出力できる
   - 未保存文書でも relative path を維持したまま recovery / first save と整合する
@@ -196,6 +196,32 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 - 完了条件:
   - topbar が command group 単位で読める
   - 狭い幅でも主要操作が壊れず、overflow 先が一貫する
+
+#### MD-BL-015 新規ドキュメント作成導線
+
+- 種別: 追加
+- 目的: 既存文書を壊さずに新規メモ作成へすぐ入れるようにする
+- 内容:
+  - Ctrl/Cmd+N で新規 untitled document を開く
+  - 新規作成時は editor mode を既定にする
+  - topbar または menu に discoverable な導線を追加する
+- 完了条件:
+  - keyboard shortcut から新規文書を開ける
+  - 既存の unsaved-changes 確認と矛盾しない
+  - 新規文書では editor panel が primary で開く
+
+#### MD-BL-016 保存同期と外部変更追従の polish
+
+- 種別: 変更
+- 目的: 保存まわりと外部編集追従の理解コストを下げる
+- 内容:
+  - conflict save 時の merge preview を改善する
+  - clean 状態で外部変更されたファイルを画面へ明示的に追従反映する
+  - status 表示と confirmation copy を整理する
+- 完了条件:
+  - clean buffer の外部変更が自然に画面へ反映される
+  - merge save 経路で何が起きるかを user が判別できる
+  - 既存の保守的 conflict save policy を壊さない
 
 #### MD-BL-014 検索 surface の再設計
 
@@ -258,6 +284,8 @@ Markdown 編集という観点での優先 gap は次の 4 つに集約される
 4. MD-BL-005 画像 / メディア asset workflow と参照管理
 5. MD-BL-012 起動時 placeholder ちらつき抑制
 6. MD-BL-006 表編集補助
+7. MD-BL-015 新規ドキュメント作成導線
+8. MD-BL-016 保存同期と外部変更追従の polish
 7. MD-BL-007 リスト継続と task list 操作補助
 8. MD-BL-013 workspace topbar grouping / overflow 再設計
 9. MD-BL-014 検索 surface の再設計
