@@ -60,6 +60,12 @@
   --selection: rgba(245, 158, 11, 0.28);
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 #root {
   min-height: 100vh;
 }

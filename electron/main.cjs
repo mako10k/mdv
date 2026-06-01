@@ -7,6 +7,7 @@ const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
 const { createPatch, applyPatch } = require('diff')
 const OpenAI = require('openai')
+const { createOpenAiResponseStream } = require('./openai-response-stream.cjs')
 const { extractHeadingOutline, getMdastCapabilities } = require('./mdast-adapter.cjs')
 const {
   addFetchAclDecisionRule,
@@ -16,12 +17,24 @@ const {
   parseFetchAclText,
 } = require('./fetch-acl.cjs')
 
-const isDev = !app.isPackaged
+const e2eUserDataPath = typeof process.env.MDV_E2E_USER_DATA_DIR === 'string' && process.env.MDV_E2E_USER_DATA_DIR.trim().length > 0
+  ? path.resolve(process.env.MDV_E2E_USER_DATA_DIR.trim())
+  : null
+const forceStaticRenderer = process.env.MDV_FORCE_STATIC_RENDERER === '1'
+
+if (e2eUserDataPath) {
+  app.setPath('userData', e2eUserDataPath)
+}
+
+const isDev = !app.isPackaged && !forceStaticRenderer
 const windowIcon = path.join(__dirname, '..', 'build', 'icon.png')
 const allowedLinkRulesPath = path.join(app.getPath('userData'), 'allowed-link-rules.json')
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
 const secretsPath = path.join(app.getPath('userData'), 'secrets.json')
 const semanticCachePath = path.join(app.getPath('userData'), 'semantic-cache-v1.json')
+const autosaveRecoveryPath = path.join(app.getPath('userData'), 'autosave-recovery-v1.json')
+const stateRootPath = path.join(app.getPath('userData'), 'state')
+const draftWorkspaceRootPath = path.join(stateRootPath, 'drafts')
 const managedServerUrl = process.env.MDV_SERVER_URL || null
 const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
@@ -32,16 +45,15 @@ app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
 app.commandLine.appendSwitch('disable-gpu-compositing')
 app.setName(appDisplayName)
-app.setAppLogsPath()
+app.setAppLogsPath(e2eUserDataPath ? path.join(e2eUserDataPath, 'logs') : undefined)
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
+const e2eDialogResponseState = createE2eDialogResponseState()
 let allowedLinkRules = loadAllowedLinkRules()
 let pendingLaunchRequest = resolveLaunchRequest(process.argv)
 let managedMainWindow = null
 let commandPollTimer = null
 const pendingServerRequests = new Map()
-const editorToAiChatWindowId = new Map()
-const aiChatToEditorWindowId = new Map()
 const pendingAiEditorRequests = new Map()
 const launchStateByWindowId = new Map()
 const hiddenLaunchRevealTimerByWindowId = new Map()
@@ -78,6 +90,86 @@ const SEMANTIC_LAYERS = [
   { name: 'fine', maxChars: 420, overlapChars: 96, weight: 1, boundarySlackChars: 72 },
   { name: 'coarse', maxChars: 1800, overlapChars: 240, weight: 0.96, boundarySlackChars: 180 },
 ]
+
+function createE2eDialogResponseState() {
+  const rawValue = process.env.MDV_E2E_DIALOG_RESPONSES
+
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue)
+
+    return {
+      messageBox: Array.isArray(parsed?.messageBox) ? [...parsed.messageBox] : [],
+      saveDialog: Array.isArray(parsed?.saveDialog) ? [...parsed.saveDialog] : [],
+      openDialog: Array.isArray(parsed?.openDialog) ? [...parsed.openDialog] : [],
+    }
+  } catch (error) {
+    writeLog('WARN', 'main', 'Failed to parse MDV_E2E_DIALOG_RESPONSES', error instanceof Error ? error.message : String(error))
+    return null
+  }
+}
+
+function takeNextE2eDialogResponse(kind) {
+  if (!e2eDialogResponseState) {
+    return null
+  }
+
+  const queue = e2eDialogResponseState[kind]
+
+  if (!Array.isArray(queue) || queue.length === 0) {
+    return null
+  }
+
+  return queue.shift() ?? null
+}
+
+async function showMessageBox(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('messageBox')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showMessageBox response', injectedResponse)
+    return {
+      response: Number.isFinite(injectedResponse.response) ? injectedResponse.response : 0,
+      checkboxChecked: injectedResponse.checkboxChecked === true,
+    }
+  }
+
+  return dialog.showMessageBox(window ?? undefined, options)
+}
+
+async function showSaveDialog(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('saveDialog')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showSaveDialog response', injectedResponse)
+    return {
+      canceled: injectedResponse.canceled !== false,
+      filePath: typeof injectedResponse.filePath === 'string' ? injectedResponse.filePath : undefined,
+      bookmark: typeof injectedResponse.bookmark === 'string' ? injectedResponse.bookmark : undefined,
+    }
+  }
+
+  return dialog.showSaveDialog(window ?? undefined, options)
+}
+
+async function showOpenDialog(window, options) {
+  const injectedResponse = takeNextE2eDialogResponse('openDialog')
+
+  if (injectedResponse) {
+    writeLog('INFO', 'e2e', 'Using injected showOpenDialog response', injectedResponse)
+    return {
+      canceled: injectedResponse.canceled !== false,
+      filePaths: Array.isArray(injectedResponse.filePaths) ? injectedResponse.filePaths.filter((value) => typeof value === 'string') : [],
+      bookmarks: Array.isArray(injectedResponse.bookmarks) ? injectedResponse.bookmarks.filter((value) => typeof value === 'string') : undefined,
+    }
+  }
+
+  return dialog.showOpenDialog(window ?? undefined, options)
+}
+
 const MAIN_I18N = {
   ja: {
     untitledTitle: '無題.md',
@@ -243,12 +335,17 @@ let hasReadableSettings = loadSettings.didLoadPersisted === true
 let semanticCacheDidLoad = false
 let semanticCacheDirty = false
 let semanticCacheSaveTimer = null
+let autosaveRecoveryDirty = false
+let autosaveRecoverySaveTimer = null
 const embeddingCacheByKey = new Map()
 const semanticRuntimeBySourceKey = new Map()
+const autosaveRecoveryByKey = new Map()
 let embeddingCacheTotalBytes = 0
 let embeddingUsageCountsNeedRepair = false
 let embeddingCacheGcTimer = null
 let embeddingCacheGcScheduledForAt = 0
+
+loadAutosaveRecoveryStore()
 
 function isManagedClient() {
   return Boolean(managedServerUrl && managedClientId && managedWindowId)
@@ -258,8 +355,631 @@ function estimateTokenCount(text) {
   return typeof text === 'string' && text.length > 0 ? Math.ceil(text.length / DEFAULT_TOKEN_TO_CHAR_RATIO) : 0
 }
 
+function normalizeRecoveryFilePath(filePath) {
+  return typeof filePath === 'string' && filePath.trim().length > 0 ? path.resolve(filePath) : null
+}
+
+function buildRecoveryStorageKey(snapshot) {
+  const normalizedFilePath = normalizeRecoveryFilePath(snapshot?.currentFilePath)
+
+  if (normalizedFilePath) {
+    return `file:${normalizedFilePath}`
+  }
+
+  if (typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0) {
+    return `draft:${snapshot.recoveryKey.trim()}`
+  }
+
+  return `draft:${randomUUID()}`
+}
+
+function serializeAutosaveRecoveryEntries() {
+  return {
+    version: 1,
+    entries: Array.from(autosaveRecoveryByKey.values())
+      .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt)),
+  }
+}
+
+function markAutosaveRecoveryDirty() {
+  autosaveRecoveryDirty = true
+
+  if (autosaveRecoverySaveTimer) {
+    clearTimeout(autosaveRecoverySaveTimer)
+  }
+
+  autosaveRecoverySaveTimer = setTimeout(() => {
+    autosaveRecoverySaveTimer = null
+    void saveAutosaveRecoveryStore()
+  }, 250)
+}
+
+async function saveAutosaveRecoveryStore() {
+  if (!autosaveRecoveryDirty) {
+    return
+  }
+
+  autosaveRecoveryDirty = false
+
+  try {
+    await fsPromises.writeFile(autosaveRecoveryPath, JSON.stringify(serializeAutosaveRecoveryEntries(), null, 2), 'utf8')
+  } catch (error) {
+    autosaveRecoveryDirty = true
+    writeLog('ERROR', 'main', 'Failed to save autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function flushAutosaveRecoveryStoreSync() {
+  if (autosaveRecoverySaveTimer) {
+    clearTimeout(autosaveRecoverySaveTimer)
+    autosaveRecoverySaveTimer = null
+  }
+
+  if (!autosaveRecoveryDirty) {
+    return
+  }
+
+  autosaveRecoveryDirty = false
+
+  try {
+    fs.writeFileSync(autosaveRecoveryPath, JSON.stringify(serializeAutosaveRecoveryEntries(), null, 2), 'utf8')
+  } catch (error) {
+    autosaveRecoveryDirty = true
+    writeLog('ERROR', 'main', 'Failed to flush autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function loadAutosaveRecoveryStore() {
+  try {
+    if (!fs.existsSync(autosaveRecoveryPath)) {
+      return
+    }
+
+    const parsed = JSON.parse(fs.readFileSync(autosaveRecoveryPath, 'utf8'))
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : []
+
+    for (const entry of entries) {
+      if (typeof entry?.recoveryKey !== 'string' || typeof entry?.savedAt !== 'string' || typeof entry?.snapshot !== 'object' || entry.snapshot === null) {
+        continue
+      }
+
+      const snapshot = entry.snapshot
+
+      if (
+        typeof snapshot.markdownText !== 'string'
+        || typeof snapshot.persistedMarkdown !== 'string'
+        || typeof snapshot.displayTitle !== 'string'
+      ) {
+        continue
+      }
+
+      const normalizedRecoveryKey = typeof snapshot.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0
+        ? snapshot.recoveryKey.trim()
+        : entry.recoveryKey.replace(/^draft:/, '')
+
+      autosaveRecoveryByKey.set(entry.recoveryKey, {
+        recoveryKey: entry.recoveryKey,
+        savedAt: entry.savedAt,
+        snapshot: {
+          markdownText: snapshot.markdownText,
+          persistedMarkdown: snapshot.persistedMarkdown,
+          currentFilePath: normalizeRecoveryFilePath(snapshot.currentFilePath),
+          fileSnapshot: snapshot.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+          draftWorkspace: snapshot.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+          pendingImportedAssets: Array.isArray(snapshot.pendingImportedAssets)
+            ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+            : [],
+          displayTitle: snapshot.displayTitle,
+          activePanel: snapshot.activePanel === 'write' ? 'write' : 'preview',
+          recoveryKey: normalizedRecoveryKey,
+        },
+      })
+    }
+  } catch (error) {
+    writeLog('WARN', 'main', 'Failed to load autosave recovery store', error instanceof Error ? error.message : String(error))
+  }
+}
+
+function upsertAutosaveRecovery(snapshot) {
+  const recoveryKey = buildRecoveryStorageKey(snapshot)
+  const savedAt = new Date().toISOString()
+  const normalizedSnapshot = {
+    markdownText: typeof snapshot?.markdownText === 'string' ? snapshot.markdownText : '',
+    persistedMarkdown: typeof snapshot?.persistedMarkdown === 'string' ? snapshot.persistedMarkdown : '',
+    currentFilePath: normalizeRecoveryFilePath(snapshot?.currentFilePath),
+    fileSnapshot: snapshot?.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
+    draftWorkspace: snapshot?.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+    pendingImportedAssets: Array.isArray(snapshot?.pendingImportedAssets)
+      ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+      : [],
+    displayTitle: typeof snapshot?.displayTitle === 'string' && snapshot.displayTitle.trim().length > 0 ? snapshot.displayTitle.trim() : getMainI18n().untitledTitle,
+    activePanel: snapshot?.activePanel === 'write' ? 'write' : 'preview',
+    recoveryKey: typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0 ? snapshot.recoveryKey.trim() : recoveryKey.replace(/^draft:/, ''),
+  }
+
+  autosaveRecoveryByKey.set(recoveryKey, {
+    recoveryKey,
+    savedAt,
+    snapshot: normalizedSnapshot,
+  })
+  markAutosaveRecoveryDirty()
+  return { recoveryKey, savedAt }
+}
+
+function clearAutosaveRecovery(payload = {}) {
+  const recoveryKey = typeof payload?.recoveryKey === 'string' && payload.recoveryKey.trim().length > 0
+    ? payload.recoveryKey.trim()
+    : null
+  const normalizedFilePath = normalizeRecoveryFilePath(payload?.filePath)
+  let didDelete = false
+
+  if (recoveryKey && autosaveRecoveryByKey.delete(recoveryKey)) {
+    didDelete = true
+  }
+
+  if (recoveryKey && !recoveryKey.startsWith('draft:') && autosaveRecoveryByKey.delete(`draft:${recoveryKey}`)) {
+    didDelete = true
+  }
+
+  if (normalizedFilePath && autosaveRecoveryByKey.delete(`file:${normalizedFilePath}`)) {
+    didDelete = true
+  }
+
+  if (didDelete) {
+    markAutosaveRecoveryDirty()
+  }
+}
+
+function getLatestAutosaveRecovery() {
+  const entries = Array.from(autosaveRecoveryByKey.values())
+    .filter((entry) => !normalizeRecoveryFilePath(entry?.snapshot?.currentFilePath))
+  entries.sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
+  return entries[0] || null
+}
+
+function getAutosaveRecoveryByRecoveryKey(recoveryKey) {
+  const normalizedRecoveryKey = typeof recoveryKey === 'string' && recoveryKey.trim().length > 0
+    ? recoveryKey.trim()
+    : null
+
+  if (!normalizedRecoveryKey) {
+    return null
+  }
+
+  return autosaveRecoveryByKey.get(normalizedRecoveryKey)
+    || autosaveRecoveryByKey.get(`draft:${normalizedRecoveryKey}`)
+    || null
+}
+
+function getAutosaveRecoveryForFile(filePath) {
+  const normalizedFilePath = normalizeRecoveryFilePath(filePath)
+
+  if (!normalizedFilePath) {
+    return null
+  }
+
+  return autosaveRecoveryByKey.get(`file:${normalizedFilePath}`) || null
+}
+
 function getModelContextWindow(model) {
   return MODEL_CONTEXT_WINDOW_BY_NAME[model] || DEFAULT_MODEL_CONTEXT_WINDOW
+}
+
+function normalizeWorkspaceId(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function buildDraftWorkspaceRecord(workspaceId) {
+  const rootDir = path.join(draftWorkspaceRootPath, workspaceId)
+
+  return {
+    workspaceId,
+    rootDir,
+    markdownFilePath: path.join(rootDir, 'document.md'),
+    assetDir: path.join(rootDir, 'assets'),
+    manifestPath: path.join(rootDir, 'manifest.json'),
+  }
+}
+
+async function ensureDraftWorkspace(payload = {}) {
+  const workspaceId = normalizeWorkspaceId(payload.workspaceId) || `wrk_${randomUUID()}`
+  const workspace = buildDraftWorkspaceRecord(workspaceId)
+
+  await fsPromises.mkdir(workspace.assetDir, { recursive: true })
+
+  const existingManifest = await readDraftWorkspaceManifest(workspace)
+
+  if (existingManifest) {
+    return workspace
+  }
+
+  const manifest = {
+    workspaceId,
+    kind: 'draft',
+    markdownFile: path.relative(workspace.rootDir, workspace.markdownFilePath),
+    assetDir: path.relative(workspace.rootDir, workspace.assetDir),
+    assets: [],
+  }
+
+  await fsPromises.writeFile(workspace.manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+
+  return workspace
+}
+
+function normalizeDraftWorkspacePayload(value) {
+  const workspaceId = normalizeWorkspaceId(value?.workspaceId)
+
+  if (!workspaceId) {
+    return null
+  }
+
+  return buildDraftWorkspaceRecord(workspaceId)
+}
+
+function ensurePosixRelativePath(value) {
+  return value.split(path.sep).join('/')
+}
+
+function isImageMimeType(mimeType) {
+  return typeof mimeType === 'string' && mimeType.startsWith('image/')
+}
+
+function getExtensionForMimeType(mimeType) {
+  switch ((mimeType || '').toLowerCase()) {
+    case 'image/png':
+      return '.png'
+    case 'image/jpeg':
+      return '.jpg'
+    case 'image/gif':
+      return '.gif'
+    case 'image/webp':
+      return '.webp'
+    case 'image/svg+xml':
+      return '.svg'
+    case 'image/bmp':
+      return '.bmp'
+    case 'image/x-icon':
+      return '.ico'
+    case 'image/avif':
+      return '.avif'
+    default:
+      return ''
+  }
+}
+
+function sanitizeAssetFileName(fileName, mimeType) {
+  const trimmedName = typeof fileName === 'string' ? fileName.trim() : ''
+  const normalizedName = trimmedName.length > 0 ? trimmedName : `image${getExtensionForMimeType(mimeType) || '.png'}`
+  const parsedName = path.parse(normalizedName)
+  const safeBaseName = (parsedName.name || 'image').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'image'
+  const extension = parsedName.ext || getExtensionForMimeType(mimeType) || '.png'
+  return `${safeBaseName}${extension.toLowerCase()}`
+}
+
+async function getUniqueFilePath(directoryPath, fileName) {
+  const parsedName = path.parse(fileName)
+  let candidateIndex = 1
+  let candidatePath = path.join(directoryPath, fileName)
+
+  while (true) {
+    try {
+      await fsPromises.access(candidatePath, fs.constants.F_OK)
+      candidateIndex += 1
+      candidatePath = path.join(directoryPath, `${parsedName.name}-${candidateIndex}${parsedName.ext}`)
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ENOENT') {
+        return candidatePath
+      }
+
+      throw error
+    }
+  }
+}
+
+async function readDraftWorkspaceManifest(draftWorkspace) {
+  try {
+    const parsed = JSON.parse(await fsPromises.readFile(draftWorkspace.manifestPath, 'utf8'))
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') {
+      return null
+    }
+
+    throw error
+  }
+}
+
+async function writeDraftWorkspaceManifest(draftWorkspace, manifest) {
+  await fsPromises.mkdir(draftWorkspace.rootDir, { recursive: true })
+  await fsPromises.writeFile(draftWorkspace.manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+}
+
+async function appendDraftWorkspaceAssetRecord(draftWorkspace, assetRecord) {
+  const manifest = await readDraftWorkspaceManifest(draftWorkspace) || {
+    workspaceId: draftWorkspace.workspaceId,
+    kind: 'draft',
+    markdownFile: path.relative(draftWorkspace.rootDir, draftWorkspace.markdownFilePath),
+    assetDir: path.relative(draftWorkspace.rootDir, draftWorkspace.assetDir),
+    assets: [],
+  }
+
+  const assets = Array.isArray(manifest.assets) ? manifest.assets : []
+  assets.push(assetRecord)
+  manifest.assets = assets
+  await writeDraftWorkspaceManifest(draftWorkspace, manifest)
+}
+
+function buildWorkspaceAssetContext(payload = {}) {
+  const currentFilePath = normalizeRecoveryFilePath(payload.currentFilePath)
+
+  if (currentFilePath) {
+    return {
+      markdownFilePath: currentFilePath,
+      assetDir: path.join(path.dirname(currentFilePath), 'assets'),
+      draftWorkspace: null,
+    }
+  }
+
+  const draftWorkspace = normalizeDraftWorkspacePayload(payload.draftWorkspace)
+
+  if (!draftWorkspace) {
+    return null
+  }
+
+  return {
+    markdownFilePath: draftWorkspace.markdownFilePath,
+    assetDir: draftWorkspace.assetDir,
+    draftWorkspace,
+  }
+}
+
+async function importImageAsset(payload = {}) {
+  const workspaceContext = buildWorkspaceAssetContext(payload)
+
+  if (!workspaceContext) {
+    return null
+  }
+
+  const sourcePath = normalizeRecoveryFilePath(payload.sourcePath)
+  const mimeType = typeof payload.mimeType === 'string' ? payload.mimeType.trim().toLowerCase() : ''
+  const suggestedName = typeof payload.suggestedName === 'string' ? payload.suggestedName.trim() : ''
+  let content = null
+
+  if (sourcePath) {
+    if (!isInlineExportImagePath(sourcePath)) {
+      return null
+    }
+
+    content = await fsPromises.readFile(sourcePath)
+  } else if (typeof payload.bytesBase64 === 'string' && payload.bytesBase64.length > 0) {
+    if (!isImageMimeType(mimeType)) {
+      return null
+    }
+
+    content = Buffer.from(payload.bytesBase64, 'base64')
+  }
+
+  if (!content) {
+    return null
+  }
+
+  await fsPromises.mkdir(workspaceContext.assetDir, { recursive: true })
+  const fileName = sanitizeAssetFileName(suggestedName || (sourcePath ? path.basename(sourcePath) : ''), mimeType || (sourcePath ? getMimeTypeForFile(sourcePath) : ''))
+  const targetPath = await getUniqueFilePath(workspaceContext.assetDir, fileName)
+  await fsPromises.writeFile(targetPath, content)
+
+  const relativePath = ensurePosixRelativePath(path.relative(path.dirname(workspaceContext.markdownFilePath), targetPath))
+
+  if (workspaceContext.draftWorkspace) {
+    const stat = await fsPromises.stat(targetPath)
+    await appendDraftWorkspaceAssetRecord(workspaceContext.draftWorkspace, {
+      assetId: `ast_${randomUUID()}`,
+      relativePath,
+      mimeType: mimeType || getMimeTypeForFile(targetPath),
+      byteSize: Number(stat.size) || content.length,
+      createdBy: payload.createdBy === 'drop' ? 'drop' : 'paste',
+    })
+  }
+
+  return {
+    filePath: targetPath,
+    relativePath,
+    markdownFilePath: workspaceContext.markdownFilePath,
+    draftWorkspace: workspaceContext.draftWorkspace,
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function rewriteMarkdownAssetPath(markdown, currentRelativePath, nextRelativePath) {
+  if (currentRelativePath === nextRelativePath) {
+    return markdown
+  }
+
+  const expression = new RegExp(`(\\!?(?:\\[[^\\]]*\\])\\()${escapeRegExp(currentRelativePath)}(?=[)#?])`, 'g')
+  return markdown.replace(expression, `$1${nextRelativePath}`)
+}
+
+function collectReferencedDraftAssetPaths(markdown) {
+  const assetPaths = new Set()
+  const expression = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+  let match = expression.exec(markdown)
+
+  while (match) {
+    const candidate = typeof match[1] === 'string' ? match[1].trim() : ''
+
+    if (candidate.startsWith('assets/')) {
+      assetPaths.add(candidate)
+    }
+
+    match = expression.exec(markdown)
+  }
+
+  return [...assetPaths]
+}
+
+function collectReferencedRelativeAssetPaths(markdown) {
+  return new Set(collectReferencedDraftAssetPaths(markdown))
+}
+
+function collectDraftWorkspaceMaterializationPaths(manifest, markdown) {
+  const assetRelativePaths = new Set()
+
+  for (const relativePath of collectReferencedDraftAssetPaths(markdown)) {
+    assetRelativePaths.add(relativePath)
+  }
+
+  return assetRelativePaths
+}
+
+async function cleanupImportedAssetFiles(filePaths) {
+  for (const filePath of Array.isArray(filePaths) ? filePaths : []) {
+    if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+      continue
+    }
+
+    try {
+      await fsPromises.unlink(filePath)
+    } catch (error) {
+      if (!error || typeof error !== 'object' || error.code !== 'ENOENT') {
+        throw error
+      }
+    }
+  }
+}
+
+async function cleanupDraftWorkspace(payload = {}) {
+  const draftWorkspace = normalizeDraftWorkspacePayload(payload?.draftWorkspace)
+
+  if (!draftWorkspace) {
+    return
+  }
+
+  await fsPromises.rm(draftWorkspace.rootDir, { recursive: true, force: true })
+}
+
+async function resolveDraftWorkspaceForMaterialization(draftWorkspace, recoveryKey, markdown) {
+  const normalizedDraftWorkspace = normalizeDraftWorkspacePayload(draftWorkspace)
+  const recoveredEntry = getAutosaveRecoveryByRecoveryKey(recoveryKey)
+
+  if (recoveredEntry?.snapshot?.draftWorkspace) {
+    const recoveredDraftWorkspace = normalizeDraftWorkspacePayload(recoveredEntry.snapshot.draftWorkspace)
+
+    if (recoveredDraftWorkspace) {
+      const recoveredManifest = await readDraftWorkspaceManifest(recoveredDraftWorkspace)
+
+      if (collectDraftWorkspaceMaterializationPaths(recoveredManifest, markdown).size > 0) {
+        return recoveredDraftWorkspace
+      }
+    }
+  }
+
+  if (normalizedDraftWorkspace) {
+    const manifest = await readDraftWorkspaceManifest(normalizedDraftWorkspace)
+
+    if (collectDraftWorkspaceMaterializationPaths(manifest, markdown).size > 0) {
+      return normalizedDraftWorkspace
+    }
+  }
+
+  const latestRecovery = getLatestAutosaveRecovery()
+
+  if (!latestRecovery?.snapshot || latestRecovery.snapshot.markdownText !== markdown) {
+    return normalizedDraftWorkspace
+  }
+
+  const recoveredDraftWorkspace = normalizeDraftWorkspacePayload(latestRecovery.snapshot.draftWorkspace)
+
+  if (!recoveredDraftWorkspace) {
+    return normalizedDraftWorkspace
+  }
+
+  const recoveredManifest = await readDraftWorkspaceManifest(recoveredDraftWorkspace)
+
+  if (collectDraftWorkspaceMaterializationPaths(recoveredManifest, markdown).size === 0) {
+    return normalizedDraftWorkspace
+  }
+
+  return recoveredDraftWorkspace
+}
+
+async function materializeDraftWorkspaceAssets(draftWorkspace, targetMarkdownPath, markdown, recoveryKey = null) {
+  const normalizedDraftWorkspace = await resolveDraftWorkspaceForMaterialization(
+    draftWorkspace,
+    recoveryKey,
+    markdown,
+  )
+
+  if (!normalizedDraftWorkspace) {
+    return markdown
+  }
+
+  const manifest = await readDraftWorkspaceManifest(normalizedDraftWorkspace)
+  const assetRelativePaths = collectDraftWorkspaceMaterializationPaths(manifest, markdown)
+
+  if (assetRelativePaths.size === 0) {
+    return markdown
+  }
+
+  const targetAssetDir = path.join(path.dirname(targetMarkdownPath), 'assets')
+  await fsPromises.mkdir(targetAssetDir, { recursive: true })
+  let nextMarkdown = markdown
+
+  for (const relativePath of assetRelativePaths) {
+    const sourceAssetPath = path.resolve(normalizedDraftWorkspace.rootDir, relativePath)
+
+    try {
+      await fsPromises.access(sourceAssetPath, fs.constants.F_OK)
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'ENOENT') {
+        continue
+      }
+
+      throw error
+    }
+
+    const targetAssetPath = await getUniqueFilePath(targetAssetDir, path.basename(relativePath))
+    await fsPromises.copyFile(sourceAssetPath, targetAssetPath)
+    const nextRelativePath = ensurePosixRelativePath(path.relative(path.dirname(targetMarkdownPath), targetAssetPath))
+    nextMarkdown = rewriteMarkdownAssetPath(nextMarkdown, relativePath, nextRelativePath)
+  }
+
+  return nextMarkdown
+}
+
+async function materializePendingImportedAssets(pendingImportedAssets, currentMarkdownPath, targetMarkdownPath, markdown) {
+  const assets = Array.isArray(pendingImportedAssets)
+    ? pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+    : []
+
+  if (assets.length === 0 || !currentMarkdownPath || currentMarkdownPath === targetMarkdownPath) {
+    return markdown
+  }
+
+  const referencedAssetPaths = collectReferencedRelativeAssetPaths(markdown)
+
+  if (referencedAssetPaths.size === 0) {
+    return markdown
+  }
+
+  const targetAssetDir = path.join(path.dirname(targetMarkdownPath), 'assets')
+  await fsPromises.mkdir(targetAssetDir, { recursive: true })
+  let nextMarkdown = markdown
+
+  for (const asset of assets) {
+    if (!referencedAssetPaths.has(asset.relativePath)) {
+      continue
+    }
+
+    const targetAssetPath = await getUniqueFilePath(targetAssetDir, path.basename(asset.relativePath))
+    await fsPromises.copyFile(asset.filePath, targetAssetPath)
+    const nextRelativePath = ensurePosixRelativePath(path.relative(path.dirname(targetMarkdownPath), targetAssetPath))
+    nextMarkdown = rewriteMarkdownAssetPath(nextMarkdown, asset.relativePath, nextRelativePath)
+  }
+
+  return nextMarkdown
 }
 
 function getInlineTokenBudget() {
@@ -2497,7 +3217,7 @@ function focusWindow(window) {
 
 async function confirmAiWriteAction(parentWindow, options) {
   const messages = getMainI18n()
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'warning',
     buttons: [messages.buttons.continue, messages.buttons.cancel],
     defaultId: 1,
@@ -3887,7 +4607,7 @@ function buildPendingFetchAclDetailLines(messages, decision) {
 
 async function promptPendingFetchAclDecision(parentWindow, requestHeaders, decision) {
   const messages = getMainI18n().fetchAclPrompt
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'question',
     buttons: [messages.allow, messages.deny, messages.runOnce, messages.skipOnce],
     defaultId: 2,
@@ -4644,7 +5364,7 @@ function mapAiChatMessageToOpenAiInput(message) {
   }
 }
 
-async function requestOpenAiChatResponse(editorWindow, messages) {
+async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) {
   const input = buildOpenAiChatInput(editorWindow, messages)
 
   if (input.length === 0) {
@@ -4664,7 +5384,10 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         previousResponseId,
         inputCount: nextInput.length,
       })
-      const response = await client.responses.create({
+      let streamedTextSnapshot = ''
+      let streamedTextDone = ''
+
+      const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
         input: nextInput,
@@ -4673,22 +5396,75 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         store: true,
       })
 
+      responseStream.on('response.output_text.delta', (event) => {
+        if (typeof event.delta !== 'string' || event.delta.length === 0) {
+          return
+        }
+
+        streamedTextSnapshot = typeof event.snapshot === 'string' && event.snapshot.length > 0
+          ? event.snapshot
+          : `${streamedTextSnapshot}${event.delta}`
+
+        onStreamEvent?.({
+          type: 'text-delta',
+          delta: event.delta,
+        })
+      })
+
+      responseStream.on('response.output_text.done', (event) => {
+        if (typeof event.text !== 'string' || event.text.length === 0) {
+          return
+        }
+
+        streamedTextDone = event.text
+      })
+
+      const response = await responseStream.finalResponse()
+
       previousResponseId = typeof response.id === 'string' ? response.id : null
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
+      const outputItemTypes = outputItems.map((item) => item?.type || 'unknown')
+      const finalOutputText = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+      const doneReply = streamedTextDone.trim()
+      const streamedReply = streamedTextSnapshot.trim()
+
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration received', {
         iteration,
         responseId: previousResponseId,
         functionCallCount: functionCalls.length,
         outputItemCount: outputItems.length,
+        outputItemTypes,
+        streamedTextLength: streamedTextSnapshot.length,
+        streamedDoneTextLength: streamedTextDone.length,
+        finalOutputTextLength: finalOutputText.length,
       })
 
       if (functionCalls.length === 0) {
-        const reply = typeof response.output_text === 'string' ? response.output_text.trim() : ''
+        if (!finalOutputText && doneReply) {
+          writeLog('WARN', 'ai-chat', 'OpenAI final response dropped output_text; using output_text.done', {
+            iteration,
+            responseId: previousResponseId,
+            outputItemTypes,
+            streamedDoneTextLength: streamedTextDone.length,
+            streamedTextLength: streamedTextSnapshot.length,
+          })
+        }
+
+        if (!finalOutputText && !doneReply && streamedReply) {
+          writeLog('WARN', 'ai-chat', 'OpenAI stream missed output_text.done; using delta snapshot', {
+            iteration,
+            responseId: previousResponseId,
+            outputItemTypes,
+            streamedTextLength: streamedTextSnapshot.length,
+          })
+        }
+
+        const reply = finalOutputText || doneReply || streamedReply
 
         if (!reply) {
-          throw new Error('OpenAI SDK returned no output_text')
+          throw new Error(`OpenAI SDK returned no final text (output item types: ${outputItemTypes.join(', ') || 'none'})`)
         }
 
         return {
@@ -4731,6 +5507,11 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
           title: `${functionCall.name} call`,
           content: formatToolEventContent(args),
         })
+        onStreamEvent?.({
+          type: 'tool-event',
+          title: `${functionCall.name} call`,
+          content: formatToolEventContent(args),
+        })
 
         if (!result) {
           try {
@@ -4749,6 +5530,11 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
         })
 
         toolEvents.push({
+          title: `${functionCall.name} result`,
+          content: formatToolEventContent(result),
+        })
+        onStreamEvent?.({
+          type: 'tool-event',
           title: `${functionCall.name} result`,
           content: formatToolEventContent(result),
         })
@@ -4773,6 +5559,20 @@ async function requestOpenAiChatResponse(editorWindow, messages) {
 
     throw error
   }
+}
+
+function emitAiChatStreamEvent(targetWindow, payload) {
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return
+  }
+
+  const targetContents = targetWindow.webContents
+
+  if (!targetContents || targetContents.isDestroyed()) {
+    return
+  }
+
+  targetContents.send('mdv:ai-chat-stream-event', payload)
 }
 
 function broadcastSettingsChanged() {
@@ -4804,12 +5604,8 @@ function isFetchPermissionsWindow(window) {
   return Boolean(fetchPermissionsWindow) && Boolean(window) && fetchPermissionsWindow.id === window.id
 }
 
-function isAiChatWindow(window) {
-  return Boolean(window) && aiChatToEditorWindowId.has(window.id)
-}
-
 function isEditorWindow(window) {
-  return Boolean(window) && !isAiChatWindow(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
+  return Boolean(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
 }
 
 function getDefaultEditorWindow() {
@@ -4819,11 +5615,6 @@ function getDefaultEditorWindow() {
 function getEditorWindowForAiAction(candidateWindow) {
   if (!candidateWindow) {
     return getDefaultEditorWindow()
-  }
-
-  if (aiChatToEditorWindowId.has(candidateWindow.id)) {
-    const ownerWindowId = aiChatToEditorWindowId.get(candidateWindow.id)
-    return BrowserWindow.fromId(ownerWindowId) ?? null
   }
 
   if (isSettingsWindow(candidateWindow)) {
@@ -4850,12 +5641,6 @@ function getEditorWindowForAiAction(candidateWindow) {
 
   return candidateWindow
 }
-
-function getAiChatWindowForEditorWindow(editorWindow) {
-  const chatWindowId = editorToAiChatWindowId.get(editorWindow.id)
-  return chatWindowId ? BrowserWindow.fromId(chatWindowId) : null
-}
-
 function requestEditorWindowData(editorWindow, request) {
   if (!editorWindow || editorWindow.isDestroyed()) {
     return Promise.reject(new Error('Editor window is unavailable'))
@@ -5210,41 +5995,9 @@ function openAiChatWindow(targetWindow) {
     return { status: 'focused' }
   }
 
-  const existingChatWindow = getAiChatWindowForEditorWindow(editorWindow)
-
-  if (existingChatWindow && !existingChatWindow.isDestroyed()) {
-    focusWindow(existingChatWindow)
-    return { status: 'focused' }
-  }
-
-  const chatWindow = new BrowserWindow({
-    width: 520,
-    height: 760,
-    minWidth: 420,
-    minHeight: 540,
-    backgroundColor: '#fffaf4',
-    autoHideMenuBar: true,
-    icon: windowIcon,
-    parent: editorWindow,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-
-  editorToAiChatWindowId.set(editorWindow.id, chatWindow.id)
-  aiChatToEditorWindowId.set(chatWindow.id, editorWindow.id)
-
-  chatWindow.on('closed', () => {
-    aiChatToEditorWindowId.delete(chatWindow.id)
-    editorToAiChatWindowId.delete(editorWindow.id)
-    clearSessionBuffersForWindow(editorWindow.id)
-  })
-
-  loadRendererWindow(chatWindow, 'chat.html')
-  focusWindow(chatWindow)
-  writeLog('INFO', 'ai-chat', 'BrowserWindow created', { editorWindowId: editorWindow.id, chatWindowId: chatWindow.id })
+  focusWindow(editorWindow)
+  editorWindow.webContents.send('mdv:menu-action', 'open-ai-chat')
+  writeLog('INFO', 'ai-chat', 'Assistant dock requested', { editorWindowId: editorWindow.id })
 
   return { status: 'opened' }
 }
@@ -5426,7 +6179,7 @@ function registerAllowedLinkRule(rule) {
 async function confirmExternalNavigation(parentWindow, targetUrl) {
   const messages = getMainI18n()
   const suggestedRule = createAllowedLinkRule(targetUrl)
-  const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+  const response = await showMessageBox(parentWindow, {
     type: 'warning',
     buttons: [messages.externalLink.allowAndRemember, messages.externalLink.openOnce, messages.buttons.cancel],
     defaultId: 1,
@@ -5502,7 +6255,7 @@ async function saveContentToPath(parentWindow, payload) {
 
   if (!targetPath || forceDialog) {
     const messages = getMainI18n()
-    const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+    const result = await showSaveDialog(parentWindow, {
       defaultPath: currentPath || defaultFileName,
       filters: [
         { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -5526,7 +6279,7 @@ async function saveContentToPath(parentWindow, payload) {
 
   if (shouldPromptConflict) {
     const messages = getMainI18n()
-    const response = await dialog.showMessageBox(parentWindow ?? undefined, {
+    const response = await showMessageBox(parentWindow, {
       type: 'warning',
       buttons: [messages.buttons.overwriteSave, messages.buttons.saveAs, messages.buttons.mergeSave, messages.buttons.cancel],
       defaultId: 3,
@@ -5542,7 +6295,7 @@ async function saveContentToPath(parentWindow, payload) {
     }
 
     if (response.response === 1) {
-      const saveAsResult = await dialog.showSaveDialog(parentWindow ?? undefined, {
+      const saveAsResult = await showSaveDialog(parentWindow, {
         defaultPath: defaultFileName,
         filters: [
           { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -5578,7 +6331,7 @@ async function saveContentToPath(parentWindow, payload) {
         nextContent = mergedContent
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        await dialog.showMessageBox(parentWindow ?? undefined, {
+        await showMessageBox(parentWindow, {
           type: 'error',
           buttons: [messages.buttons.close],
           defaultId: 0,
@@ -5594,6 +6347,14 @@ async function saveContentToPath(parentWindow, payload) {
         }
       }
     }
+  }
+
+  if (!currentPath && (payload?.draftWorkspace || payload?.recoveryKey)) {
+    nextContent = await materializeDraftWorkspaceAssets(payload.draftWorkspace, targetPath, nextContent, payload?.recoveryKey)
+  }
+
+  if (currentPath && targetPath !== currentPath && payload?.pendingImportedAssets) {
+    nextContent = await materializePendingImportedAssets(payload.pendingImportedAssets, currentPath, targetPath, nextContent)
   }
 
   await fsPromises.writeFile(targetPath, nextContent, 'utf8')
@@ -5614,7 +6375,7 @@ async function saveHtmlExportToPath(parentWindow, payload) {
     ? payload.defaultFileName.trim()
     : 'document.html'
   const messages = getMainI18n()
-  const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+  const result = await showSaveDialog(parentWindow, {
     defaultPath: defaultFileName,
     filters: [
       { name: messages.fileDialog.htmlFilter, extensions: ['html', 'htm'] },
@@ -5648,7 +6409,7 @@ async function showUnsavedChangesDialog(window, payload) {
     `${messages.unsaved.file}: ${currentFilePath || displayTitle}`,
     messages.unsaved.hasUnsavedChanges,
   ]
-  const response = await dialog.showMessageBox(window ?? undefined, {
+  const response = await showMessageBox(window, {
     type: 'warning',
     buttons: [messages.buttons.save, messages.buttons.cancel, proceedLabel],
     defaultId: 0,
@@ -5672,7 +6433,7 @@ async function showUnsavedChangesDialog(window, payload) {
 
 async function showUnresponsiveCloseDialog(window) {
   const messages = getMainI18n()
-  const response = await dialog.showMessageBox(window ?? undefined, {
+  const response = await showMessageBox(window, {
     type: 'warning',
     buttons: [messages.buttons.cancel, messages.buttons.close],
     defaultId: 0,
@@ -5693,13 +6454,6 @@ async function requestEditorCloseState(editorWindow) {
 }
 
 function closeAuxiliaryWindowsForEditor(editorWindow) {
-  const chatWindow = getAiChatWindowForEditorWindow(editorWindow)
-
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    approvedWindowCloseIds.add(chatWindow.id)
-    chatWindow.close()
-  }
-
   if (settingsWindowOwnerEditorId === editorWindow.id && settingsWindow && !settingsWindow.isDestroyed()) {
     approvedWindowCloseIds.add(settingsWindow.id)
     settingsWindow.close()
@@ -5744,6 +6498,7 @@ async function confirmEditorWindowClose(window) {
   }
 
   if (!closeState?.isDirty) {
+    await cleanupDraftWorkspace({ draftWorkspace: closeState?.snapshot?.draftWorkspace || null })
     closeAuxiliaryWindowsForEditor(window)
     approveAndCloseWindow(window)
     return
@@ -5754,6 +6509,7 @@ async function confirmEditorWindowClose(window) {
     markdownText: '',
     persistedMarkdown: '',
     currentFilePath: null,
+    pendingImportedAssets: [],
     displayTitle: messages.untitledTitle,
     activePanel: 'write',
   }
@@ -5771,14 +6527,48 @@ async function confirmEditorWindowClose(window) {
     const saveResult = await saveContentToPath(window, {
       path: snapshot.currentFilePath,
       content: snapshot.markdownText,
+      recoveryKey: snapshot.recoveryKey || null,
       defaultFileName: snapshot.displayTitle || messages.untitledTitle,
       expectedSnapshot: snapshot.fileSnapshot || null,
       baseContent: snapshot.persistedMarkdown,
+      draftWorkspace: snapshot.draftWorkspace || null,
+      pendingImportedAssets: snapshot.pendingImportedAssets || [],
     })
 
     if (!saveResult || saveResult.status !== 'saved') {
       return
     }
+
+    const referencedAssetPaths = new Set(collectReferencedDraftAssetPaths(saveResult.content))
+    await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || [])
+      .filter((asset) => typeof asset?.relativePath === 'string' && !referencedAssetPaths.has(asset.relativePath))
+      .map((asset) => asset.filePath))
+
+    if (snapshot.currentFilePath && saveResult.path !== snapshot.currentFilePath) {
+      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
+    }
+
+    if (!snapshot.currentFilePath && snapshot.draftWorkspace) {
+      await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace })
+    }
+
+    clearAutosaveRecovery({
+      recoveryKey: snapshot.recoveryKey || null,
+      filePath: snapshot.currentFilePath || null,
+    })
+
+    if (saveResult.path && saveResult.path !== snapshot.currentFilePath) {
+      clearAutosaveRecovery({ filePath: saveResult.path })
+    }
+  }
+
+  if (response.action === 'discard') {
+    await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
+    await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace || null })
+    clearAutosaveRecovery({
+      recoveryKey: snapshot.recoveryKey || null,
+      filePath: snapshot.currentFilePath || null,
+    })
   }
 
   closeAuxiliaryWindowsForEditor(window)
@@ -6146,6 +6936,7 @@ async function createWindow(initialLaunchRequest = null) {
   })
 
   launchStateByWindowId.set(mainWindow.id, {
+    filePath: initialLaunchRequest?.filePath || null,
     initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
   })
 
@@ -6242,7 +7033,7 @@ if (!hasSingleInstanceLock) {
 ipcMain.handle('mdv:open-file', async () => {
   const window = BrowserWindow.getFocusedWindow()
   const messages = getMainI18n()
-  const result = await dialog.showOpenDialog(window ?? undefined, {
+  const result = await showOpenDialog(window, {
     properties: ['openFile'],
     filters: [
       { name: messages.fileDialog.markdownFilter, extensions: ['md', 'markdown', 'txt'] },
@@ -6268,6 +7059,29 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
 })
+
+ipcMain.handle('mdv:autosave-recovery-upsert', async (_event, payload) => {
+  const snapshot = payload?.snapshot
+
+  if (!snapshot || typeof snapshot !== 'object') {
+    writeLog('WARN', 'ipc', 'autosave-recovery-upsert received invalid payload')
+    return null
+  }
+
+  writeLog('INFO', 'ipc', 'autosave-recovery-upsert', {
+    currentFilePath: snapshot.currentFilePath || null,
+    displayTitle: snapshot.displayTitle || null,
+  })
+  return upsertAutosaveRecovery(snapshot)
+})
+
+ipcMain.handle('mdv:autosave-recovery-clear', async (_event, payload) => {
+  clearAutosaveRecovery(payload)
+})
+
+ipcMain.handle('mdv:autosave-recovery-latest', async () => getLatestAutosaveRecovery())
+
+ipcMain.handle('mdv:autosave-recovery-for-file', async (_event, filePath) => getAutosaveRecoveryForFile(filePath))
 
 ipcMain.handle('mdv:mdast-get-capabilities', async () => {
   writeLog('INFO', 'ipc', 'mdast-get-capabilities')
@@ -6329,11 +7143,6 @@ ipcMain.handle('mdv:export-html', async (event, payload) => {
   return saveHtmlExportToPath(window ?? undefined, payload)
 })
 
-ipcMain.handle('mdv:open-ai-chat', async (event) => {
-  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-  return openAiChatWindow(sourceWindow)
-})
-
 ipcMain.handle('mdv:open-settings-window', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   return openSettingsWindow(sourceWindow)
@@ -6352,6 +7161,7 @@ ipcMain.on('mdv:settings-bootstrap', (event) => {
     settings: settingsState,
     hasPersistedSettings,
     hasReadableSettings,
+    hasInitialLaunchRequest: Boolean(launchState?.filePath),
     initialPanel: launchState?.initialPanel === 'write' ? 'write' : 'preview',
   }
 })
@@ -6547,24 +7357,56 @@ ipcMain.handle('mdv:ai-chat-list-buffers', async (event) => {
 ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
   const sourceWindow = BrowserWindow.fromWebContents(_event.sender)
   const editorWindow = getEditorWindowForAiAction(sourceWindow)
+  const requestId = typeof payload?.requestId === 'string' && payload.requestId.trim().length > 0
+    ? payload.requestId.trim()
+    : randomUUID()
+
   writeLog('INFO', 'ai-chat', 'OpenAI chat request start', {
+    requestId,
     messageCount: Array.isArray(payload?.messages) ? payload.messages.length : 0,
     model: settingsState.ai.openai.model,
   })
 
-  try {
-    const result = await requestOpenAiChatResponse(editorWindow, payload?.messages)
-    writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
-      responseId: result.responseId,
-      model: result.model,
-    })
-    return result
-  } catch (error) {
-    writeLog('ERROR', 'ai-chat', 'OpenAI chat request failed', {
-      model: settingsState.ai.openai.model,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    throw error
+  void (async () => {
+    try {
+      const result = await requestOpenAiChatResponse(editorWindow, payload?.messages, (event) => {
+        emitAiChatStreamEvent(sourceWindow, {
+          requestId,
+          ...event,
+        })
+      })
+
+      writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
+        requestId,
+        responseId: result.responseId,
+        model: result.model,
+      })
+
+      emitAiChatStreamEvent(sourceWindow, {
+        requestId,
+        type: 'completed',
+        reply: result.reply,
+        model: result.model,
+        responseId: result.responseId,
+      })
+    } catch (error) {
+      writeLog('ERROR', 'ai-chat', 'OpenAI chat request failed', {
+        requestId,
+        model: settingsState.ai.openai.model,
+        error: error instanceof Error ? error.message : String(error),
+      })
+
+      emitAiChatStreamEvent(sourceWindow, {
+        requestId,
+        type: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  })()
+
+  return {
+    status: 'started',
+    requestId,
   }
 })
 
@@ -6576,6 +7418,36 @@ ipcMain.handle('mdv:open-external-link', async (event, href) => {
 
   const parentWindow = BrowserWindow.fromWebContents(event.sender)
   return openExternalLink(parentWindow, href)
+})
+
+ipcMain.handle('mdv:ensure-draft-workspace', async (_event, payload) => {
+  const workspace = await ensureDraftWorkspace(payload)
+  writeLog('INFO', 'ipc', 'ensure-draft-workspace', { workspaceId: workspace.workspaceId, rootDir: workspace.rootDir })
+  return workspace
+})
+
+ipcMain.handle('mdv:import-image-asset', async (_event, payload) => {
+  const result = await importImageAsset(payload)
+
+  if (result) {
+    writeLog('INFO', 'ipc', 'import-image-asset', {
+      filePath: result.filePath,
+      relativePath: result.relativePath,
+      markdownFilePath: result.markdownFilePath,
+    })
+  } else {
+    writeLog('WARN', 'ipc', 'import-image-asset returned null')
+  }
+
+  return result
+})
+
+ipcMain.handle('mdv:cleanup-imported-assets', async (_event, payload) => {
+  await cleanupImportedAssetFiles(payload?.filePaths)
+})
+
+ipcMain.handle('mdv:cleanup-draft-workspace', async (_event, payload) => {
+  await cleanupDraftWorkspace(payload)
 })
 
 ipcMain.handle('mdv:save-file', async (_event, payload) => {
@@ -6699,6 +7571,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   writeLog('INFO', 'main', 'window-all-closed')
+  flushAutosaveRecoveryStoreSync()
   if (commandPollTimer) {
     clearInterval(commandPollTimer)
     commandPollTimer = null

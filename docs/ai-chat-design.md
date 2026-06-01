@@ -2,9 +2,9 @@
 
 ## Summary
 
-この文書は、MDV に AI チャットウィンドウと editor 操作ツールを追加するための設計を定義する。
+この文書は、MDV に AI assistant surface と editor 操作ツールを追加するための設計を定義する。
 
-長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。
+長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。editor、memory、chat history を同じ参照面に載せる拡張案は [docs/ai-resource-target-unification-proposal.md](docs/ai-resource-target-unification-proposal.md) に分離する。
 
 subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md](docs/ai-subagent-tools-design.md) を参照する。
 
@@ -14,7 +14,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 注記:
 
-- 現在の実装は chat window / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
+- 現在の実装は editor window 右 dock の assistant surface / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
 - 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
@@ -22,8 +22,8 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 ## Target Goals
 
-- Ctrl+I またはメニューから AI チャットウィンドウを開けること
-- チャットウィンドウは上部に Markdown 対応チャットバブル、下部に固定入力欄を持つこと
+- Ctrl+I またはメニューから AI assistant dock を開けること
+- assistant surface は上部に Markdown 対応チャットバブル、下部に固定入力欄を持つこと
 - AI が editor 文脈を read できること
 - AI が editor 文脈を書き換えられること
 - AI が新規 editor window に文書を書き出せること
@@ -34,15 +34,15 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 ## Current Scaffold Scope
 
-- Ctrl+I またはメニューから AI チャットウィンドウを開けること
-- chat window は上部に transcript、下部に固定入力欄を持つこと
+- Ctrl+I またはメニューから AI assistant dock を開けること
+- assistant surface は上部に transcript、下部に固定入力欄を持つこと
 - Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
 - latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
-- chat / editor の両 window と Ctrl+, から settings window を開けること
+- editor window から Ctrl+, で settings window を開けること
 - fetch ACL / timeout は dedicated auxiliary window から編集できること
 - AI 応答バブルは Markdown を描画できること
 
@@ -81,9 +81,9 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - 選択範囲または全文への書き込み
 - main process からの AI tool request への応答
 
-### 2. Chat Window
+### 2. Assistant Surface
 
-新規の AI 専用 window。
+editor window に統合された AI 専用 dock。
 
 責務:
 
@@ -100,10 +100,10 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 責務:
 
 - OpenAI API 呼び出し
-- chat session 管理
+- assistant session 管理
 - tool schema 定義
 - tool call 実行調停
-- chat window と editor window の紐付け
+- assistant session と editor window の紐付け
 - 実行中状態管理
 - エラー処理
 
@@ -111,7 +111,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 AI が使う操作面。
 
-最終的な tool surface:
+現行実装と後続設計を合わせた tool surface 全体像:
 
 - get_tool_help
 - get_context
@@ -123,6 +123,10 @@ AI が使う操作面。
 - semantic_search
 - web_search
 - fetch_url
+- list_assets
+- read_asset_metadata
+- copy_asset
+- rename_asset
 - dispose_buffer
 - save_context_item
 - list_context_items
@@ -130,18 +134,25 @@ AI が使う操作面。
 - merge_context_items
 - delete_context_item
 
+注記:
+
+- 現行で実装済みの contract は文書冒頭の Summary と Current Scaffold Scope を正とする
+- この節より下に出てくる `grep_slice` / `nl` / `cut` / `sort` / `stats` は旧分解を含む後続候補であり、現行 shipped tool 名ではない
+- asset は editor text と異なる file semantics を持つため、`read` / `write` に雑に混ぜず、read 系参照と mutation 系 tool を分ける
+- local asset の詳細方針は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を参照する
+
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 
 - get_context
 - read active:document
 - read active:selection
 
-## Why Separate Chat Window
+## Why Default Dock
 
-- editor UI と AI UI の責務が異なる
-- 検索結果やツールログでチャット UI が肥大化しやすい
-- 将来、複数 editor window に対して個別または共有 session を紐付けやすい
-- API キーやツール実行状態を main process 側に隔離しやすい
+- editor と assistant の往復コストを減らせる
+- outline、editor、preview、assistant を同じ workspace で扱える
+- context 添付と編集結果の適用を一続きの導線にできる
+- API キーやツール実行状態の main process 隔離は、dock 化しても維持できる
 
 ## User Experience
 
@@ -151,13 +162,15 @@ AI が使う操作面。
 - メニューの AI Chat
 - Ctrl+, から settings window を開ける
 
-### Window Behavior
+### Surface Behavior
 
-- 現在 active な editor window に紐づく chat window を開く
-- 既存の chat window が対象 editor に対して存在する場合は再利用して前面化する
-- chat window header には AI Chat と実行状態を表示し、対象情報は必要時に tool result として transcript へ積む
+- 現在 active な editor window の assistant dock を開く
+- Ctrl+I やメニューは dock を前面状態にし、入力欄へ focus を送る
+- assistant header には AI Chat と実行状態を表示し、対象情報は必要時に tool result として transcript へ積む
+- dock を閉じても会話状態と temp buffer は editor window が閉じるまで保持し、再度開くと同じ session を継続する
+- ただし managed suspend/resume や renderer 再生成をまたぐ永続化は現時点では行わず、その場合の assistant session は再初期化される
 
-### Chat Layout
+### Assistant Layout
 
 - 上部はスクロール可能なメッセージ一覧
 - 下部は固定の複数行入力欄
@@ -531,7 +544,7 @@ type WriteSource =
 - 実行前に main process がすべての `slice-ref` を bounded に resolve し、必要なら追加 `read` を促す
 - source が大きすぎるときは失敗ではなく validation error として返し、model に再取得方針を促す
 
-### grep_slice
+### Historical Candidate: grep_slice
 
 ステータス:
 
@@ -582,7 +595,7 @@ type WriteSource =
 - workspace 全体検索は別 tool に分けてもよいが、editor slice 検索と混ぜると token 制御しやすい
 - 結果全文が長い場合は `bufferId` を発行し、後続の `read` や `sort` に渡せるようにする
 
-### nl
+### Historical Candidate: nl
 
 ステータス:
 
@@ -605,21 +618,21 @@ type WriteSource =
 }
 ```
 
-### cut
+### Historical Candidate: cut
 
 用途:
 
 - 指定列、区切り、行範囲で slice を簡易加工する
 - model が全文を再解釈せず必要列だけ抜く
 
-### sort
+### Historical Candidate: sort
 
 用途:
 
 - 行単位で簡易ソート、unique、件数確認を行う
 - ログや箇条書きの重複整理に使う
 
-### stats
+### Historical Candidate: stats
 
 用途:
 
@@ -856,29 +869,33 @@ main process から editor window へ要求する操作:
 - readTarget
 - writeTarget
 
-### Chat Window Bridge
+### Assistant Surface Bridge
 
-chat window から main process へ送る操作:
+assistant surface から main process へ送る操作:
 
 - sendChatMessage
-- cancelChatRequest
 
-main process から chat window へ送るイベント:
+main process から assistant surface へ送るイベント:
 
-- chat-event
-- chat-status
+- ai-chat-stream-event
+
+注記:
+
+- 現行実装の `sendChatMessage` は `requestId` 付き dispatch ack を返した後に `ai-chat-stream-event` で text delta / tool event / completed / failed を段階配送する
+- これにより、assistant bubble 単位の先行生成、text chunk 単位の追記、tool event の途中表示を既存 Electron IPC 上で扱う
+- `cancelChatRequest` は現時点では未実装であり、上記 stream 契約に対する将来拡張として扱う
 
 ### Event Flow
 
 1. editor window で Ctrl+I またはメニューから AI Chat を開く
 2. main process が対象 editor window を解決する
-3. main process が chat window を生成または再利用する
-4. chat window がユーザ入力を送信する
+3. main process が editor window 内の assistant dock を開く
+4. assistant surface がユーザ入力を送信する
 5. main process が OpenAI へ問い合わせる
 6. tool call が要求されたら main process が tool を実行する
 7. editor tool の場合は editor window へ IPC を送る
 8. 結果を OpenAI へ返し最終応答を得る
-9. chat window に assistant message と tool log を流す
+9. assistant surface に assistant message と tool log を流す
 
 補足:
 
@@ -976,41 +993,46 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 ### Phase 1
 
 - Ctrl+I とメニュー追加
-- chat window 作成
+- assistant dock 作成
 - chat UI 作成
 - Markdown ChatBubble
 - OpenAI 接続
 - ツールなし会話
 
-### Phase 2
+注記:
+
+- 次の phase 分解は separate chat window 初期案から積み上げた履歴であり、現行の優先順位そのものではない
+- 現在の着手順は [docs/current-backlog.md](docs/current-backlog.md) を正とする
+
+### Historical Phase 2
 
 - get_context
 - EditorID 採番
 - pending attachment UI
 - inline vs hint の transport policy
 
-### Phase 3
+### Historical Phase 3
 
 - read target
 - write target
 - temp buffer registry
 - basic tool log UI
 
-### Phase 4
+### Historical Phase 4
 
 - grep_slice
 - nl / cut / sort
 - write destination=":new"
 - 新規 editor window 作成
 
-### Phase 5
+### Historical Phase 5
 
 - workspace grep
 - Tavily web_search
 - list_buffers
 - suggest mode の土台
 
-### Phase 6
+### Historical Phase 6
 
 - rolling short context
 - base summary
@@ -1019,7 +1041,7 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - first slice keeps the latest chat turn verbatim when it fits, compresses older turns into a bounded summary, and drops protected context behind the latest turn when total input budget is tight
 - protected context tools: save_context_item, list_context_items, update_context_item, merge_context_items, delete_context_item
 
-### Phase 7
+### Historical Phase 7
 
 - topic memory and base summary expansion
 - impression memory store
@@ -1029,7 +1051,7 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 - resonance retrieval
 - system-level memory rotation
 
-### Phase 8
+### Historical Phase 8
 
 - agent runtime abstraction
 - root agent と subagent の分離
@@ -1040,20 +1062,20 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 ## Recommended File Layout
 
 - electron/main.cjs
-  AI orchestrator、chat window、menu action、IPC routing
+  AI orchestrator、assistant dock routing、menu action、IPC routing
 - electron/preload.cjs
-  editor/chat 用 bridge 拡張
+  editor/assistant 用 bridge 拡張
 - src/App.tsx
   editor side tool response、Ctrl+I、menu action 受信
 - src/ai-chat/*
-  chat window renderer、bubble、composer、session UI
+  assistant surface renderer、bubble、composer、session UI
 - src/markdown/* optional
   chat bubble と preview の共通 Markdown renderer 抽出先
 
 ## Acceptance Criteria For Design
 
 - API キーが renderer に公開されない
-- chat window が独立して開ける
+- assistant dock が editor window 内で開ける
 - chat bubble が Markdown を描画できる
 - tool API が EditorID + SPAN で read/write/slice-ops/new editor を自然に表現できる
 - 小さい文脈は inline、大きい文脈は hint + read で運べる

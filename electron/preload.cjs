@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 const pendingOpenFileRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
+const aiChatStreamListeners = new Set()
 const windowCloseApprovedListeners = new Set()
 const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
@@ -22,6 +23,12 @@ ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
 ipcRenderer.on('mdv:ai-editor-request', (_event, request) => {
   for (const listener of aiEditorRequestListeners) {
     listener(request)
+  }
+})
+
+ipcRenderer.on('mdv:ai-chat-stream-event', (_event, payload) => {
+  for (const listener of aiChatStreamListeners) {
+    listener(payload)
   }
 })
 
@@ -45,17 +52,31 @@ ipcRenderer.on('mdv:current-file-changed', (_event, payload) => {
 
 contextBridge.exposeInMainWorld('mdvDesktop', {
   platform: process.platform,
+  e2e: {
+    recoveryPromptMode: process.env.MDV_E2E_AUTO_ACCEPT_RECOVERY === '1'
+      ? 'accept'
+      : process.env.MDV_E2E_AUTO_DECLINE_RECOVERY === '1'
+        ? 'decline'
+        : 'interactive',
+  },
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   getMdastCapabilities: () => ipcRenderer.invoke('mdv:mdast-get-capabilities'),
   extractMdastHeadingOutline: (markdown) => ipcRenderer.invoke('mdv:mdast-extract-heading-outline', markdown),
   readRelativeAssetAsDataUrl: (payload) => ipcRenderer.invoke('mdv:read-relative-asset-data-url', payload),
+  ensureDraftWorkspace: (payload) => ipcRenderer.invoke('mdv:ensure-draft-workspace', payload),
+  importImageAsset: (payload) => ipcRenderer.invoke('mdv:import-image-asset', payload),
+  cleanupImportedAssets: (payload) => ipcRenderer.invoke('mdv:cleanup-imported-assets', payload),
+  cleanupDraftWorkspace: (payload) => ipcRenderer.invoke('mdv:cleanup-draft-workspace', payload),
   saveFile: (payload) => ipcRenderer.invoke('mdv:save-file', payload),
   exportHtml: (payload) => ipcRenderer.invoke('mdv:export-html', payload),
   trackCurrentFile: (filePath) => ipcRenderer.invoke('mdv:track-current-file', filePath),
+  autosaveRecoveryUpsert: (payload) => ipcRenderer.invoke('mdv:autosave-recovery-upsert', payload),
+  clearAutosaveRecovery: (payload) => ipcRenderer.invoke('mdv:autosave-recovery-clear', payload),
+  getLatestAutosaveRecovery: () => ipcRenderer.invoke('mdv:autosave-recovery-latest'),
+  getAutosaveRecoveryForFile: (filePath) => ipcRenderer.invoke('mdv:autosave-recovery-for-file', filePath),
   notifyInitialLaunchOpenHandled: () => ipcRenderer.send('mdv:initial-launch-open-handled'),
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
-  openAiChat: () => ipcRenderer.invoke('mdv:open-ai-chat'),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
@@ -70,6 +91,13 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   writeAiTarget: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-target', payload),
   listAiBuffers: () => ipcRenderer.invoke('mdv:ai-chat-list-buffers'),
   sendAiChatMessage: (payload) => ipcRenderer.invoke('mdv:ai-chat-send-message', payload),
+  onAiChatStreamEvent: (callback) => {
+    aiChatStreamListeners.add(callback)
+
+    return () => {
+      aiChatStreamListeners.delete(callback)
+    }
+  },
   settings: {
     getBootstrapSettings: () => settingsBootstrap,
     getSettings: () => ipcRenderer.invoke('mdv:settings-get'),

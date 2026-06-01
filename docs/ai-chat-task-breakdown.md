@@ -2,6 +2,12 @@
 
 ## Purpose
 
+注記:
+
+- この文書には separate chat window 前提で切った初期タスク分解が含まれる
+- 現在の primary surface は editor window 内の assistant dock であり、window 分離前提の項目は履歴的検討として読むこと
+- 現在の優先順位と着手順は [docs/current-backlog.md](docs/current-backlog.md) を正とする
+
 [docs/ai-chat-design.md](docs/ai-chat-design.md) を実装へ落とすための作業分解。
 
 方針は、まず settings 基盤を main process 正本で固め、その上で最大の技術リスクである editor selection 操作を切り分け、chat window、OpenAI 接続、tool bridge を段階導入すること。
@@ -54,13 +60,13 @@
 
 ### T1-2 Chat window lifecycle
 
-- chat window を生成する
-- active editor window と紐づける
-- 対象 editor ごとに 1 chat window を再利用できるようにする
+- assistant dock を開閉する
+- active editor window の作業面として assistant surface を統合する
+- 対象 editor ごとに 1 assistant session を再利用できるようにする
 
 完了条件:
 
-- 対象 editor の chat window を開閉、再前面化できる
+- 対象 editor の assistant dock を開閉、再前面化できる
 
 ### T1-3 Session registry
 
@@ -77,13 +83,13 @@
 
 ### T2-1 Chat renderer scaffold
 
-- chat window 用 entry file を追加する
-- root component を用意する
+- assistant dock 用 root component を用意する
 - header、message list、composer を配置する
+- editor window 内へ埋め込めることを確認する
 
 完了条件:
 
-- 空の chat UI が起動する
+- 空の assistant UI が dock として表示される
 
 ### T2-2 Markdown bubble rendering
 
@@ -139,7 +145,7 @@
 ### T3-2 Non-tool chat flow
 
 - chat message を OpenAI に送る
-- assistant reply を chat window に返す
+- assistant reply を dock 内 transcript に返す
 
 完了条件:
 
@@ -159,7 +165,7 @@
 ### T4-1 Preload bridge expansion
 
 - editor 用 AI IPC bridge を追加する
-- chat 用 AI IPC bridge を追加する
+- assistant 用 AI IPC bridge を追加する
 
 完了条件:
 

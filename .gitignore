@@ -29,4 +29,7 @@ release/builder-effective-config.yaml
 release/**/builder-debug.yml
 release/**/builder-effective-config.yaml
 release/win-unpacked/
+release/windows-host-candidate/
 release/windows-host-*/
+playwright-report/
+test-results/

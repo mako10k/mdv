@@ -4,6 +4,11 @@ declare module '@toast-ui/editor' {
   export type EditorPos = MarkdownPos | number
   export type EditorSelection = [EditorPos, EditorPos]
   export type SelectionPos = Sourcepos | EditorSelection
+  export type EditorSlots = {
+    mdEditor: HTMLElement
+    mdPreview: HTMLElement
+    wwEditor: HTMLElement
+  }
 
   export type EditorOptions = {
     el: HTMLElement
@@ -22,7 +27,9 @@ declare module '@toast-ui/editor' {
   export default class Editor {
     constructor(options: EditorOptions)
     exec(name: string, payload?: Record<string, unknown>): void
+    focus(): void
     getMarkdown(): string
+    getEditorElements(): EditorSlots
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
     getSelection(): SelectionPos
     setSelection(start: EditorPos, end?: EditorPos): void
@@ -67,14 +74,51 @@ type MdvRelativeAssetDataUrlResult = {
   dataUrl: string
 }
 
+type MdvDraftWorkspace = {
+  workspaceId: string
+  rootDir: string
+  markdownFilePath: string
+  assetDir: string
+  manifestPath: string
+}
+
+type MdvEnsureDraftWorkspacePayload = {
+  workspaceId?: string | null
+}
+
+type MdvImportImageAssetPayload = {
+  currentFilePath?: string | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  sourcePath?: string | null
+  bytesBase64?: string | null
+  mimeType?: string | null
+  suggestedName?: string | null
+  createdBy: 'paste' | 'drop'
+}
+
+type MdvImportImageAssetResult = {
+  filePath: string
+  relativePath: string
+  markdownFilePath: string
+  draftWorkspace?: MdvDraftWorkspace | null
+}
+
+type MdvPendingImportedAsset = {
+  filePath: string
+  relativePath: string
+}
+
 type MdvSavePayload = {
   path?: string | null
   content: string
   forceDialog?: boolean
+  recoveryKey?: string | null
   defaultFileName?: string | null
   displayTitle?: string | null
   expectedSnapshot?: MdvFileSnapshot | null
   baseContent?: string | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  pendingImportedAssets?: MdvPendingImportedAsset[]
 }
 
 type MdvSaveResult =
@@ -121,8 +165,17 @@ type MdvClientSnapshot = {
   persistedMarkdown: string
   currentFilePath: string | null
   fileSnapshot?: MdvFileSnapshot | null
+  draftWorkspace?: MdvDraftWorkspace | null
+  pendingImportedAssets?: MdvPendingImportedAsset[]
   displayTitle: string
   activePanel: 'write' | 'preview'
+  recoveryKey: string
+}
+
+type MdvAutosaveRecoveryEntry = {
+  recoveryKey: string
+  savedAt: string
+  snapshot: MdvClientSnapshot
 }
 
 type MdvServerCommand = {
@@ -321,6 +374,7 @@ type MdvSettingsBootstrap = {
   settings: MdvSettings
   hasPersistedSettings: boolean
   hasReadableSettings: boolean
+  hasInitialLaunchRequest: boolean
   initialPanel: MdvInitialPanel
 }
 
@@ -423,27 +477,60 @@ type MdvAiChatMessage = {
   title?: string
 }
 
-type MdvAiChatResponse = {
-  reply: string
-  model: string
-  responseId: string | null
-  toolEvents?: MdvAiToolEvent[]
+type MdvAiChatDispatchResponse = {
+  status: 'started'
+  requestId: string
 }
+
+type MdvAiChatStreamEvent =
+  | {
+      requestId: string
+      type: 'text-delta'
+      delta: string
+    }
+  | {
+      requestId: string
+      type: 'tool-event'
+      title: string
+      content: string
+    }
+  | {
+      requestId: string
+      type: 'completed'
+      reply: string
+      model: string
+      responseId: string | null
+    }
+  | {
+      requestId: string
+      type: 'failed'
+      error: string
+    }
 
 interface Window {
   mdvDesktop?: {
     platform: string
+    e2e?: {
+      recoveryPromptMode: 'accept' | 'decline' | 'interactive'
+    }
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     getMdastCapabilities: () => Promise<MdvJsonValue>
     extractMdastHeadingOutline: (markdown: string) => Promise<MdvMdastHeadingOutlineItem[]>
     readRelativeAssetAsDataUrl: (payload: MdvRelativeAssetDataUrlPayload) => Promise<MdvRelativeAssetDataUrlResult | null>
+    ensureDraftWorkspace: (payload?: MdvEnsureDraftWorkspacePayload) => Promise<MdvDraftWorkspace | null>
+    importImageAsset: (payload: MdvImportImageAssetPayload) => Promise<MdvImportImageAssetResult | null>
+    cleanupImportedAssets: (payload: { filePaths: string[] }) => Promise<void>
+    cleanupDraftWorkspace: (payload: { draftWorkspace?: MdvDraftWorkspace | null }) => Promise<void>
     saveFile: (payload: MdvSavePayload) => Promise<MdvSaveResult>
     exportHtml: (payload: { content: string; defaultFileName?: string | null }) => Promise<{ path: string } | null>
     trackCurrentFile: (filePath?: string | null) => Promise<void>
+    autosaveRecoveryUpsert: (payload: { snapshot: MdvClientSnapshot }) => Promise<{ recoveryKey: string; savedAt: string } | null>
+    clearAutosaveRecovery: (payload?: { recoveryKey?: string | null; filePath?: string | null }) => Promise<void>
+    getLatestAutosaveRecovery: () => Promise<MdvAutosaveRecoveryEntry | null>
+    getAutosaveRecoveryForFile: (filePath: string) => Promise<MdvAutosaveRecoveryEntry | null>
     notifyInitialLaunchOpenHandled: () => void
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
-    openAiChat: () => Promise<{ status: 'opened' | 'focused' } | null>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
@@ -457,7 +544,8 @@ interface Window {
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert' | 'append'; title?: string }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
-    sendAiChatMessage: (payload: { messages: MdvAiChatMessage[] }) => Promise<MdvAiChatResponse>
+    sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
+    onAiChatStreamEvent: (callback: (event: MdvAiChatStreamEvent) => void) => () => void
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
       getSettings: () => Promise<MdvSettings>

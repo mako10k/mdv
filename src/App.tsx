@@ -1,5 +1,7 @@
 import {
   useEffect,
+  useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,9 +19,11 @@ import katex from 'katex'
 import mermaid from 'mermaid'
 import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
-import './App.css'
+import ChatApp from './ai-chat/ChatApp'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
+import './App.css'
+import './ai-chat/chat.css'
 
 type CodeBlockProps = {
   code: string
@@ -383,14 +387,16 @@ type EditorSurfaceProps = {
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
   onReady?: (editor: ToastUiEditor) => void
+  onSelectionChange?: (editor: ToastUiEditor) => void
 }
 
-function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfaceProps) {
+function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange }: EditorSurfaceProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const initialValueRef = useRef(value)
   const editorInstanceRef = useRef<ToastUiEditor | null>(null)
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
+  const onSelectionChangeRef = useRef(onSelectionChange)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -401,6 +407,10 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
   }, [onReady])
 
   useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange
+  }, [onSelectionChange])
+
+  useEffect(() => {
     if (!hostRef.current) {
       return
     }
@@ -409,6 +419,7 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
       el: hostRef.current,
       height: '100%',
       initialValue: initialValueRef.current,
+      // Keep Toast UI itself single-surface; app-level preview owns rendered output.
       initialEditType: 'markdown',
       previewStyle: 'tab',
       usageStatistics: false,
@@ -416,15 +427,39 @@ function EditorSurface({ value, onChange, editorRef, onReady }: EditorSurfacePro
       events: {
         change: () => {
           onChangeRef.current(instance.getMarkdown())
+          onSelectionChangeRef.current?.(instance)
         },
       },
     })
 
+    const emitSelectionChange = () => {
+      onSelectionChangeRef.current?.(instance)
+    }
+
+    const host = hostRef.current
+    const selectionChangeHandler = () => {
+      const activeElement = document.activeElement
+
+      if (host && activeElement instanceof Node && host.contains(activeElement)) {
+        emitSelectionChange()
+      }
+    }
+
+    host?.addEventListener('keyup', emitSelectionChange)
+    host?.addEventListener('mouseup', emitSelectionChange)
+    host?.addEventListener('focusin', emitSelectionChange)
+    document.addEventListener('selectionchange', selectionChangeHandler)
+
     editorInstanceRef.current = instance
     editorRef.current = instance
     onReadyRef.current?.(instance)
+    emitSelectionChange()
 
     return () => {
+      host?.removeEventListener('keyup', emitSelectionChange)
+      host?.removeEventListener('mouseup', emitSelectionChange)
+      host?.removeEventListener('focusin', emitSelectionChange)
+      document.removeEventListener('selectionchange', selectionChangeHandler)
       editorInstanceRef.current = null
       editorRef.current = null
       instance.destroy()
@@ -567,6 +602,26 @@ function resolveDroppedNativePath(event: DragEvent<HTMLElement>): string | null 
   return null
 }
 
+function isImageFileName(fileName: string | null): boolean {
+  return Boolean(fileName && /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(fileName))
+}
+
+function isImageDropCandidate(file: File | null, nativePath: string | null): boolean {
+  if (!file) {
+    return false
+  }
+
+  if (nativePath) {
+    return isImageFileName(nativePath) || file.type.startsWith('image/')
+  }
+
+  if (file.type.startsWith('image/')) {
+    return true
+  }
+
+  return false
+}
+
 function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
   return event.ctrlKey || event.metaKey
 }
@@ -657,6 +712,29 @@ type EditorSearchResult = {
   meta: string
 }
 
+type ExactEditorSearchOptions = {
+  matchCase: boolean
+  useRegexp: boolean
+  inSelection: boolean
+}
+
+type ExactEditorSearchExecution = {
+  results: EditorSearchResult[]
+  scope: ExactEditorSearchScope
+}
+
+type ExactEditorSearchScope = {
+  startOffset: number
+  endOffset: number
+}
+
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote'
+
+type MarkdownInsertResult = {
+  nextMarkdown: string
+  selection: MdvAiNormalizedSpan | null
+}
+
 function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
@@ -671,8 +749,347 @@ function ToolbarButton({ label, active = false, onClick, children }: ToolbarButt
   )
 }
 
+function escapeRegExpPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return btoa(binary)
+}
+
+function buildExactSearchExpression(query: string, options: ExactEditorSearchOptions): RegExp {
+  const source = options.useRegexp ? query : escapeRegExpPattern(query)
+  const testExpression = new RegExp(source, options.matchCase ? '' : 'i')
+
+  if (testExpression.test('')) {
+    throw new Error('Search patterns that match empty text are not supported')
+  }
+
+  return new RegExp(source, options.matchCase ? 'g' : 'gi')
+}
+
+function buildEditorSearchPreview(markdown: string, startOffset: number, endOffset: number): string {
+  const previewStart = Math.max(0, startOffset - 28)
+  const previewEnd = Math.min(markdown.length, endOffset + 44)
+  const prefix = previewStart > 0 ? '...' : ''
+  const suffix = previewEnd < markdown.length ? '...' : ''
+
+  return `${prefix}${markdown.slice(previewStart, previewEnd).replace(/\s+/g, ' ')}${suffix}`
+}
+
+function getExactEditorSearchScope(markdown: string, editor: ToastUiEditor | null, inSelection: boolean): ExactEditorSearchScope {
+  if (!inSelection) {
+    return {
+      startOffset: 0,
+      endOffset: markdown.length,
+    }
+  }
+
+  if (!editor) {
+    throw new Error('Editor is unavailable')
+  }
+
+  const selectionSpan = normalizeSelectionToMarkdownSpan(editor, markdown)
+
+  if (selectionSpan.isEmpty) {
+    throw new Error('A non-empty selection is required')
+  }
+
+  return {
+    startOffset: markdownPosToOffset(markdown, selectionSpan.start),
+    endOffset: markdownPosToOffset(markdown, selectionSpan.end),
+  }
+}
+
+function runExactEditorSearch(
+  markdown: string,
+  editor: ToastUiEditor | null,
+  query: string,
+  options: ExactEditorSearchOptions,
+  scopeOverride?: ExactEditorSearchScope | null,
+): ExactEditorSearchExecution {
+  const scope = scopeOverride ?? getExactEditorSearchScope(markdown, editor, options.inSelection)
+
+  if (query.length === 0) {
+    return { results: [], scope }
+  }
+
+  const scopedText = markdown.slice(scope.startOffset, scope.endOffset)
+  const expression = buildExactSearchExpression(query, options)
+  const results: EditorSearchResult[] = []
+  let match = expression.exec(scopedText)
+
+  while (match) {
+    const matchStartOffset = scope.startOffset + match.index
+    const matchEndOffset = matchStartOffset + match[0].length
+    const span = normalizeOffsetsToSpan(markdown, matchStartOffset, matchEndOffset)
+
+    results.push({
+      id: `exact:${matchStartOffset}:${matchEndOffset}:${results.length}`,
+      span,
+      preview: buildEditorSearchPreview(markdown, matchStartOffset, matchEndOffset),
+      meta: `${span.start.line}:${span.start.column}`,
+    })
+
+    match = expression.exec(scopedText)
+  }
+
+  return { results, scope }
+}
+
+function replaceOffsets(markdown: string, startOffset: number, endOffset: number, replacement: string): string {
+  return `${markdown.slice(0, startOffset)}${replacement}${markdown.slice(endOffset)}`
+}
+
+function createMarkdownInsertResult(
+  markdown: string,
+  startOffset: number,
+  endOffset: number,
+  replacement: string,
+  selectionStartOffset: number,
+  selectionEndOffset: number,
+): MarkdownInsertResult {
+  const nextMarkdown = replaceOffsets(markdown, startOffset, endOffset, replacement)
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, selectionStartOffset, selectionEndOffset),
+  }
+}
+
+function getSpanOffsets(markdown: string, span: MdvAiNormalizedSpan) {
+  return {
+    startOffset: markdownPosToOffset(markdown, span.start),
+    endOffset: markdownPosToOffset(markdown, span.end),
+  }
+}
+
+function expandOffsetsToSelectedLines(markdown: string, startOffset: number, endOffset: number) {
+  const lineStartOffset = markdown.lastIndexOf('\n', Math.max(0, startOffset - 1)) + 1
+  const normalizedEndOffset = endOffset > startOffset && markdown[endOffset - 1] === '\n'
+    ? endOffset - 1
+    : endOffset
+  const nextLineBreakOffset = markdown.indexOf('\n', normalizedEndOffset)
+
+  return {
+    startOffset: lineStartOffset,
+    endOffset: nextLineBreakOffset === -1 ? markdown.length : nextLineBreakOffset,
+  }
+}
+
+function prefixSelectedLines(markdown: string, span: MdvAiNormalizedSpan, prefix: string, emptyPlaceholder: string): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const lineOffsets = expandOffsetsToSelectedLines(markdown, startOffset, endOffset)
+
+  if (startOffset === endOffset) {
+    const currentLineText = markdown.slice(lineOffsets.startOffset, lineOffsets.endOffset)
+
+    if (currentLineText.length > 0) {
+      const nextText = `${prefix}${currentLineText}`
+
+      return createMarkdownInsertResult(
+        markdown,
+        lineOffsets.startOffset,
+        lineOffsets.endOffset,
+        nextText,
+        lineOffsets.startOffset,
+        lineOffsets.startOffset + nextText.length,
+      )
+    }
+
+    const insertedText = `${prefix}${emptyPlaceholder}`
+    const placeholderStartOffset = lineOffsets.startOffset + prefix.length
+    return createMarkdownInsertResult(
+      markdown,
+      lineOffsets.startOffset,
+      lineOffsets.endOffset,
+      insertedText,
+      placeholderStartOffset,
+      placeholderStartOffset + emptyPlaceholder.length,
+    )
+  }
+
+  const selectedText = markdown.slice(lineOffsets.startOffset, lineOffsets.endOffset)
+  const nextText = selectedText
+    .split(/\r?\n/)
+    .map((line) => line.length > 0 ? `${prefix}${line}` : line)
+    .join('\n')
+
+  return createMarkdownInsertResult(
+    markdown,
+    lineOffsets.startOffset,
+    lineOffsets.endOffset,
+    nextText,
+    lineOffsets.startOffset,
+    lineOffsets.startOffset + nextText.length,
+  )
+}
+
+function getNextFootnoteId(markdown: string): string {
+  const matches = Array.from(markdown.matchAll(/^\[\^(\d+)\]:/gm))
+  const maxValue = matches.reduce((currentMax, match) => {
+    const nextValue = Number.parseInt(match[1], 10)
+    return Number.isFinite(nextValue) ? Math.max(currentMax, nextValue) : currentMax
+  }, 0)
+
+  return String(maxValue + 1 || 1)
+}
+
+function insertImageMarkdown(markdown: string, span: MdvAiNormalizedSpan, source: string, fallbackAlt: string): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const selectedText = markdown.slice(startOffset, endOffset)
+  const alt = selectedText.length > 0 ? selectedText : fallbackAlt
+  const insertedText = `![${alt}](${source})`
+  const sourceStartOffset = startOffset + insertedText.indexOf(source)
+
+  return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, sourceStartOffset, sourceStartOffset + source.length)
+}
+
+function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const selectedText = markdown.slice(startOffset, endOffset)
+
+  if (command === 'heading') {
+    return prefixSelectedLines(markdown, span, '## ', 'Heading')
+  }
+
+  if (command === 'quote') {
+    return prefixSelectedLines(markdown, span, '> ', 'Quote')
+  }
+
+  if (command === 'link') {
+    const label = selectedText.length > 0 ? selectedText : 'link text'
+    const href = 'https://example.com'
+    const insertedText = `[${label}](${href})`
+    const hrefStartOffset = startOffset + insertedText.indexOf(href)
+    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, hrefStartOffset, hrefStartOffset + href.length)
+  }
+
+  if (command === 'image') {
+    return insertImageMarkdown(markdown, span, './image.png', 'alt text')
+  }
+
+  if (command === 'code-block') {
+    const body = selectedText.length > 0 ? selectedText : 'code'
+    const insertedText = `\`\`\`\n${body}\n\`\`\``
+    const bodyStartOffset = startOffset + 4
+    return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, bodyStartOffset, bodyStartOffset + body.length)
+  }
+
+  if (command === 'horizontal-rule') {
+    const insertionOffset = endOffset
+    const beforeText = markdown.slice(0, insertionOffset).replace(/\n*$/, '')
+    const afterText = markdown.slice(insertionOffset).replace(/^\n*/, '')
+    const nextMarkdown = `${beforeText}${beforeText.length > 0 ? '\n\n' : ''}---${afterText.length > 0 ? '\n\n' : ''}${afterText}`
+    const caretOffset = beforeText.length + (beforeText.length > 0 ? 5 : 3)
+
+    return {
+      nextMarkdown,
+      selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
+    }
+  }
+
+  const footnoteId = getNextFootnoteId(markdown)
+  const marker = `[^${footnoteId}]`
+  const definitionText = selectedText.length > 0 ? selectedText : 'Footnote'
+  const needsSeparator = markdown.length === 0 ? '' : markdown.endsWith('\n') ? '\n' : '\n\n'
+  const definitionPrefix = `${needsSeparator}[^${footnoteId}]: `
+  const nextMarkdown = `${replaceOffsets(markdown, startOffset, endOffset, marker)}${definitionPrefix}${definitionText}`
+  const definitionStartOffset = nextMarkdown.length - definitionText.length
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, definitionStartOffset, definitionStartOffset + definitionText.length),
+  }
+}
+
 function toToastMarkdownPos(position: MdvAiMarkdownPos): [number, number] {
   return [position.line, position.column]
+}
+
+function getActiveEditorRoot(editor: ToastUiEditor): HTMLElement {
+  const slots = editor.getEditorElements()
+  return editor.isMarkdownMode() ? slots.mdEditor : slots.wwEditor
+}
+
+function getEditorSelectionStartLine(editor: ToastUiEditor, markdown: string): number {
+  return normalizeSelectionToMarkdownSpan(editor, markdown).start.line
+}
+
+function findEditorSelectionAnchor(root: HTMLElement): HTMLElement | null {
+  const selection = window.getSelection()
+
+  if (selection && selection.rangeCount > 0) {
+    const anchorNode = selection.getRangeAt(0).startContainer
+    const anchorElement = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+
+    if (anchorElement instanceof HTMLElement && root.contains(anchorElement)) {
+      return anchorElement
+    }
+  }
+
+  return root.querySelector<HTMLElement>(
+    '.CodeMirror-selected, .cm-selectionBackground, .CodeMirror-cursor, .cm-cursor, .ProseMirror-selectednode'
+  )
+}
+
+function findEditorScrollContainer(root: HTMLElement): HTMLElement {
+  return root.querySelector<HTMLElement>('.CodeMirror-scroll, .cm-scroller, .toastui-editor, .ProseMirror') ?? root
+}
+
+function focusEditorAnchorTarget(root: HTMLElement) {
+  const focusTarget =
+    root.querySelector<HTMLElement>('textarea, .cm-content, .ProseMirror, [contenteditable="true"]') ?? root
+
+  focusTarget.focus({ preventScroll: true })
+}
+
+function scrollElementIntoContainer(container: HTMLElement, target: HTMLElement) {
+  const containerRect = container.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const topPadding = Math.max(40, Math.round(containerRect.height * 0.28))
+  const bottomPadding = Math.max(28, Math.round(containerRect.height * 0.18))
+
+  if (targetRect.top < containerRect.top + topPadding) {
+    container.scrollTop += targetRect.top - containerRect.top - topPadding
+    return
+  }
+
+  if (targetRect.bottom > containerRect.bottom - bottomPadding) {
+    container.scrollTop += targetRect.bottom - containerRect.bottom + bottomPadding
+  }
+}
+
+function scrollSpanIntoEditorView(editor: ToastUiEditor) {
+  const root = getActiveEditorRoot(editor)
+  const container = findEditorScrollContainer(root)
+  const scrollToAnchor = () => {
+    const anchor = findEditorSelectionAnchor(root)
+
+    if (!anchor) {
+      return false
+    }
+
+    scrollElementIntoContainer(container, anchor)
+    return true
+  }
+
+  window.requestAnimationFrame(() => {
+    if (scrollToAnchor()) {
+      return
+    }
+
+    focusEditorAnchorTarget(root)
+    window.requestAnimationFrame(() => {
+      scrollToAnchor()
+    })
+  })
 }
 
 function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
@@ -683,6 +1100,8 @@ function selectSpanInEditor(editor: ToastUiEditor, span: MdvAiNormalizedSpan) {
     : editor.convertPosToMatchEditorMode(markdownStart, markdownEnd, 'wysiwyg')
 
   editor.setSelection(selectionStart, selectionEnd)
+  editor.focus()
+  scrollSpanIntoEditorView(editor)
 }
 
 function EditorIcon() {
@@ -808,6 +1227,34 @@ function ExportIcon() {
       <path d="M12 11v5M9.5 13.5 12 11l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
+}
+
+function HeadingCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">H</span>
+}
+
+function LinkCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">[]</span>
+}
+
+function ImageCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">IMG</span>
+}
+
+function CodeBlockCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">&lt;/&gt;</span>
+}
+
+function QuoteCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">&#34;</span>
+}
+
+function HorizontalRuleCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">---</span>
+}
+
+function FootnoteCommandIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">FN</span>
 }
 
 async function copyTextToClipboard(text: string) {
@@ -1179,21 +1626,32 @@ function App() {
     return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
   })
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
+  const [currentDraftWorkspace, setCurrentDraftWorkspace] = useState<MdvDraftWorkspace | null>(null)
+  const [pendingImportedAssets, setPendingImportedAssets] = useState<MdvPendingImportedAsset[]>([])
   const [displayTitle, setDisplayTitle] = useState<string>(() => t.app.untitledTitle)
   const [statusText, setStatusTextState] = useState<string>(t.common.ready)
   const [activeToast, setActiveToast] = useState<StatusToast | null>(null)
+  const [isInitialLaunchOpenSettled, setIsInitialLaunchOpenSettled] = useState(() => !(bootstrap?.hasInitialLaunchRequest ?? false))
+  const [isStartupRecoveryResolved, setIsStartupRecoveryResolved] = useState(false)
+  const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
+  const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
+  const [editorSearchReplacement, setEditorSearchReplacement] = useState('')
+  const [isEditorSearchMatchCase, setIsEditorSearchMatchCase] = useState(false)
+  const [isEditorSearchRegexp, setIsEditorSearchRegexp] = useState(false)
+  const [isEditorSearchInSelection, setIsEditorSearchInSelection] = useState(false)
+  const [exactEditorSearchScope, setExactEditorSearchScope] = useState<ExactEditorSearchScope | null>(null)
   const [editorSearchResults, setEditorSearchResults] = useState<EditorSearchResult[]>([])
   const [selectedSearchResultIndex, setSelectedSearchResultIndex] = useState(-1)
   const [pendingSearchJump, setPendingSearchJump] = useState<MdvAiNormalizedSpan | null>(null)
   const [isRunningEditorSearch, setIsRunningEditorSearch] = useState(false)
   const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
-  const [isSliceSearchEnabled, setIsSliceSearchEnabled] = useState(true)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
+  const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
   const editorRef = useRef<ToastUiEditor | null>(null)
@@ -1209,6 +1667,10 @@ function App() {
   const toastTimerRef = useRef<number | null>(null)
   const shouldCanonicalizeLoadedBaselineRef = useRef(true)
   const allowWindowCloseRef = useRef(false)
+  const recoveryKeyRef = useRef<string>('')
+  const lastAutosaveRecoveryStorageKeyRef = useRef<string | null>(null)
+  const lastAutosaveSignatureRef = useRef<string | null>(null)
+  const handledRecoveryKeysRef = useRef(new Set<string>())
   const confirmUnsavedChangesBeforeProceedRef = useRef<(proceedLabel: string) => Promise<boolean>>(async () => true)
   const handleSaveRef = useRef<(forceDialog?: boolean) => Promise<boolean>>(async () => false)
   const loadFilePayloadRef = useRef<(payload: MdvFilePayload | null) => void>(() => {})
@@ -1217,14 +1679,20 @@ function App() {
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
   const outlineRequestIdRef = useRef(0)
+  const outlineListRef = useRef<HTMLDivElement | null>(null)
+  const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: t.app.initialDocument,
     persistedMarkdown: t.app.initialDocument,
     currentFilePath: null,
     fileSnapshot: null,
+    draftWorkspace: null,
+    pendingImportedAssets: [],
     displayTitle: t.app.untitledTitle,
     activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
+    recoveryKey: recoveryKeyRef.current,
   }))
+  const buildLiveClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => buildClientSnapshotRef.current())
   const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
   const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
@@ -1255,6 +1723,36 @@ function App() {
       setActiveToast((currentToast) => (currentToast?.id === toastId ? null : currentToast))
       toastTimerRef.current = null
     }, 2600)
+  }
+
+  const openAssistantDock = (options?: { focus?: boolean; statusMessage?: string }) => {
+    setIsAssistantDockOpen(true)
+
+    if (options?.focus) {
+      setAssistantFocusNonce((currentValue) => currentValue + 1)
+    }
+
+    if (options?.statusMessage) {
+      setStatusText(options.statusMessage)
+    }
+  }
+
+  const ensureRecoveryKey = () => {
+    if (!recoveryKeyRef.current) {
+      recoveryKeyRef.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    }
+
+    return recoveryKeyRef.current
+  }
+
+  const closeAssistantDock = () => {
+    setIsAssistantDockOpen(false)
+
+    const editor = editorRef.current
+
+    if (editor) {
+      focusEditorAnchorTarget(getActiveEditorRoot(editor))
+    }
   }
 
   const replaceLoadedDocument = (nextMarkdown: string) => {
@@ -1413,7 +1911,6 @@ function App() {
       }
 
       const sliceSearchEnabled = resolvedSettings?.ai.toolPermissions.sliceSearch !== false
-      setIsSliceSearchEnabled(sliceSearchEnabled)
       setIsSemanticSearchAvailable(Boolean(sliceSearchEnabled && resolvedSettings?.ai.openai.enabled && providerStatus?.openaiConfigured))
     }
 
@@ -1423,7 +1920,6 @@ function App() {
 
     void refreshSemanticAvailability().catch(() => {
       if (active) {
-        setIsSliceSearchEnabled(false)
         setIsSemanticSearchAvailable(false)
       }
     })
@@ -1435,25 +1931,32 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (activePanel !== 'write' || !pendingSearchJump) {
+    if (!pendingSearchJump) {
       return
     }
 
-    const editor = editorRef.current
-
-    if (!editor) {
-      return
-    }
-
-    selectSpanInEditor(editor, pendingSearchJump)
-    setPendingSearchJump(null)
-  }, [activePanel, pendingSearchJump])
-
-  useEffect(() => {
     if (activePanel !== 'write') {
       return
     }
 
+    const jumpSpan = pendingSearchJump
+    const frameId = window.requestAnimationFrame(() => {
+      const editor = editorRef.current
+
+      if (!editor) {
+        return
+      }
+
+      selectSpanInEditor(editor, jumpSpan)
+      setPendingSearchJump(null)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [activePanel, pendingSearchJump])
+
+  useEffect(() => {
     let active = true
     outlineRequestIdRef.current += 1
     const requestId = outlineRequestIdRef.current
@@ -1482,16 +1985,104 @@ function App() {
       active = false
       window.clearTimeout(refreshTimer)
     }
-  }, [activePanel, markdownText])
+  }, [markdownText])
+
+  const syncActiveOutlineLine = (editor: ToastUiEditor | null = editorRef.current) => {
+    if (!editor) {
+      setActiveOutlineLine(null)
+      return
+    }
+
+    setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
+  }
+
+  useEffect(() => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      setActiveOutlineLine(null)
+      return
+    }
+
+    setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
+  }, [markdownText])
+
+  const activeOutlineIndex = useMemo(() => {
+    if (headingOutline.length === 0 || activeOutlineLine === null) {
+      return -1
+    }
+
+    let nextIndex = -1
+
+    for (let index = 0; index < headingOutline.length; index += 1) {
+      if (headingOutline[index].position.line <= activeOutlineLine) {
+        nextIndex = index
+        continue
+      }
+
+      break
+    }
+
+    return nextIndex
+  }, [activeOutlineLine, headingOutline])
+
+  useEffect(() => {
+    const container = outlineListRef.current
+    const activeItem = activeOutlineItemRef.current
+
+    if (!container || !activeItem) {
+      return
+    }
+
+    scrollElementIntoContainer(container, activeItem)
+  }, [activeOutlineIndex])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
     persistedMarkdown,
     currentFilePath,
     fileSnapshot: currentFileSnapshotRef.current,
+    draftWorkspace: currentDraftWorkspace,
+    pendingImportedAssets,
     displayTitle,
     activePanel,
+    recoveryKey: ensureRecoveryKey(),
   })
+
+  const collectReferencedImportedAssetPaths = (markdown: string) => {
+    const assetPaths = new Set<string>()
+    const expression = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+    let match = expression.exec(markdown)
+
+    while (match) {
+      const candidate = typeof match[1] === 'string' ? match[1].trim() : ''
+
+      if (candidate.startsWith('assets/')) {
+        assetPaths.add(candidate)
+      }
+
+      match = expression.exec(markdown)
+    }
+
+    return assetPaths
+  }
+
+  const cleanupCurrentDraftWorkspace = async (draftWorkspaceOverride?: MdvDraftWorkspace | null) => {
+    const draftWorkspace = draftWorkspaceOverride ?? currentDraftWorkspace
+
+    if (!draftWorkspace) {
+      return
+    }
+
+    await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace })
+    setCurrentDraftWorkspace((currentWorkspace) => {
+      if (!currentWorkspace || currentWorkspace.workspaceId !== draftWorkspace.workspaceId) {
+        return currentWorkspace
+      }
+
+      return null
+    })
+  }
 
   const invalidateEditorSearch = () => {
     setEditorSearchResults([])
@@ -1499,14 +2090,20 @@ function App() {
     setPendingSearchJump(null)
     setEditorSearchError(null)
     setIsEditorSearchResultsVisible(false)
+    setExactEditorSearchScope(null)
   }
 
   const applyClientSnapshot = (snapshot: MdvClientSnapshot) => {
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = snapshot.markdownText === snapshot.persistedMarkdown
+    if (typeof snapshot.recoveryKey === 'string' && snapshot.recoveryKey.length > 0) {
+      recoveryKeyRef.current = snapshot.recoveryKey
+    }
     replaceLoadedDocument(snapshot.markdownText)
     setCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
+    setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
+    setPendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
     const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
@@ -1521,11 +2118,18 @@ function App() {
       return
     }
 
+    if (currentDraftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    }
+
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = true
+    recoveryKeyRef.current = ''
     replaceLoadedDocument(payload.content)
     setCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
+    setCurrentDraftWorkspace(null)
+    setPendingImportedAssets([])
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
@@ -1537,11 +2141,18 @@ function App() {
   })
 
   const loadDetachedFile = (fileName: string, content: string) => {
+    if (currentDraftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    }
+
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = true
+    recoveryKeyRef.current = ''
     replaceLoadedDocument(content)
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
+    setCurrentDraftWorkspace(null)
+    setPendingImportedAssets([])
     setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
@@ -1609,9 +2220,57 @@ function App() {
       persistedMarkdown: persistedMarkdownRef.current,
       currentFilePath,
       fileSnapshot: currentFileSnapshotRef.current,
+      draftWorkspace: currentDraftWorkspace,
+      pendingImportedAssets,
       displayTitle,
       activePanel,
+      recoveryKey: ensureRecoveryKey(),
     }
+  }
+
+  useEffect(() => {
+    let active = true
+
+    if (!isStartupRecoveryResolved) {
+      return () => {
+        active = false
+      }
+    }
+
+    const requestedWorkspaceId = ensureRecoveryKey()
+
+    if (currentFilePath !== null) {
+      return () => {
+        active = false
+      }
+    }
+
+    if (currentDraftWorkspace) {
+      return () => {
+        active = false
+      }
+    }
+
+    void window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: requestedWorkspaceId }).then((workspace) => {
+      if (!active || !workspace || currentFilePathRef.current !== null || recoveryKeyRef.current !== requestedWorkspaceId) {
+        return
+      }
+
+      setCurrentDraftWorkspace(workspace)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [currentDraftWorkspace, currentFilePath, isStartupRecoveryResolved])
+
+  const clearAutosaveRecovery = async (payload?: { recoveryKey?: string | null; filePath?: string | null }) => {
+    await window.mdvDesktop?.clearAutosaveRecovery(payload ?? {
+      recoveryKey: lastAutosaveRecoveryStorageKeyRef.current,
+      filePath: currentFilePathRef.current,
+    })
+    lastAutosaveRecoveryStorageKeyRef.current = null
+    lastAutosaveSignatureRef.current = null
   }
 
   const confirmUnsavedChangesBeforeProceed = async (proceedLabel: string) => {
@@ -1633,6 +2292,18 @@ function App() {
       return handleSaveRef.current(false)
     }
 
+    if (pendingImportedAssets.length > 0) {
+      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: pendingImportedAssets.map((asset) => asset.filePath) })
+      setPendingImportedAssets([])
+    }
+
+    if (currentDraftWorkspace) {
+      await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: currentDraftWorkspace })
+      setCurrentDraftWorkspace(null)
+    }
+
+    await clearAutosaveRecovery()
+
     return true
   }
 
@@ -1653,14 +2324,34 @@ function App() {
   const handleSave = async (forceDialog = false) => {
     try {
       const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+      const previousFilePath = currentFilePath
+      let draftWorkspace = currentDraftWorkspace
+
+      if (!currentFilePath && !draftWorkspace) {
+        const recovery = await window.mdvDesktop?.getLatestAutosaveRecovery()
+        const recoverySnapshot = recovery?.snapshot
+        const matchesCurrentBuffer = recoverySnapshot
+          && !recoverySnapshot.currentFilePath
+          && recoverySnapshot.markdownText === liveMarkdown
+          && recoverySnapshot.recoveryKey === recoveryKeyRef.current
+
+        if (matchesCurrentBuffer && recoverySnapshot.draftWorkspace) {
+          draftWorkspace = recoverySnapshot.draftWorkspace
+          setCurrentDraftWorkspace(recoverySnapshot.draftWorkspace)
+        }
+      }
+
       const result = await window.mdvDesktop?.saveFile({
         path: currentFilePath,
         content: liveMarkdown,
         forceDialog,
+        recoveryKey: currentFilePath ? null : recoveryKeyRef.current,
         defaultFileName: displayTitle,
         displayTitle,
         expectedSnapshot: currentFileSnapshotRef.current,
         baseContent: persistedMarkdownRef.current,
+        draftWorkspace,
+        pendingImportedAssets,
       })
 
       if (!result || result.status === 'cancelled') {
@@ -1675,6 +2366,28 @@ function App() {
       invalidateEditorSearch()
       setCurrentFilePath(result.path)
       currentFileSnapshotRef.current = result.snapshot
+      setCurrentDraftWorkspace(null)
+      const referencedImportedAssets = collectReferencedImportedAssetPaths(result.content)
+      const abandonedImportedAssets = pendingImportedAssets
+        .filter((asset) => !referencedImportedAssets.has(asset.relativePath))
+
+      if (abandonedImportedAssets.length > 0) {
+        await window.mdvDesktop?.cleanupImportedAssets({
+          filePaths: abandonedImportedAssets.map((asset) => asset.filePath),
+        })
+      }
+
+      if (previousFilePath && previousFilePath !== result.path && pendingImportedAssets.length > 0) {
+        await window.mdvDesktop?.cleanupImportedAssets({
+          filePaths: pendingImportedAssets.map((asset) => asset.filePath),
+        })
+      }
+
+      if (!previousFilePath && draftWorkspace) {
+        await cleanupCurrentDraftWorkspace(draftWorkspace)
+      }
+
+      setPendingImportedAssets([])
       setDisplayTitle(basename(result.path))
       if (result.content !== liveMarkdown) {
         setMarkdownText(result.content)
@@ -1682,6 +2395,10 @@ function App() {
       }
       persistedMarkdownRef.current = result.content
       setPersistedMarkdown(result.content)
+      await clearAutosaveRecovery({ recoveryKey: lastAutosaveRecoveryStorageKeyRef.current, filePath: previousFilePath })
+      if (previousFilePath !== result.path) {
+        await clearAutosaveRecovery({ filePath: result.path })
+      }
       setStatusText(t.app.status.saved(basename(result.path)))
       return true
     } catch (error) {
@@ -1694,11 +2411,260 @@ function App() {
     handleSaveRef.current = handleSave
   })
 
+  useEffect(() => {
+    if (isPlaceholderDocument || !hasUnsavedChanges) {
+      void clearAutosaveRecovery({
+        recoveryKey: lastAutosaveRecoveryStorageKeyRef.current,
+      })
+      return
+    }
+
+    const autosaveTimer = window.setTimeout(() => {
+      const snapshot = buildLiveClientSnapshotRef.current()
+      const signature = `${snapshot.currentFilePath ?? ''}\u0000${snapshot.markdownText}\u0000${snapshot.persistedMarkdown}\u0000${snapshot.draftWorkspace?.workspaceId ?? ''}\u0000${snapshot.pendingImportedAssets?.map((asset) => asset.filePath).join('|') ?? ''}`
+
+      if (lastAutosaveSignatureRef.current === signature) {
+        return
+      }
+
+      void window.mdvDesktop?.autosaveRecoveryUpsert({ snapshot }).then((result) => {
+        if (!result) {
+          return
+        }
+
+        handledRecoveryKeysRef.current.delete(result.recoveryKey)
+        lastAutosaveRecoveryStorageKeyRef.current = result.recoveryKey
+        lastAutosaveSignatureRef.current = signature
+      })
+    }, 1200)
+
+    return () => {
+      window.clearTimeout(autosaveTimer)
+    }
+  }, [currentFilePath, currentDraftWorkspace, pendingImportedAssets, displayTitle, activePanel, markdownText, hasUnsavedChanges, isPlaceholderDocument])
+
+  useEffect(() => {
+    let active = true
+
+    const maybeRestoreStartupRecovery = async () => {
+      if (!isInitialLaunchOpenSettled) {
+        return
+      }
+
+      if (currentFilePath !== null || !isPlaceholderDocument) {
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
+        return
+      }
+
+      const recovery = await window.mdvDesktop?.getLatestAutosaveRecovery()
+
+      if (!active || !recovery || recovery.snapshot.currentFilePath || handledRecoveryKeysRef.current.has(recovery.recoveryKey)) {
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
+        return
+      }
+
+      handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+      const recoveryName = recovery.snapshot.currentFilePath
+        ? basename(recovery.snapshot.currentFilePath)
+        : recovery.snapshot.displayTitle
+
+      const recoveryPromptMode = window.mdvDesktop?.e2e?.recoveryPromptMode ?? 'interactive'
+      const shouldRestoreRecovery = recoveryPromptMode === 'accept'
+        ? true
+        : recoveryPromptMode === 'decline'
+          ? false
+          : window.confirm(t.app.recoveryRestorePrompt(recoveryName))
+
+      if (!shouldRestoreRecovery) {
+        if (recovery.snapshot.pendingImportedAssets?.length) {
+          await window.mdvDesktop?.cleanupImportedAssets({
+            filePaths: recovery.snapshot.pendingImportedAssets.map((asset) => asset.filePath),
+          })
+        }
+        if (recovery.snapshot.draftWorkspace) {
+          await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: recovery.snapshot.draftWorkspace })
+        }
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: recovery.snapshot.currentFilePath })
+        setStatusText(t.app.status.discardedRecovery)
+        if (active) {
+          setIsStartupRecoveryResolved(true)
+        }
+        return
+      }
+
+      applyClientSnapshotRef.current(recovery.snapshot)
+      lastAutosaveRecoveryStorageKeyRef.current = recovery.recoveryKey
+      lastAutosaveSignatureRef.current = null
+      setStatusText(t.app.status.restoredRecovery(recoveryName))
+      if (active) {
+        setIsStartupRecoveryResolved(true)
+      }
+    }
+
+    void maybeRestoreStartupRecovery()
+
+    return () => {
+      active = false
+    }
+  }, [currentFilePath, isInitialLaunchOpenSettled, isPlaceholderDocument, t])
+
+  useEffect(() => {
+    let active = true
+
+    const maybeRestoreFileRecovery = async () => {
+      if (!currentFilePath || hasUnsavedChanges) {
+        return
+      }
+
+      const recovery = await window.mdvDesktop?.getAutosaveRecoveryForFile(currentFilePath)
+
+      if (!active || !recovery || handledRecoveryKeysRef.current.has(recovery.recoveryKey)) {
+        return
+      }
+
+      if (recovery.snapshot.markdownText === persistedMarkdownRef.current) {
+        handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: currentFilePath })
+        return
+      }
+
+      handledRecoveryKeysRef.current.add(recovery.recoveryKey)
+      const recoveryName = basename(currentFilePath)
+      const recoveryPromptMode = window.mdvDesktop?.e2e?.recoveryPromptMode ?? 'interactive'
+      const shouldRestoreRecovery = recoveryPromptMode === 'accept'
+        ? true
+        : recoveryPromptMode === 'decline'
+          ? false
+          : window.confirm(t.app.recoveryRestorePrompt(recoveryName))
+
+      if (!shouldRestoreRecovery) {
+        if (recovery.snapshot.pendingImportedAssets?.length) {
+          await window.mdvDesktop?.cleanupImportedAssets({
+            filePaths: recovery.snapshot.pendingImportedAssets.map((asset) => asset.filePath),
+          })
+        }
+        if (recovery.snapshot.draftWorkspace) {
+          await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: recovery.snapshot.draftWorkspace })
+        }
+        await clearAutosaveRecovery({ recoveryKey: recovery.recoveryKey, filePath: currentFilePath })
+        setStatusText(t.app.status.discardedRecovery)
+        return
+      }
+
+      applyClientSnapshotRef.current(recovery.snapshot)
+      lastAutosaveRecoveryStorageKeyRef.current = recovery.recoveryKey
+      lastAutosaveSignatureRef.current = null
+      setStatusText(t.app.status.restoredRecovery(recoveryName))
+    }
+
+    void maybeRestoreFileRecovery()
+
+    return () => {
+      active = false
+    }
+  }, [currentFilePath, hasUnsavedChanges, t])
+
   const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
     invalidateEditorSearch()
     setMarkdownText(nextMarkdown)
     editorRef.current?.setMarkdown(nextMarkdown)
     setStatusText(statusMessage)
+  }
+
+  const applyMarkdownInsertCommand = (command: MarkdownInsertCommand, commandLabel: string) => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return
+    }
+
+    const liveMarkdown = editor.getMarkdown()
+    const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
+    const result = runMarkdownInsertCommand(command, liveMarkdown, selection)
+
+    invalidateEditorSearch()
+    setMarkdownText(result.nextMarkdown)
+    editor.setMarkdown(result.nextMarkdown)
+    setPendingSearchJump(result.selection)
+    setActivePanel('write')
+    setStatusText(t.app.status.insertedMarkdownCommand(commandLabel))
+  }
+
+  const importImageIntoEditor = async (payload: {
+    file?: File | null
+    nativePath?: string | null
+    createdBy: 'paste' | 'drop'
+  }) => {
+    const editor = editorRef.current
+
+    if (!editor) {
+      return false
+    }
+
+    try {
+      let draftWorkspace = currentDraftWorkspace
+
+      if (!currentFilePath && !draftWorkspace) {
+        draftWorkspace = await window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: ensureRecoveryKey() }) ?? null
+
+        if (draftWorkspace) {
+          setCurrentDraftWorkspace(draftWorkspace)
+        }
+      }
+
+      let bytesBase64: string | null = null
+
+      if (!payload.nativePath && payload.file) {
+        bytesBase64 = bytesToBase64(new Uint8Array(await payload.file.arrayBuffer()))
+      }
+
+      const result = await window.mdvDesktop?.importImageAsset({
+        currentFilePath,
+        draftWorkspace,
+        sourcePath: payload.nativePath ?? null,
+        bytesBase64,
+        mimeType: payload.file?.type ?? null,
+        suggestedName: payload.file?.name ?? basename(payload.nativePath ?? null, 'image.png'),
+        createdBy: payload.createdBy,
+      })
+
+      if (!result) {
+        throw new Error('Image import returned no result')
+      }
+
+      if (result.draftWorkspace) {
+        setCurrentDraftWorkspace(result.draftWorkspace)
+      }
+
+      if (currentFilePath && !result.draftWorkspace) {
+        setPendingImportedAssets((currentAssets) => {
+          if (currentAssets.some((asset) => asset.filePath === result.filePath)) {
+            return currentAssets
+          }
+
+          return [...currentAssets, { filePath: result.filePath, relativePath: result.relativePath }]
+        })
+      }
+
+      const liveMarkdown = editor.getMarkdown()
+      const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
+      const imageResult = insertImageMarkdown(liveMarkdown, selection, result.relativePath, payload.file?.name || 'image')
+
+      invalidateEditorSearch()
+      setMarkdownText(imageResult.nextMarkdown)
+      editor.setMarkdown(imageResult.nextMarkdown)
+      setPendingSearchJump(imageResult.selection)
+      setActivePanel('write')
+      setStatusText(t.app.status.insertedImageAsset(basename(result.filePath, result.relativePath)))
+      return true
+    } catch (error) {
+      setStatusText(t.app.status.imageImportFailed(error instanceof Error ? error.message : String(error)))
+      return false
+    }
   }
 
   const focusEditorSearch = () => {
@@ -1712,11 +2678,11 @@ function App() {
     i18nRef.current = t
   })
 
-  const jumpToEditorSearchResult = (result: EditorSearchResult, index: number) => {
+  const jumpToEditorSearchResult = (result: EditorSearchResult, index: number, total = editorSearchResults.length) => {
     setSelectedSearchResultIndex(index)
     setPendingSearchJump(result.span)
     setActivePanel('write')
-    setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(editorSearchResults.length, index + 1)))
+    setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(total, index + 1)))
   }
 
   const jumpToOutlineHeading = (item: MdvMdastHeadingOutlineItem) => {
@@ -1731,16 +2697,46 @@ function App() {
   }
 
   const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
-  const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? isSliceSearchEnabled : isSemanticSearchAvailable
+  const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? true : isSemanticSearchAvailable
+  const exactEditorSearchOptions: ExactEditorSearchOptions = {
+    matchCase: isEditorSearchMatchCase,
+    useRegexp: isEditorSearchRegexp,
+    inSelection: isEditorSearchInSelection,
+  }
+
+  const applyEditorSearchState = (
+    nextResults: EditorSearchResult[],
+    nextSelectedIndex: number,
+    options?: {
+      error?: string | null
+      visible?: boolean
+      jump?: boolean
+    },
+  ) => {
+    setEditorSearchResults(nextResults)
+    setSelectedSearchResultIndex(nextSelectedIndex)
+    setEditorSearchError(options?.error ?? null)
+    setIsEditorSearchResultsVisible(options?.visible ?? (nextResults.length > 0 || Boolean(options?.error)))
+
+    if (options?.jump && nextSelectedIndex >= 0 && nextSelectedIndex < nextResults.length) {
+      const result = nextResults[nextSelectedIndex]
+      setPendingSearchJump(result.span)
+      setActivePanel('write')
+      return
+    }
+
+    setPendingSearchJump(null)
+  }
+
+  const runLocalExactEditorSearch = (sourceMarkdown: string, scopeOverride?: ExactEditorSearchScope | null) => {
+    return runExactEditorSearch(sourceMarkdown, editorRef.current, editorSearchQuery, exactEditorSearchOptions, scopeOverride)
+  }
 
   const handleRunEditorSearch = async () => {
-    const query = editorSearchQuery.trim()
+    const query = resolvedEditorSearchMode === 'semantic' ? editorSearchQuery.trim() : editorSearchQuery
 
     if (query.length === 0) {
-      setEditorSearchResults([])
-      setSelectedSearchResultIndex(-1)
-      setEditorSearchError(null)
-      setIsEditorSearchResultsVisible(false)
+      applyEditorSearchState([], -1, { visible: false })
       setStatusText(t.app.status.clearedEditorSearch)
       return
     }
@@ -1750,33 +2746,15 @@ function App() {
 
     try {
       if (resolvedEditorSearchMode === 'exact') {
-        if (!isSliceSearchEnabled) {
-          throw new Error('Slice search is disabled in settings')
-        }
+        const execution = runLocalExactEditorSearch(markdownText)
+        const { results } = execution
 
-        const payload = await window.mdvDesktop?.grepAiSlice({
-          target: {
-            editorId: 'editor:active',
-            span: { kind: 'document' },
-          },
-          query,
-          maxResults: 40,
-          persistBuffer: false,
-        })
+        setExactEditorSearchScope(execution.scope)
 
-        const results = payload?.matches.map((match, index) => ({
-          id: `exact:${match.line}:${match.column}:${index}`,
-          span: match.span,
-          preview: match.preview,
-          meta: `${match.line}:${match.column}`,
-        })) ?? []
-
-        setEditorSearchResults(results)
-        setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
-        setIsEditorSearchResultsVisible(results.length > 0)
+        applyEditorSearchState(results, results.length > 0 ? 0 : -1, { visible: results.length > 0 })
 
         if (results.length > 0) {
-          jumpToEditorSearchResult(results[0], 0)
+          jumpToEditorSearchResult(results[0], 0, results.length)
         } else {
           setStatusText(t.app.status.noExactMatches(query))
         }
@@ -1805,24 +2783,122 @@ function App() {
         meta: `${result.layer} ${(result.score * 100).toFixed(1)}%`,
       })) ?? []
 
-      setEditorSearchResults(results)
-      setSelectedSearchResultIndex(results.length > 0 ? 0 : -1)
-      setIsEditorSearchResultsVisible(results.length > 0)
+      applyEditorSearchState(results, results.length > 0 ? 0 : -1, { visible: results.length > 0 })
 
       if (results.length > 0) {
-        jumpToEditorSearchResult(results[0], 0)
+        jumpToEditorSearchResult(results[0], 0, results.length)
       } else {
         setStatusText(t.app.status.noSemanticMatches(query))
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setEditorSearchError(message)
-      setEditorSearchResults([])
-      setSelectedSearchResultIndex(-1)
-      setIsEditorSearchResultsVisible(true)
+      applyEditorSearchState([], -1, { error: message, visible: true })
       setStatusText(t.app.status.searchFailed(message))
     } finally {
       setIsRunningEditorSearch(false)
+    }
+  }
+
+  const handleReplaceCurrentEditorSearchResult = () => {
+    try {
+      const query = editorSearchQuery
+
+      if (resolvedEditorSearchMode !== 'exact' || query.length === 0) {
+        return
+      }
+
+      const execution = runLocalExactEditorSearch(markdownText, exactEditorSearchScope)
+      const { results } = execution
+
+      setExactEditorSearchScope(execution.scope)
+
+      if (results.length === 0) {
+        applyEditorSearchState([], -1, { visible: false })
+        setStatusText(t.app.status.noExactMatches(query))
+        return
+      }
+
+      const targetIndex = selectedSearchResultIndex >= 0 && selectedSearchResultIndex < results.length
+        ? selectedSearchResultIndex
+        : 0
+      const targetResult = results[targetIndex]
+      const startOffset = markdownPosToOffset(markdownText, targetResult.span.start)
+      const endOffset = markdownPosToOffset(markdownText, targetResult.span.end)
+      const replacementText = isEditorSearchRegexp
+        ? markdownText.slice(startOffset, endOffset).replace(
+          new RegExp(query, isEditorSearchMatchCase ? '' : 'i'),
+          editorSearchReplacement,
+        )
+        : editorSearchReplacement
+      const nextMarkdown = replaceOffsets(markdownText, startOffset, endOffset, replacementText)
+      const nextScope = execution.scope.endOffset >= endOffset
+        ? {
+          startOffset: execution.scope.startOffset,
+          endOffset: execution.scope.endOffset + (replacementText.length - (endOffset - startOffset)),
+        }
+        : execution.scope
+      const nextSearch = runLocalExactEditorSearch(nextMarkdown, nextScope)
+      const nextIndex = nextSearch.results.length === 0 ? -1 : Math.min(targetIndex, nextSearch.results.length - 1)
+
+      setMarkdownText(nextMarkdown)
+      editorRef.current?.setMarkdown(nextMarkdown)
+      setExactEditorSearchScope(nextScope)
+      applyEditorSearchState(nextSearch.results, nextIndex, {
+        visible: nextSearch.results.length > 0,
+        jump: nextIndex >= 0,
+      })
+      setStatusText(t.app.status.replacedSearchResult(targetIndex + 1, results.length))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      applyEditorSearchState([], -1, { error: message, visible: true })
+      setStatusText(t.app.status.replaceFailed(message))
+    }
+  }
+
+  const handleReplaceAllEditorSearchResults = () => {
+    try {
+      const query = editorSearchQuery
+
+      if (resolvedEditorSearchMode !== 'exact' || query.length === 0) {
+        return
+      }
+
+      const execution = runLocalExactEditorSearch(markdownText, exactEditorSearchScope)
+
+      setExactEditorSearchScope(execution.scope)
+
+      if (execution.results.length === 0) {
+        applyEditorSearchState([], -1, { visible: false })
+        setStatusText(t.app.status.noExactMatches(query))
+        return
+      }
+
+      let nextMarkdown = markdownText
+
+      if (isEditorSearchRegexp) {
+        const scopedText = markdownText.slice(execution.scope.startOffset, execution.scope.endOffset)
+        const replacedScopedText = scopedText.replace(
+          buildExactSearchExpression(query, exactEditorSearchOptions),
+          editorSearchReplacement,
+        )
+        nextMarkdown = replaceOffsets(markdownText, execution.scope.startOffset, execution.scope.endOffset, replacedScopedText)
+      } else {
+        for (let index = execution.results.length - 1; index >= 0; index -= 1) {
+          const result = execution.results[index]
+          const startOffset = markdownPosToOffset(nextMarkdown, result.span.start)
+          const endOffset = markdownPosToOffset(nextMarkdown, result.span.end)
+          nextMarkdown = replaceOffsets(nextMarkdown, startOffset, endOffset, editorSearchReplacement)
+        }
+      }
+
+      setMarkdownText(nextMarkdown)
+      editorRef.current?.setMarkdown(nextMarkdown)
+      applyEditorSearchState([], -1, { visible: false })
+      setStatusText(t.app.status.replacedAllSearchResults(execution.results.length))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      applyEditorSearchState([], -1, { error: message, visible: true })
+      setStatusText(t.app.status.replaceFailed(message))
     }
   }
 
@@ -1992,6 +3068,7 @@ function App() {
 
   useEffect(() => {
     buildClientSnapshotRef.current = buildClientSnapshot
+    buildLiveClientSnapshotRef.current = buildLiveClientSnapshot
     applyClientSnapshotRef.current = applyClientSnapshot
     respondToAiEditorRequestRef.current = respondToAiEditorRequest
   })
@@ -2026,9 +3103,7 @@ function App() {
     }
 
     if (action === 'open-ai-chat') {
-      void window.mdvDesktop?.openAiChat().then(() => {
-        setStatusText(t.app.status.openedAiChat)
-      })
+      openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
       return
     }
 
@@ -2128,11 +3203,15 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const unsubscribe = window.mdvDesktop?.onOpenFileRequested((request) => {
-      void (async () => {
-        const isInitialLaunch = typeof request !== 'string' && request.isInitialLaunch === true
+      const isInitialLaunch = typeof request !== 'string' && request.isInitialLaunch === true
 
+      if (isInitialLaunch) {
+        setIsInitialLaunchOpenSettled(false)
+      }
+
+      void (async () => {
         try {
           if (!await confirmUnsavedChangesBeforeProceedRef.current(i18nRef.current.common.open)) {
             setStatusText(i18nRef.current.app.status.openRequestCancelled)
@@ -2164,6 +3243,8 @@ function App() {
           if (isInitialLaunch) {
             window.mdvDesktop?.notifyInitialLaunchOpenHandled()
           }
+
+          setIsInitialLaunchOpenSettled(true)
         }
       })()
     })
@@ -2195,6 +3276,10 @@ function App() {
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest('.assistant-dock')) {
+        return
+      }
+
       const anchor = resolveExternalAnchor(event.target)
 
       if (!anchor) {
@@ -2224,14 +3309,42 @@ function App() {
     }
   }, [])
 
+  const handleImagePaste = useEffectEvent((event: ClipboardEvent) => {
+    const editor = editorRef.current
+
+    if (activePanel !== 'write' || !editor) {
+      return
+    }
+
+    const editorRoot = getActiveEditorRoot(editor)
+    const activeElement = document.activeElement
+
+    if (!(activeElement instanceof Node) || !editorRoot.contains(activeElement)) {
+      return
+    }
+
+    const imageItem = Array.from(event.clipboardData?.items ?? []).find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    const imageFile = imageItem?.getAsFile()
+
+    if (!imageFile) {
+      return
+    }
+
+    event.preventDefault()
+    void importImageIntoEditor({ file: imageFile, createdBy: 'paste' })
+  })
+
+  useEffect(() => {
+    document.addEventListener('paste', handleImagePaste)
+
+    return () => {
+      document.removeEventListener('paste', handleImagePaste)
+    }
+  }, [])
+
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
     setIsDraggingFile(false)
-
-    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
-      setStatusText(t.app.status.dropCancelled)
-      return
-    }
 
     const droppedFile = event.dataTransfer.files.item(0)
     if (!droppedFile) {
@@ -2239,6 +3352,17 @@ function App() {
     }
 
     const nativePath = resolveDroppedNativePath(event)
+
+    if (isImageDropCandidate(droppedFile, nativePath)) {
+      void importImageIntoEditor({ file: droppedFile, nativePath, createdBy: 'drop' })
+      return
+    }
+
+    if (!await confirmUnsavedChangesBeforeProceed(t.common.open)) {
+      setStatusText(t.app.status.dropCancelled)
+      return
+    }
+
     if (nativePath && window.mdvDesktop) {
       const payload = await window.mdvDesktop.readFile(nativePath)
       loadFilePayload(payload)
@@ -2304,6 +3428,7 @@ function App() {
                     return
                   }
 
+                  invalidateEditorSearch()
                   setEditorSearchMode(nextMode)
                 }}
               >
@@ -2316,7 +3441,10 @@ function App() {
                 type="search"
                 placeholder={t.app.searchInEditor}
                 value={editorSearchQuery}
-                onChange={(event) => setEditorSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  invalidateEditorSearch()
+                  setEditorSearchQuery(event.target.value)
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault()
@@ -2340,6 +3468,85 @@ function App() {
                   }
                 }}
               />
+              {resolvedEditorSearchMode === 'exact' ? (
+                <>
+                  <button
+                    type="button"
+                    className={isEditorSearchMatchCase ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchMatchCase((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchMatchCase}
+                    title={t.app.toggleSearchMatchCase}
+                  >
+                    Aa
+                  </button>
+                  <button
+                    type="button"
+                    className={isEditorSearchRegexp ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchRegexp((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchRegexp}
+                    title={t.app.toggleSearchRegexp}
+                  >
+                    .*
+                  </button>
+                  <button
+                    type="button"
+                    className={isEditorSearchInSelection ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                    onClick={() => {
+                      invalidateEditorSearch()
+                      setIsEditorSearchInSelection((value) => !value)
+                    }}
+                    aria-label={t.app.toggleSearchInSelection}
+                    title={t.app.toggleSearchInSelection}
+                  >
+                    {t.app.toggleSearchInSelectionShort}
+                  </button>
+                  <input
+                    className="editor-search-replace-input"
+                    type="text"
+                    placeholder={t.app.replaceInEditor}
+                    value={editorSearchReplacement}
+                    onChange={(event) => setEditorSearchReplacement(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+
+                        if (event.shiftKey) {
+                          handleReplaceAllEditorSearchResults()
+                          return
+                        }
+
+                        handleReplaceCurrentEditorSearchResult()
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="editor-search-text-button"
+                    onClick={handleReplaceCurrentEditorSearchResult}
+                    disabled={isRunningEditorSearch}
+                    aria-label={t.app.replaceResult}
+                    title={t.app.replaceResult}
+                  >
+                    {t.app.replace}
+                  </button>
+                  <button
+                    type="button"
+                    className="editor-search-text-button"
+                    onClick={handleReplaceAllEditorSearchResults}
+                    disabled={isRunningEditorSearch}
+                    aria-label={t.app.replaceAllResults}
+                    title={t.app.replaceAllResults}
+                  >
+                    {t.app.replaceAll}
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 className="editor-search-icon-button"
@@ -2416,6 +3623,55 @@ function App() {
               <SaveAsIcon />
             </ToolbarButton>
             {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertHeading} onClick={() => applyMarkdownInsertCommand('heading', t.app.insertHeading)}>
+                <HeadingCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertLink} onClick={() => applyMarkdownInsertCommand('link', t.app.insertLink)}>
+                <LinkCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertImage} onClick={() => applyMarkdownInsertCommand('image', t.app.insertImage)}>
+                <ImageCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertCodeBlock} onClick={() => applyMarkdownInsertCommand('code-block', t.app.insertCodeBlock)}>
+                <CodeBlockCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertQuote} onClick={() => applyMarkdownInsertCommand('quote', t.app.insertQuote)}>
+                <QuoteCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertHorizontalRule} onClick={() => applyMarkdownInsertCommand('horizontal-rule', t.app.insertHorizontalRule)}>
+                <HorizontalRuleCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            {activePanel === 'write' ? (
+              <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
+                <FootnoteCommandIcon />
+              </ToolbarButton>
+            ) : null}
+            <ToolbarButton
+              label={`${t.chat.title} (Ctrl/Cmd+I)`}
+              active={isAssistantDockOpen}
+              onClick={() => {
+                if (isAssistantDockOpen) {
+                  closeAssistantDock()
+                  return
+                }
+
+                openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
+              }}
+            >
+              <span className="toolbar-text-icon" aria-hidden="true">AI</span>
+            </ToolbarButton>
+            {activePanel === 'write' ? (
               <ToolbarButton label={t.app.copyDocument} onClick={() => void handleCopyDocument()}>
                 <CopyIcon />
               </ToolbarButton>
@@ -2441,114 +3697,136 @@ function App() {
           </div>
         </header>
 
-        {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
-          <section className="editor-search-results" aria-label={t.app.searchResults}>
-            {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
-            {editorSearchResults.map((result, index) => (
-              <button
-                key={result.id}
-                type="button"
-                className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
-                onClick={() => jumpToEditorSearchResult(result, index)}
-              >
-                <span className="editor-search-result-meta">{result.meta}</span>
-                <span className="editor-search-result-preview">{result.preview}</span>
-              </button>
-            ))}
-          </section>
-        ) : null}
+        <div className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}>
+          <div className="workspace-main-column">
+            {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
+              <section className="editor-search-results" aria-label={t.app.searchResults}>
+                {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
+                {editorSearchResults.map((result, index) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    className={index === selectedSearchResultIndex ? 'editor-search-result active' : 'editor-search-result'}
+                    onClick={() => jumpToEditorSearchResult(result, index)}
+                  >
+                    <span className="editor-search-result-meta">{result.meta}</span>
+                    <span className="editor-search-result-preview">{result.preview}</span>
+                  </button>
+                ))}
+              </section>
+            ) : null}
 
-        {activePanel === 'write' ? (
-          <div className="single-panel">
-            <aside className="panel outline-panel" aria-label={t.app.outline}>
-              <div className="outline-panel-header">{t.app.outline}</div>
-              {headingOutline.length === 0 ? (
-                <div className="outline-empty">{t.app.outlineEmpty}</div>
-              ) : (
-                <div className="outline-list">
-                  {headingOutline.map((item) => {
-                    const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+            <div className={activePanel === 'write' ? 'single-panel single-panel-with-outline' : 'single-panel single-panel-preview-only'}>
+              {activePanel === 'write' ? (
+                <aside className="panel outline-panel" aria-label={t.app.outline}>
+                  <div className="outline-panel-header">{t.app.outline}</div>
+                  {headingOutline.length === 0 ? (
+                    <div className="outline-empty">{t.app.outlineEmpty}</div>
+                  ) : (
+                    <div ref={outlineListRef} className="outline-list">
+                      {headingOutline.map((item, index) => {
+                        const isActiveOutlineItem = index === activeOutlineIndex
+                        const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
 
-                    return (
-                      <button
-                        key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
-                        type="button"
-                        className="outline-item"
-                        style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
-                        onClick={() => jumpToOutlineHeading(item)}
-                        title={headingLabel}
-                      >
-                        <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
-                        <span className="outline-item-label">{headingLabel}</span>
-                      </button>
-                    )
-                  })}
+                        return (
+                          <button
+                            key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                            type="button"
+                            className={isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
+                            style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                            onClick={() => jumpToOutlineHeading(item)}
+                            title={headingLabel}
+                            aria-current={isActiveOutlineItem ? 'location' : undefined}
+                            ref={isActiveOutlineItem ? activeOutlineItemRef : null}
+                          >
+                            <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                            <span className="outline-item-label">{headingLabel}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </aside>
+              ) : null}
+              <div className="panel-stack full-panel">
+                <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>
+                  <EditorSurface
+                    key={editorSessionKey}
+                    value={markdownText}
+                    onChange={(nextMarkdown) => {
+                      invalidateEditorSearch()
+                      setMarkdownText(nextMarkdown)
+                    }}
+                    editorRef={editorRef}
+                    onReady={(editor) => {
+                      if (shouldCanonicalizeLoadedBaselineRef.current) {
+                        const canonicalMarkdown = editor.getMarkdown()
+                        shouldCanonicalizeLoadedBaselineRef.current = false
+                        persistedMarkdownRef.current = canonicalMarkdown
+                        setPersistedMarkdown(canonicalMarkdown)
+                        setMarkdownText(canonicalMarkdown)
+                      }
+
+                      syncActiveOutlineLine(editor)
+
+                      if (!pendingSearchJump) {
+                        return
+                      }
+
+                      selectSpanInEditor(editor, pendingSearchJump)
+                      setPendingSearchJump(null)
+                    }}
+                    onSelectionChange={syncActiveOutlineLine}
+                  />
                 </div>
-              )}
-            </aside>
-            <div className="panel editor-panel full-panel">
-              <EditorSurface
-                key={editorSessionKey}
-                value={markdownText}
-                onChange={(nextMarkdown) => {
-                  invalidateEditorSearch()
-                  setMarkdownText(nextMarkdown)
-                }}
-                editorRef={editorRef}
-                onReady={(editor) => {
-                  if (shouldCanonicalizeLoadedBaselineRef.current) {
-                    const canonicalMarkdown = editor.getMarkdown()
-                    shouldCanonicalizeLoadedBaselineRef.current = false
-                    persistedMarkdownRef.current = canonicalMarkdown
-                    setPersistedMarkdown(canonicalMarkdown)
-                    setMarkdownText(canonicalMarkdown)
-                  }
+                <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
+                  <div ref={previewRootRef} className="preview-scroll compact-preview">
+                    {segments.map((segment, index) => {
+                      if (segment.type === 'markdown') {
+                        return (
+                          <section
+                            key={`md-${index}`}
+                            className="markdown-fragment"
+                            dangerouslySetInnerHTML={{
+                              __html: renderMarkdownSegment(segment.value),
+                            }}
+                          />
+                        )
+                      }
 
-                  if (!pendingSearchJump) {
-                    return
-                  }
+                      const Renderer =
+                        rendererRegistry.get(segment.language) ?? DefaultCodeBlock
 
-                  selectSpanInEditor(editor, pendingSearchJump)
-                  setPendingSearchJump(null)
-                }}
-              />
-            </div>
-          </div>
-        ) : null}
-
-        {activePanel === 'preview' ? (
-          <div className="single-panel">
-            <div className="panel preview-panel full-panel">
-              <div ref={previewRootRef} className="preview-scroll compact-preview">
-                {segments.map((segment, index) => {
-                  if (segment.type === 'markdown') {
-                    return (
-                      <section
-                        key={`md-${index}`}
-                        className="markdown-fragment"
-                        dangerouslySetInnerHTML={{
-                          __html: renderMarkdownSegment(segment.value),
-                        }}
-                      />
-                    )
-                  }
-
-                  const Renderer =
-                    rendererRegistry.get(segment.language) ?? DefaultCodeBlock
-
-                  return (
-                    <Renderer
-                      key={`code-${index}`}
-                      code={segment.code}
-                      language={segment.language}
-                      theme={resolvedTheme}
-                    />
-                  )
-                })}
+                      return (
+                        <Renderer
+                          key={`code-${index}`}
+                          code={segment.code}
+                          language={segment.language}
+                          theme={resolvedTheme}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        ) : null}
+
+          <aside
+            className={isAssistantDockOpen ? 'assistant-dock panel' : 'assistant-dock panel assistant-dock-hidden'}
+            aria-label={t.chat.title}
+            aria-hidden={!isAssistantDockOpen}
+            hidden={!isAssistantDockOpen}
+          >
+            <ChatApp
+              variant="dock"
+              autoFocusNonce={assistantFocusNonce}
+              onRequestClose={() => {
+                closeAssistantDock()
+              }}
+            />
+          </aside>
+        </div>
 
         <div className="statusbar">
           <span>{t.app.statusbarHelp}</span>

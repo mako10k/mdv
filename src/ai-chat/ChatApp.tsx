@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useDesktopTheme } from '../shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 import ChatMarkdown from './ChatMarkdown'
+
+type ChatAppProps = {
+  variant?: 'window' | 'dock'
+  autoFocusNonce?: number
+  onRequestClose?: () => void
+}
 
 type ContextAttachmentKind = 'editor' | 'document' | 'selection'
 
@@ -34,11 +40,22 @@ type Message = MdvAiChatMessage & {
   id: string
   contextAttachments?: ContextAttachment[]
   excludeFromModel?: boolean
+  isStreaming?: boolean
 }
 
 type ExternalAnchor = {
   href: string
   hostname: string
+}
+
+type StatusToastTone = 'info' | 'success' | 'error' | 'progress'
+
+type StatusToast = {
+  id: string
+  text: string
+  tone: StatusToastTone
+  sticky: boolean
+  slot: string | null
 }
 
 function createInitialMessages(welcome: string): Message[] {
@@ -370,21 +387,28 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
   }
 }
 
-function ChatApp() {
+function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatAppProps) {
   const { resolvedTheme } = useDesktopTheme()
   const { t } = useI18n()
   const i18nRef = useRef(t)
+  const rootRef = useRef<HTMLElement | null>(null)
   const transcriptRef = useRef<HTMLElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const forceScrollOnNextRenderRef = useRef(false)
+  const activeRequestIdRef = useRef<string | null>(null)
+  const activeAssistantMessageIdRef = useRef<string | null>(null)
+  const pendingAssistantDeltaRef = useRef('')
+  const pendingAssistantDeltaTimerRef = useRef<number | null>(null)
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
   const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
-  const [statusText, setStatusText] = useState<string>(t.chat.statusBase)
+  const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
   const [isSending, setIsSending] = useState(false)
   const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
   const inlineAttachmentTokenBudgetRef = useRef(inlineAttachmentTokenBudget)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
+  const statusToastTimersRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     i18nRef.current = t
@@ -392,8 +416,20 @@ function ChatApp() {
   })
 
   useEffect(() => {
+    if (variant !== 'window') {
+      return
+    }
+
     document.title = `MDV ${t.chat.title}`
-  }, [t])
+  }, [t, variant])
+
+  useEffect(() => {
+    if (variant !== 'dock' || autoFocusNonce <= 0) {
+      return
+    }
+
+    composerRef.current?.focus({ preventScroll: true })
+  }, [variant, autoFocusNonce])
 
   useEffect(() => {
     let active = true
@@ -413,7 +449,9 @@ function ChatApp() {
 
       localeRef.current = nextSettings.general.locale
       const nextTranslations = getTranslations(nextSettings.general.locale)
-      setStatusText(nextTranslations.chat.statusBase)
+      statusToastTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+      statusToastTimersRef.current.clear()
+      setStatusToasts([])
       setMessages((currentMessages) => currentMessages.map((message) => ({
         ...message,
         content: message.id === 'assistant-welcome' ? nextTranslations.chat.welcome : message.content,
@@ -441,12 +479,220 @@ function ChatApp() {
     setMessages((currentMessages) => [...currentMessages, message])
   }
 
+  const clearStatusToastTimer = (toastId: string) => {
+    const timerId = statusToastTimersRef.current.get(toastId)
+
+    if (timerId === undefined) {
+      return
+    }
+
+    window.clearTimeout(timerId)
+    statusToastTimersRef.current.delete(toastId)
+  }
+
+  const dismissStatusToast = (toastId: string) => {
+    clearStatusToastTimer(toastId)
+    setStatusToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== toastId))
+  }
+
+  const clearStatusToastSlot = (slot: string) => {
+    setStatusToasts((currentToasts) => {
+      currentToasts.forEach((toast) => {
+        if (toast.slot === slot) {
+          clearStatusToastTimer(toast.id)
+        }
+      })
+
+      return currentToasts.filter((toast) => toast.slot !== slot)
+    })
+  }
+
+  const showStatusToast = (text: string, options?: { tone?: StatusToastTone, sticky?: boolean, durationMs?: number, slot?: string }) => {
+    const tone = options?.tone ?? 'info'
+    const sticky = options?.sticky ?? false
+    const durationMs = options?.durationMs ?? (tone === 'error' ? 5200 : 3200)
+    const toast: StatusToast = {
+      id: crypto.randomUUID(),
+      text,
+      tone,
+      sticky,
+      slot: options?.slot ?? null,
+    }
+
+    setStatusToasts((currentToasts) => {
+      const nextToasts = currentToasts.filter((currentToast) => {
+        if (toast.slot && currentToast.slot === toast.slot) {
+          clearStatusToastTimer(currentToast.id)
+          return false
+        }
+
+        return true
+      })
+
+      return [...nextToasts, toast].slice(-4)
+    })
+
+    if (!sticky) {
+      const timerId = window.setTimeout(() => {
+        dismissStatusToast(toast.id)
+      }, durationMs)
+      statusToastTimersRef.current.set(toast.id, timerId)
+    }
+  }
+
+  const updateMessage = (messageId: string, updater: (message: Message) => Message, options?: { forceScroll?: boolean }) => {
+    forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
+    setMessages((currentMessages) => currentMessages.map((message) => (message.id === messageId ? updater(message) : message)))
+  }
+
+  const appendToolMessage = (message: Message, options?: { forceScroll?: boolean }) => {
+    forceScrollOnNextRenderRef.current = options?.forceScroll ?? false
+    setMessages((currentMessages) => {
+      const assistantMessageId = activeAssistantMessageIdRef.current
+
+      if (!assistantMessageId) {
+        return [...currentMessages, message]
+      }
+
+      const assistantMessage = currentMessages.find((entry) => entry.id === assistantMessageId) ?? null
+      const nextMessages = assistantMessage
+        ? currentMessages.filter((entry) => entry.id !== assistantMessageId)
+        : currentMessages
+
+      if (!assistantMessage) {
+        return [...nextMessages, message]
+      }
+
+      return [...nextMessages, message, assistantMessage]
+    })
+  }
+
+  const flushPendingAssistantDelta = (options?: { forceScroll?: boolean }) => {
+    const assistantMessageId = activeAssistantMessageIdRef.current
+    const nextDelta = pendingAssistantDeltaRef.current
+
+    if (!assistantMessageId || nextDelta.length === 0) {
+      return
+    }
+
+    pendingAssistantDeltaRef.current = ''
+    updateMessage(assistantMessageId, (message) => ({
+      ...message,
+      content: message.content + nextDelta,
+    }), options)
+  }
+
+  const schedulePendingAssistantDeltaFlush = () => {
+    if (pendingAssistantDeltaTimerRef.current !== null) {
+      return
+    }
+
+    pendingAssistantDeltaTimerRef.current = window.setTimeout(() => {
+      pendingAssistantDeltaTimerRef.current = null
+      flushPendingAssistantDelta({ forceScroll: shouldStickToBottomRef.current })
+    }, 40)
+  }
+
+  const handleAiChatStreamEvent = useEffectEvent((event: MdvAiChatStreamEvent) => {
+    if (event.requestId !== activeRequestIdRef.current) {
+      return
+    }
+
+    if (event.type === 'text-delta') {
+      if (event.delta.length === 0) {
+        return
+      }
+
+      pendingAssistantDeltaRef.current += event.delta
+      schedulePendingAssistantDeltaFlush()
+      return
+    }
+
+    if (pendingAssistantDeltaTimerRef.current !== null) {
+      window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+      pendingAssistantDeltaTimerRef.current = null
+    }
+
+    flushPendingAssistantDelta({ forceScroll: true })
+
+    if (event.type === 'tool-event') {
+      appendToolMessage({
+        id: crypto.randomUUID(),
+        role: 'tool',
+        title: event.title,
+        content: event.content,
+      }, { forceScroll: true })
+      return
+    }
+
+    const assistantMessageId = activeAssistantMessageIdRef.current
+
+    if (event.type === 'completed') {
+      if (assistantMessageId) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          title: event.model,
+          content: event.reply,
+          isStreaming: false,
+        }), { forceScroll: true })
+      }
+
+      activeRequestIdRef.current = null
+      activeAssistantMessageIdRef.current = null
+      setIsSending(false)
+      clearStatusToastSlot('request')
+      showStatusToast(t.chat.status.assistantReplied(event.model), { tone: 'success' })
+      return
+    }
+
+    if (assistantMessageId) {
+      updateMessage(assistantMessageId, (message) => ({
+        ...message,
+        title: 'openai error',
+        content: event.error,
+        excludeFromModel: true,
+        isStreaming: false,
+      }), { forceScroll: true })
+    } else {
+      appendMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        title: 'openai error',
+        content: event.error,
+        excludeFromModel: true,
+      }, { forceScroll: true })
+    }
+
+    activeRequestIdRef.current = null
+    activeAssistantMessageIdRef.current = null
+    setIsSending(false)
+    clearStatusToastSlot('request')
+    showStatusToast(t.chat.status.openAiRequestFailed, { tone: 'error' })
+  })
+
+  useEffect(() => {
+    const unsubscribe = window.mdvDesktop?.onAiChatStreamEvent((event) => {
+      handleAiChatStreamEvent(event)
+    })
+
+    return () => {
+      unsubscribe?.()
+
+      if (pendingAssistantDeltaTimerRef.current !== null) {
+        window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+        pendingAssistantDeltaTimerRef.current = null
+      }
+
+      pendingAssistantDeltaRef.current = ''
+    }
+  }, [])
+
   const queueContextAttachment = (attachment: ContextAttachment) => {
     setPendingContexts((currentContexts) => {
       const nextContexts = currentContexts.filter((item) => item.kind !== attachment.kind)
       return [...nextContexts, attachment]
     })
-    setStatusText(t.chat.status.contextQueued(attachment.label))
+    showStatusToast(t.chat.status.contextQueued(attachment.label))
   }
 
   const removePendingContext = (attachmentId: string) => {
@@ -456,7 +702,7 @@ function ChatApp() {
     })
 
     if (hasTarget) {
-      setStatusText(t.chat.status.pendingContextRemoved)
+      showStatusToast(t.chat.status.pendingContextRemoved)
     }
   }
 
@@ -466,10 +712,30 @@ function ChatApp() {
     }
 
     setPendingContexts([])
-    setStatusText(t.chat.status.pendingContextCleared)
+    showStatusToast(t.chat.status.pendingContextCleared)
   }
 
+  const handleExternalLinkResult = useEffectEvent((result: { status: 'opened' | 'cancelled' | 'blocked' } | null | undefined, hostname: string) => {
+    if (!result || result.status === 'opened') {
+      showStatusToast(i18nRef.current.chat.status.openedLink(hostname))
+      return
+    }
+
+    if (result.status === 'cancelled') {
+      showStatusToast(i18nRef.current.chat.status.cancelledExternalLink)
+      return
+    }
+
+    showStatusToast(i18nRef.current.chat.status.blockedExternalLink, { tone: 'error' })
+  })
+
   useEffect(() => {
+    const root = rootRef.current
+
+    if (!root) {
+      return
+    }
+
     const handleDocumentClick = (event: MouseEvent) => {
       const anchor = resolveExternalAnchor(event.target)
 
@@ -479,24 +745,14 @@ function ChatApp() {
 
       event.preventDefault()
       void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
-        if (!result || result.status === 'opened') {
-          setStatusText(i18nRef.current.chat.status.openedLink(anchor.hostname))
-          return
-        }
-
-        if (result.status === 'cancelled') {
-          setStatusText(i18nRef.current.chat.status.cancelledExternalLink)
-          return
-        }
-
-        setStatusText(i18nRef.current.chat.status.blockedExternalLink)
+        handleExternalLinkResult(result, anchor.hostname)
       })
     }
 
-    document.addEventListener('click', handleDocumentClick, true)
+    root.addEventListener('click', handleDocumentClick, true)
 
     return () => {
-      document.removeEventListener('click', handleDocumentClick, true)
+      root.removeEventListener('click', handleDocumentClick, true)
     }
   }, [])
 
@@ -539,9 +795,10 @@ function ChatApp() {
   }, [])
 
   const handleRefreshContext = () => {
-    setStatusText(t.chat.status.readingEditorContext)
+    showStatusToast(t.chat.status.readingEditorContext, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.getAiChatContext()
       .then((context) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('editor', {
           detail: formatContext(context ?? null, t.chat, t.common),
           detailContext: context ?? null,
@@ -551,7 +808,8 @@ function ChatApp() {
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
-        setStatusText(t.chat.status.contextFailed)
+        clearStatusToastSlot('context')
+        showStatusToast(t.chat.status.contextFailed, { tone: 'error' })
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -563,9 +821,10 @@ function ChatApp() {
   }
 
   const handleReadDocument = () => {
-    setStatusText(t.chat.status.readingActiveDocument)
+    showStatusToast(t.chat.status.readingActiveDocument, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.readAiActiveDocument()
       .then((payload) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('document', {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
@@ -577,6 +836,7 @@ function ChatApp() {
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
+        clearStatusToastSlot('context')
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -584,14 +844,15 @@ function ChatApp() {
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText(t.chat.status.readFailed)
+        showStatusToast(t.chat.status.readFailed, { tone: 'error' })
       })
   }
 
   const handleReadSelection = () => {
-    setStatusText(t.chat.status.readingSelection)
+    showStatusToast(t.chat.status.readingSelection, { slot: 'context', sticky: true, tone: 'progress' })
     void window.mdvDesktop?.readAiActiveSelection()
       .then((payload) => {
+        clearStatusToastSlot('context')
         queueContextAttachment(createContextAttachment('selection', {
           detail: payload?.text ?? '',
           editorId: payload?.editorId ?? 'editor:active',
@@ -603,6 +864,7 @@ function ChatApp() {
         }, inlineAttachmentTokenBudget))
       })
       .catch((error: unknown) => {
+        clearStatusToastSlot('context')
         appendMessage({
           id: crypto.randomUUID(),
           role: 'tool',
@@ -610,7 +872,7 @@ function ChatApp() {
           content: toErrorMessage(error),
           excludeFromModel: true,
         })
-        setStatusText(t.chat.status.selectionFailed)
+        showStatusToast(t.chat.status.selectionFailed, { tone: 'error' })
       })
   }
 
@@ -631,47 +893,51 @@ function ChatApp() {
       content: trimmedMessage,
       contextAttachments: pendingContexts,
     }
-    const nextMessages = [...messages, userMessage]
+    const requestId = crypto.randomUUID()
+    const assistantMessageId = crypto.randomUUID()
+    const assistantPlaceholder: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+    }
+    const nextMessages = [...messages, userMessage, assistantPlaceholder]
 
     forceScrollOnNextRenderRef.current = true
     setMessages(nextMessages)
     setComposerText('')
     setPendingContexts([])
     setIsSending(true)
-    setStatusText(t.chat.status.sendingToOpenAi)
+    showStatusToast(t.chat.status.sendingToOpenAi, { slot: 'request', sticky: true, tone: 'progress' })
+    activeRequestIdRef.current = requestId
+    activeAssistantMessageIdRef.current = assistantMessageId
+    pendingAssistantDeltaRef.current = ''
 
     void window.mdvDesktop?.sendAiChatMessage({
-      messages: toModelMessages(nextMessages, t.chat),
+      requestId,
+      messages: toModelMessages([...messages, userMessage], t.chat),
     })
-      .then((response) => {
-        response.toolEvents?.forEach((toolEvent) => {
-          appendMessage({
-            id: crypto.randomUUID(),
-            role: 'tool',
-            title: toolEvent.title,
-            content: toolEvent.content,
-          })
-        })
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          title: response.model,
-          content: response.reply,
-        })
-        setStatusText(t.chat.status.assistantReplied(response.model))
-      })
       .catch((error: unknown) => {
-        appendMessage({
-          id: crypto.randomUUID(),
-          role: 'assistant',
+        if (pendingAssistantDeltaTimerRef.current !== null) {
+          window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+          pendingAssistantDeltaTimerRef.current = null
+        }
+
+        pendingAssistantDeltaRef.current = ''
+
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
           title: 'openai error',
           content: toErrorMessage(error),
           excludeFromModel: true,
-        })
-        setStatusText(t.chat.status.openAiRequestFailed)
-      })
-      .finally(() => {
+          isStreaming: false,
+        }), { forceScroll: true })
+
+        activeRequestIdRef.current = null
+        activeAssistantMessageIdRef.current = null
         setIsSending(false)
+        clearStatusToastSlot('request')
+        showStatusToast(t.chat.status.openAiRequestFailed, { tone: 'error' })
       })
   }
 
@@ -693,7 +959,7 @@ function ChatApp() {
   }
 
   return (
-    <main className="ai-chat-shell">
+    <section ref={rootRef} className={`ai-chat-shell ${variant === 'dock' ? 'embedded' : 'windowed'}`}>
       <header className="ai-chat-header">
         <div>
           <p className="ai-chat-eyebrow">{t.chat.eyebrow}</p>
@@ -701,7 +967,22 @@ function ChatApp() {
           <p className="ai-chat-subtitle">{t.chat.subtitle}</p>
         </div>
         <div className="ai-chat-header-actions">
-          <span className="ai-chat-status">{statusText}</span>
+          <div className="ai-chat-toast-stack" aria-live="polite" aria-relevant="additions text">
+            {statusToasts.map((toast) => (
+              <div
+                key={toast.id}
+                className={`ai-chat-toast ai-chat-toast-${toast.tone}`}
+                role={toast.tone === 'error' ? 'alert' : 'status'}
+              >
+                {toast.text}
+              </div>
+            ))}
+          </div>
+          {variant === 'dock' && onRequestClose ? (
+            <button type="button" className="ai-chat-close-button" onClick={onRequestClose} aria-label={t.common.close} title={t.common.close}>
+              <span aria-hidden="true">×</span>
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -733,7 +1014,7 @@ function ChatApp() {
           return (
             <article
               key={message.id}
-              className={`chat-bubble ${message.role}`}
+              className={message.isStreaming ? `chat-bubble ${message.role} streaming` : `chat-bubble ${message.role}`}
             >
               {message.title ? <p className="chat-bubble-title">{message.title}</p> : null}
               {message.contextAttachments?.length ? (
@@ -745,6 +1026,7 @@ function ChatApp() {
                   ))}
                 </div>
               ) : null}
+              {message.isStreaming && message.content.trim().length === 0 ? <div className="chat-bubble-streaming-indicator" aria-hidden="true">...</div> : null}
               <ChatMarkdown markdown={message.id === 'assistant-welcome' ? t.chat.welcome : message.content} theme={resolvedTheme} />
             </article>
           )
@@ -789,6 +1071,7 @@ function ChatApp() {
         ) : null}
         <textarea
           id="ai-chat-input"
+          ref={composerRef}
           className="ai-chat-composer"
           placeholder={t.chat.messagePlaceholder}
           value={composerText}
@@ -805,7 +1088,7 @@ function ChatApp() {
           </div>
         </div>
       </footer>
-    </main>
+    </section>
   )
 }
 

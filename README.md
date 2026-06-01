@@ -1,24 +1,25 @@
 # MarkDownViewer
 
-Windows で動作するシンプルな Markdown エディタです。Electron 上で動作し、WYSIWYG 編集、Markdown ソース編集、diff、patch、CodeBlock renderer 拡張を 1 つのアプリにまとめています。
+Windows で動作する Markdown ワークスペースです。Electron 上で動作し、文書編集、レンダリングプレビュー、見出しアウトライン、assistant dock、設定管理、HTML export を 1 つのアプリにまとめています。
 
 ## 特徴
 
-- 最小 UI
-- WYSIWYG / Markdown ソース切り替え
-- diff 表示と unified patch 適用
+- Markdown 編集とレンダリングプレビュー
+- 見出しアウトラインとエディタ内検索
+- assistant dock と editor context 添付
 - ドラッグアンドドロップでファイル読込
-- Open / Save / Save As
+- Open / Save / Save As / Print / HTML Export
 - fenced code block の renderer 差し替え
 - Windows 向け standalone 配布
 
 ## 画面構成
 
-- Write: 編集画面
-- Preview: Markdown プレビュー
-- Diff: baseline と現在文書の差分、および patch 適用
+- Editor window: 見出しアウトライン、エディタ、プレビュー、assistant dock をまとめた主画面
+- Assistant dock: editor context を添付して assistant とやり取りする統合面
+- Settings window: theme、locale、AI provider、安全設定を管理する補助画面
+- Fetch permissions window: guarded fetch の ACL と timeout を管理する補助画面
 
-上部ツールバーだけを残し、余白を削って編集領域を優先しています。
+現行 UI の棚卸しと、後方互換なしの再設計案は [docs/ui-reset-and-html-safety-review.md](docs/ui-reset-and-html-safety-review.md) を参照してください。
 
 ## 開発
 
@@ -71,6 +72,30 @@ AI chat の runtime 前提:
 npm run build
 ```
 
+E2E 回帰テスト:
+
+```bash
+npm test
+
+# 既に browser を導入済みならこちらでも可
+npm run test:e2e:install
+npm run test:e2e
+
+# Electron 統合面を直接見る
+npm run test:e2e:electron
+
+# release workflow の node test
+npm run test:release
+```
+
+`npm test` は必要な Chromium を確認してから、この suite を実行します。suite 自体は毎回 production build を作ってから preview server を起動し、その renderer に対して回帰確認を行います。
+
+ブラウザを開いて確認したいとき:
+
+```bash
+npm run test:e2e:headed
+```
+
 mdast 単体の確認:
 
 ```bash
@@ -88,15 +113,23 @@ Windows ホスト build 補助スクリプト:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w ./scripts/build-win-host.ps1)"
 ```
 
-`bash ./scripts/build-win-host.sh` 経由の host build は、packaged/unpacked を問わず UAC 昇格を要求します。PowerShell スクリプト直呼びと `noadmin` 系コマンドは昇格なしで実行します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。成果物は `release/windows-host` へ戻します。
-また、実行用コピーを Windows ローカルパス `%LOCALAPPDATA%\MarkDownViewer\latest` に配置します。`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
+`bash ./scripts/build-win-host.sh` 経由の host build は、packaged/unpacked を問わず UAC 昇格を要求します。PowerShell スクリプト直呼びと `noadmin` 系コマンドは昇格なしで実行します。Windows 側の一時ディレクトリへソースをコピーし、互換 Node.js を用意して native build します。
 
-Windows host build mode:
+Windows host workflow は後方互換なしで次の 3 段階に分離しています。
 
-- `full`: 一時 workspace の作り直し、依存関係の再導入、成果物コピー先の作り直しを行う安全優先モード
-- `diff`: 一時 workspace と依存関係を再利用し、stage 先へ差分同期したあと成功時だけ live 出力へ入れ替える高速化モード
+- `generate`: 現在の source から candidate artifact を `release/windows-host-candidate` へ生成する。canonical release artifact は触らない。
+- `deploy`: 指定した artifact source の `win-unpacked` を `%LOCALAPPDATA%\MarkDownViewer\latest` へ配置する。既存 canonical artifact をそのまま配る用途を含む。
+- `promote`: candidate artifact を `release/windows-host` へ昇格する。canonical release artifact を更新できるのはこの操作だけ。
 
-`diff` は true binary patch ではありません。Electron / `app.asar` / `MarkDownViewer.exe` に対して部分パッチを当てるのではなく、Windows ホスト build の作業領域を再利用しつつ、出力は staged incremental sync のあと live ディレクトリへ swap するモードです。
+`\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
+
+Windows host actions:
+
+- `generate`: candidate artifact を生成する
+- `deploy`: candidate または canonical artifact から local runnable copy を更新する
+- `promote`: candidate artifact を canonical release artifact に昇格する
+
+`generate` は build 作業領域を再利用します。依存関係や temp workspace を作り直したいときは `generate:clean` を使います。
 
 Portable build:
 
@@ -119,41 +152,52 @@ npm run dist:win
 Windows host build from WSL:
 
 ```bash
-npm run dist:win:host
+npm run win:host:generate
 ```
 
-既定の Windows host build は `win-unpacked` を作ったあと、その編集済み実行ファイルから portable と installer の両方を再パッケージします。
+既定の Windows host generate は `win-unpacked` を作ったあと、その編集済み実行ファイルから portable と installer の両方を再パッケージし、candidate artifact として保持します。
 
-明示的に full rebuild する場合:
+安全側に temp workspace を作り直す場合:
 
 ```bash
-npm run dist:win:host:full
+npm run win:host:generate:clean
 ```
 
-差分同期ベースの高速化モード:
+candidate を Windows ローカルへ配置して動作確認する場合:
 
 ```bash
-npm run dist:win:host:diff
+npm run win:host:deploy:candidate
 ```
 
-昇格なしで直接試す場合:
+`generate:unpacked` 系で作った candidate は local validation 用です。`promote` は portable、installer、blockmap、win-unpacked がそろった candidate だけを受け付けます。
+
+既存の canonical release artifact を Windows ローカルへ配置する場合:
 
 ```bash
-npm run dist:win:host:noadmin
+npm run win:host:deploy
 ```
 
-昇格なしの明示モード:
+candidate を canonical release artifact に昇格する場合:
 
 ```bash
-npm run dist:win:host:noadmin:full
-npm run dist:win:host:noadmin:diff
+npm run win:host:promote
 ```
 
 unpacked のみ欲しい場合:
 
 ```bash
-npm run dist:win:host:unpacked
-npm run dist:win:host:noadmin:unpacked
+npm run win:host:generate:unpacked
+npm run win:host:generate:unpacked:noadmin
+```
+
+昇格なしの明示モード:
+
+```bash
+npm run win:host:generate:noadmin
+npm run win:host:generate:clean:noadmin
+npm run win:host:deploy:noadmin
+npm run win:host:deploy:candidate:noadmin
+npm run win:host:promote:noadmin
 ```
 
 unpacked build:
@@ -167,28 +211,57 @@ npm run dist:win:dir
 - portable: `release/portable/*.exe`
 - installer: `release/installer/*.exe`
 - unpacked: `release/win-unpacked/MarkDownViewer.exe`
-- Windows host portable: `release/windows-host/portable/*.exe`
-- Windows host installer: `release/windows-host/installer/*.exe`
-- Windows host recovered build: `release/windows-host/win-unpacked/MarkDownViewer.exe`
+- Windows host candidate portable: `release/windows-host-candidate/portable/*.exe`
+- Windows host candidate installer: `release/windows-host-candidate/installer/*.exe`
+- Windows host candidate unpacked: `release/windows-host-candidate/win-unpacked/MarkDownViewer.exe`
+- Windows host canonical portable: `release/windows-host/portable/*.exe`
+- Windows host canonical installer: `release/windows-host/installer/*.exe`
+- Windows host canonical unpacked: `release/windows-host/win-unpacked/MarkDownViewer.exe`
 - local runnable copy: `%LOCALAPPDATA%\MarkDownViewer\latest\MarkDownViewer.exe`
 - runtime log: `%APPDATA%\MarkDownViewer\logs\mdv.log`
 
 注意:
 
 - portable の単一 EXE 化は、Windows 側で symlink 展開権限が無いと `winCodeSign` 展開時に失敗することがあります。
-- NSIS installer も Windows 側のパッケージング環境に依存するため、配布物が欠けるときはまず `release/windows-host/installer` の生成有無を確認してください。
+- NSIS installer も Windows 側のパッケージング環境に依存するため、配布物が欠けるときはまず `release/windows-host-candidate/installer` の生成有無を確認してください。
 - その場合でも `win-unpacked` は生成されるため、standalone アプリとしては利用できます。
 - `\\wsl.localhost\...` の UNC パス上の exe は GPU subprocess 起動に失敗することがあるため、Windows ローカルへコピーされた exe を起動してください。
 - Windows の packaged binary は 2 回目以降の起動で既存 process を再利用しつつ、新しい editor window を追加で開きます。
 - 白画面や起動失敗のときは `%APPDATA%\MarkDownViewer\logs\mdv.log` を確認してください。
-- `diff` は staged incremental sync なので、Node.js バージョン変更、依存関係崩れ、成果物不整合が疑わしいときは `full` を使ってください。
+- `generate:clean` は temp workspace と依存関係を作り直すので、Node.js バージョン変更、依存関係崩れ、成果物不整合が疑わしいときに使ってください。
+
+## バージョン管理
+
+- 正規のアプリバージョンは `package.json` の `version` だけを使います。Windows 配布物や実行ファイル名はここから派生させ、別管理のバージョン番号は持ちません。
+- バージョニングは SemVer ベースですが、`1.0.0` までは `0.y.z` を使います。
+- `0.y.0` は user-visible な機能追加、大きな UX 変更、互換性に影響しうる挙動変更、永続 workflow や契約変更に使います。
+- `0.y.z` の patch はバグ修正、UI 調整、配布物再生成、packaging/runtime 修正など、同じ feature line の中で閉じる変更に使います。
+- 同じ source commit 系列を再 packaging しただけで tracked binary だけが更新された場合は、意図した配布ラインが変わらない限り version は据え置きにします。
+- 外向けの binary release は、1 つの release commit、同じ version の annotated tag `vX.Y.Z`、その commit から生成した配布物を 1 組として扱います。
+- tag だけを先に切ったり、既存 tag のまま配布物だけ差し替えたりしません。tag がない build は検証用または内部 packaging refresh であり、正式 release とは扱いません。
+- `1.0.0` は、設定保存、ファイル入出力、AI tool contract など主要な互換性ルールを明示して守る段階に入るまで予約します。
+
+リリースを切るときの手順:
+
+1. `package.json` の `version` を bump する。
+2. `npm run lint && npm run build` を通す。
+3. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
+4. 必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
+5. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
+6. version bump と対応する Windows artifact を同じ release slice として commit する。
+7. その release commit を `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
+8. 作成した tag を remote へ push してから GitHub Release を作る。
+9. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+10. tag 作成直前は `npm run release:check` を通し、GitHub Release は `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` から行う。
+
+通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` と `docs/release-workflow.md` を参照してください。
 
 ## ファイル操作
 
 - Open: ファイル選択ダイアログから読込
 - Save: 現在のパスに保存
 - Save As: 保存先を選んで保存
-- Drag and Drop: `.md` / `.markdown` / `.txt` を直接読込
+- Drag and Drop: `.md` / `.markdown` / `.txt` を直接読込。画像ファイルのドロップまたは貼り付けはドキュメント横の `assets/` へ取り込んで相対参照を挿入
 
 ## CodeBlock 拡張
 
@@ -203,8 +276,11 @@ registry.set('mermaid', MermaidBlock)
 ## 設計メモ
 
 - [docs/ai-chat-design.md](docs/ai-chat-design.md): AI チャット window、tool bridge、OpenAI 連携の設計
-- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット実装タスクの分解と着手順
+- [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
+- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計
+- [docs/ui-reset-and-html-safety-review.md](docs/ui-reset-and-html-safety-review.md): HTML 安全性の実装監査と UI 全体の再設計案
+- [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md): UI 情報設計リセット方針の決定
 
 ## 主要ファイル
 
