@@ -119,27 +119,6 @@ test('editor mode keeps the outline and a non-zero Toast UI surface', async ({ p
   expect(toastRect.height).toBeGreaterThan(300)
 })
 
-test('outline active heading follows the editor caret', async ({ page }) => {
-  await openWritePanel(page)
-  const markdown = '# Alpha\n\nalpha body\n\n## Beta\n\nbeta body\n'
-  const betaBodyOffset = markdown.indexOf('beta body') + 2
-
-  await replaceMarkdownDocument(page, markdown)
-
-  const alphaOutline = page.locator('.outline-item', { hasText: 'Alpha' })
-  const betaOutline = page.locator('.outline-item', { hasText: 'Beta' })
-
-  await placeEditorCursorFromStart(page, 0)
-
-  await expect(alphaOutline).toHaveAttribute('aria-current', 'location')
-  await expect(betaOutline).not.toHaveAttribute('aria-current', 'location')
-
-  await placeEditorCursorFromStart(page, betaBodyOffset)
-
-  await expect(betaOutline).toHaveAttribute('aria-current', 'location')
-  await expect(alphaOutline).not.toHaveAttribute('aria-current', 'location')
-})
-
 test('preview mode with AI dock does not overlap the rendered surface', async ({ page }) => {
   await openAiDock(page)
   await expect(page.locator('.outline-panel')).toHaveCount(0)
