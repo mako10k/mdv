@@ -882,6 +882,7 @@ main process から assistant surface へ送るイベント:
 注記:
 
 - 現行実装の `sendChatMessage` は `requestId` 付き dispatch ack を返した後に `ai-chat-stream-event` で text delta / tool event / completed / failed を段階配送する
+- `tool-event` は `phase: call | result` を含み、renderer は title 文字列ではなく phase で tool 呼び出し中と tool 結果反映中を切り替える
 - これにより、assistant bubble 単位の先行生成、text chunk 単位の追記、tool event の途中表示を既存 Electron IPC 上で扱う
 - `cancelChatRequest` は現時点では未実装であり、上記 stream 契約に対する将来拡張として扱う
 

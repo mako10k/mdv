@@ -23,6 +23,7 @@
 - preview 優先の panel semantics、outline 表示条件、assistant dock の重なり問題を修正
 - Playwright による主要 UI レイアウト回帰テストを導入
 - local exact find/replace、replace all、match case / regexp / 選択範囲オプション、検索結果ジャンプ回帰を実装
+- autosave、crash recovery、復元提案、stale recovery cleanup を実装し、Electron E2E で固定
 
 このため、以後のバックログは「assistant を成立させるための初期土台」ではなく、「製品として何を次に良くするか」で切る。
 
@@ -30,14 +31,14 @@
 
 ### P0 Editor Core
 
-1. MD-BL-003 Autosave / Crash Recovery
-2. MD-BL-002 見出しアウトライン追従強化
+1. MD-BL-002 見出しアウトライン追従強化
 
 理由:
 
 - Markdown エディタとしての日常使用に直結する
 - AI 依存なしに価値が伝わる
 - 現在の viewer-first UI と矛盾しない
+- autosave / recovery はこの束から完了扱いへ移したため、P0 は構造ナビの追従性強化に絞る
 
 詳細は [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md) を参照する。
 
@@ -100,6 +101,8 @@
 実装メモ:
 
 - 上の 4 項目は望ましい分解であり、厳密な waterfall ではない
+- AI-RT-003 は first slice として段階反映を導入済みで、assistant bubble に preparing / tool / streaming phase を表示する
+- AI-RT-004 は first slice として streaming 中の Markdown render を deferred に切り替えており、残件は flush cadence と重い transcript 条件での tuning である
 - transport を SSE、WS、あるいは現行 main process 経路の streaming 再編で解くかは実装時に決めてよい
 - UI と renderer 負荷の見合いが取れるなら、AI-RT-001 から AI-RT-004 をまとめて一気に進めてもよい
 
@@ -166,16 +169,15 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 
 ## Recommended Execution Order
 
-1. MD-BL-003 Autosave / Crash Recovery
-2. MD-BL-002 見出しアウトライン追従強化
-3. AI-P1 Response UX
-4. MD-BL-004, MD-BL-005, MD-BL-012
-5. MD-BL-006, MD-BL-007
-6. MD-BL-013, MD-BL-014, MD-BL-008
-7. AI-P2 の再分解と tool surface 残件の整理
-8. AI-P3 context management
-9. AI-CM context lifecycle
-10. AI-P4 subagent orchestration
+1. MD-BL-002 見出しアウトライン追従強化
+2. AI-P1 Response UX
+3. MD-BL-004, MD-BL-005, MD-BL-012
+4. MD-BL-006, MD-BL-007
+5. MD-BL-013, MD-BL-014, MD-BL-008
+6. AI-P2 の再分解と tool surface 残件の整理
+7. AI-P3 context management
+8. AI-CM context lifecycle
+9. AI-P4 subagent orchestration
 
 注記:
 

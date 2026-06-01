@@ -1839,6 +1839,28 @@ function App() {
   }, [visibleDisplayTitle])
 
   useEffect(() => {
+    window.mdvDesktop?.debug?.notify('workspace-ready', {
+      activePanel,
+      displayTitle,
+      hasInitialLaunchRequest: bootstrap?.hasInitialLaunchRequest ?? false,
+    })
+  }, [activePanel, bootstrap?.hasInitialLaunchRequest, displayTitle])
+
+  useEffect(() => {
+    if (!isInitialLaunchOpenSettled || !isStartupRecoveryResolved) {
+      return
+    }
+
+    window.mdvDesktop?.debug?.notify('workspace-interactive', {
+      activePanel,
+      currentFilePath,
+      hasUnsavedChanges,
+      isAssistantDockOpen,
+      isPlaceholderDocument,
+    })
+  }, [activePanel, currentFilePath, hasUnsavedChanges, isAssistantDockOpen, isInitialLaunchOpenSettled, isPlaceholderDocument, isStartupRecoveryResolved])
+
+  useEffect(() => {
     void window.mdvDesktop?.trackCurrentFile(currentFilePath)
 
     return () => {

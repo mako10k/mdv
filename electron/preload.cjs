@@ -91,6 +91,9 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   writeAiTarget: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-target', payload),
   listAiBuffers: () => ipcRenderer.invoke('mdv:ai-chat-list-buffers'),
   sendAiChatMessage: (payload) => ipcRenderer.invoke('mdv:ai-chat-send-message', payload),
+  debug: {
+    notify: (type, payload) => ipcRenderer.send('mdv:debug-channel-notify', { type, payload }),
+  },
   onAiChatStreamEvent: (callback) => {
     aiChatStreamListeners.add(callback)
 

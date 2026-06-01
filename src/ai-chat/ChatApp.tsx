@@ -41,6 +41,8 @@ type Message = MdvAiChatMessage & {
   contextAttachments?: ContextAttachment[]
   excludeFromModel?: boolean
   isStreaming?: boolean
+  streamPhase?: 'preparing' | 'streaming' | 'tool-call' | 'tool-result'
+  streamDetail?: string | null
 }
 
 type ExternalAnchor = {
@@ -217,6 +219,56 @@ function isLikelyJsonLike(text: string): boolean {
 
   const trimmed = text.trim()
   return trimmed.startsWith('{') || trimmed.startsWith('[')
+}
+
+function humanizeToolTitle(title: string): string {
+  return title.replace(/[_-]+/g, ' ').trim()
+}
+
+function parseToolEventTitle(title: string): { toolName: string; stage: 'call' | 'result' | null } {
+  const trimmed = title.trim()
+
+  if (trimmed.endsWith(' call')) {
+    return {
+      toolName: trimmed.slice(0, -5),
+      stage: 'call',
+    }
+  }
+
+  if (trimmed.endsWith(' result')) {
+    return {
+      toolName: trimmed.slice(0, -7),
+      stage: 'result',
+    }
+  }
+
+  return {
+    toolName: trimmed,
+    stage: null,
+  }
+}
+
+function formatStreamingPhase(
+  message: Message,
+  chatText: ReturnType<typeof useI18n>['t']['chat'],
+): string | null {
+  if (!message.isStreaming || !message.streamPhase) {
+    return null
+  }
+
+  if (message.streamPhase === 'preparing') {
+    return chatText.streaming.preparing
+  }
+
+  if (message.streamPhase === 'tool-call') {
+    return chatText.streaming.usingTool(message.streamDetail ? humanizeToolTitle(message.streamDetail) : chatText.toolOutput)
+  }
+
+  if (message.streamPhase === 'tool-result') {
+    return chatText.streaming.applyingToolResult(message.streamDetail ? humanizeToolTitle(message.streamDetail) : chatText.toolOutput)
+  }
+
+  return chatText.streaming.streaming
 }
 
 function summarizeJsonLikeText(text: string): string | null {
@@ -400,6 +452,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const activeAssistantMessageIdRef = useRef<string | null>(null)
   const pendingAssistantDeltaRef = useRef('')
   const pendingAssistantDeltaTimerRef = useRef<number | null>(null)
+  const assistantStreamPhaseRef = useRef<Message['streamPhase'] | null>(null)
+  const assistantStreamDetailRef = useRef<string | null>(null)
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
   const [pendingContexts, setPendingContexts] = useState<ContextAttachment[]>([])
   const [composerText, setComposerText] = useState('')
@@ -567,6 +621,23 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     })
   }
 
+  const setAssistantStreamPhase = (phase: Message['streamPhase'], detail: string | null, options?: { forceScroll?: boolean }) => {
+    assistantStreamPhaseRef.current = phase ?? null
+    assistantStreamDetailRef.current = detail
+
+    const assistantMessageId = activeAssistantMessageIdRef.current
+
+    if (!assistantMessageId || !phase) {
+      return
+    }
+
+    updateMessage(assistantMessageId, (message) => ({
+      ...message,
+      streamPhase: phase,
+      streamDetail: detail,
+    }), options)
+  }
+
   const flushPendingAssistantDelta = (options?: { forceScroll?: boolean }) => {
     const assistantMessageId = activeAssistantMessageIdRef.current
     const nextDelta = pendingAssistantDeltaRef.current
@@ -603,6 +674,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         return
       }
 
+      if (assistantStreamPhaseRef.current !== 'streaming') {
+        setAssistantStreamPhase('streaming', null)
+      }
+
       pendingAssistantDeltaRef.current += event.delta
       schedulePendingAssistantDeltaFlush()
       return
@@ -616,6 +691,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     flushPendingAssistantDelta({ forceScroll: true })
 
     if (event.type === 'tool-event') {
+      const parsedTitle = parseToolEventTitle(event.title)
+      const toolName = parsedTitle.toolName
+
+      setAssistantStreamPhase(event.phase === 'result' ? 'tool-result' : 'tool-call', toolName, { forceScroll: true })
       appendToolMessage({
         id: crypto.randomUUID(),
         role: 'tool',
@@ -634,9 +713,13 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           title: event.model,
           content: event.reply,
           isStreaming: false,
+          streamPhase: undefined,
+          streamDetail: null,
         }), { forceScroll: true })
       }
 
+      assistantStreamPhaseRef.current = null
+      assistantStreamDetailRef.current = null
       activeRequestIdRef.current = null
       activeAssistantMessageIdRef.current = null
       setIsSending(false)
@@ -652,6 +735,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         content: event.error,
         excludeFromModel: true,
         isStreaming: false,
+        streamPhase: undefined,
+        streamDetail: null,
       }), { forceScroll: true })
     } else {
       appendMessage({
@@ -663,6 +748,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       }, { forceScroll: true })
     }
 
+    assistantStreamPhaseRef.current = null
+    assistantStreamDetailRef.current = null
     activeRequestIdRef.current = null
     activeAssistantMessageIdRef.current = null
     setIsSending(false)
@@ -900,6 +987,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       role: 'assistant',
       content: '',
       isStreaming: true,
+      streamPhase: 'preparing',
+      streamDetail: null,
     }
     const nextMessages = [...messages, userMessage, assistantPlaceholder]
 
@@ -912,6 +1001,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     activeRequestIdRef.current = requestId
     activeAssistantMessageIdRef.current = assistantMessageId
     pendingAssistantDeltaRef.current = ''
+    assistantStreamPhaseRef.current = 'preparing'
+    assistantStreamDetailRef.current = null
 
     void window.mdvDesktop?.sendAiChatMessage({
       requestId,
@@ -924,6 +1015,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         }
 
         pendingAssistantDeltaRef.current = ''
+        assistantStreamPhaseRef.current = null
+        assistantStreamDetailRef.current = null
 
         updateMessage(assistantMessageId, (message) => ({
           ...message,
@@ -931,6 +1024,8 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           content: toErrorMessage(error),
           excludeFromModel: true,
           isStreaming: false,
+          streamPhase: undefined,
+          streamDetail: null,
         }), { forceScroll: true })
 
         activeRequestIdRef.current = null
@@ -996,7 +1091,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
               <article key={message.id} className="chat-tool-entry">
                 <details className="chat-tool-accordion">
                   <summary>
-                    <span className="chat-tool-summary-title">{message.title || t.chat.toolOutput}</span>
+                    <span className="chat-tool-summary-title">{message.title ? humanizeToolTitle(message.title) : t.chat.toolOutput}</span>
                     <span className="chat-tool-summary-meta">{summarizeToolMessage(message.content, t.chat)}</span>
                   </summary>
                   <div className="chat-tool-content">
@@ -1026,8 +1121,9 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
                   ))}
                 </div>
               ) : null}
+              {formatStreamingPhase(message, t.chat) ? <p className="chat-bubble-status">{formatStreamingPhase(message, t.chat)}</p> : null}
               {message.isStreaming && message.content.trim().length === 0 ? <div className="chat-bubble-streaming-indicator" aria-hidden="true">...</div> : null}
-              <ChatMarkdown markdown={message.id === 'assistant-welcome' ? t.chat.welcome : message.content} theme={resolvedTheme} />
+              <ChatMarkdown markdown={message.id === 'assistant-welcome' ? t.chat.welcome : message.content} theme={resolvedTheme} streaming={message.isStreaming === true} />
             </article>
           )
         })}

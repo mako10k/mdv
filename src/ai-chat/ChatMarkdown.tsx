@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState, type ReactElement } from 'react'
 import MarkdownIt from 'markdown-it'
 import markdownItContainer from 'markdown-it-container'
 import markdownItFootnote from 'markdown-it-footnote'
@@ -127,11 +127,14 @@ function renderMarkdownSegment(value: string): string {
 type ChatMarkdownProps = {
   markdown: string
   theme: ResolvedTheme
+  streaming?: boolean
 }
 
-function ChatMarkdown({ markdown, theme }: ChatMarkdownProps) {
+function ChatMarkdown({ markdown, theme, streaming = false }: ChatMarkdownProps) {
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
-  const segments = useMemo(() => splitMarkdownSegments(markdown), [markdown])
+  const deferredMarkdown = useDeferredValue(markdown)
+  const renderedMarkdown = streaming ? deferredMarkdown : markdown
+  const segments = useMemo(() => splitMarkdownSegments(renderedMarkdown), [renderedMarkdown])
 
   return (
     <div className="chat-markdown-content">

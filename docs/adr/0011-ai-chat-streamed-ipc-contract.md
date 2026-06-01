@@ -12,6 +12,7 @@ AI chat は assistant bubble を final reply 完成後にまとめて描画し�
 
 - `sendChatMessage` は final reply payload を直接返さず、`requestId` を含む dispatch ack を返す
 - main process は同じ `requestId` を持つ `ai-chat-stream-event` を使い、`text-delta`、`tool-event`、`completed`、`failed` を段階配送する
+- `tool-event` は free-form title だけに依存せず、`phase: call | result` を明示して renderer が tool invocation と tool result 適用を区別できるようにする
 - preload bridge は上記 event を renderer へ購読型 API として公開する
 - renderer は streaming 中の assistant message を 1 つ保持し、`completed` 到着時に final reply / model 名で確定する
 - final transcript に残す assistant reply は terminal no-tool iteration の output に限定し、tool call 前の暫定 prose は completed payload に持ち越さない

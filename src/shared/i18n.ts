@@ -323,6 +323,12 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       textLengthLabel: '文字数',
       selectionLengthLabel: '選択文字数',
       dirtyLabel: '未保存変更',
+      streaming: {
+        preparing: '応答を準備中',
+        streaming: '応答を反映中',
+        usingTool: (tool: string) => `ツール実行中: ${tool}`,
+        applyingToolResult: (tool: string) => `ツール結果を反映中: ${tool}`,
+      },
       statusBase: '下書き + IPC',
       status: {
         contextQueued: (label: string) => `コンテキストを追加しました: ${label}`,
@@ -655,6 +661,12 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       textLengthLabel: 'Text length',
       selectionLengthLabel: 'Selection length',
       dirtyLabel: 'Dirty',
+      streaming: {
+        preparing: 'Preparing response',
+        streaming: 'Streaming response',
+        usingTool: (tool: string) => `Running tool: ${tool}`,
+        applyingToolResult: (tool: string) => `Applying tool result: ${tool}`,
+      },
       statusBase: 'Scaffold + IPC',
       status: {
         contextQueued: (label: string) => `Context queued: ${label}`,

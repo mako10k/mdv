@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+const http = require('node:http')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
 const dnsPromises = require('node:dns/promises')
@@ -21,6 +22,7 @@ const e2eUserDataPath = typeof process.env.MDV_E2E_USER_DATA_DIR === 'string' &&
   ? path.resolve(process.env.MDV_E2E_USER_DATA_DIR.trim())
   : null
 const forceStaticRenderer = process.env.MDV_FORCE_STATIC_RENDERER === '1'
+const debugChannelPort = resolveDebugChannelPort(process.env.MDV_DEBUG_CHANNEL_PORT)
 
 if (e2eUserDataPath) {
   app.setPath('userData', e2eUserDataPath)
@@ -49,6 +51,7 @@ app.setAppLogsPath(e2eUserDataPath ? path.join(e2eUserDataPath, 'logs') : undefi
 
 const logFilePath = path.join(app.getPath('logs'), 'mdv.log')
 const e2eDialogResponseState = createE2eDialogResponseState()
+const debugChannelState = createDebugChannelState(debugChannelPort)
 let allowedLinkRules = loadAllowedLinkRules()
 let pendingLaunchRequest = resolveLaunchRequest(process.argv)
 let managedMainWindow = null
@@ -90,6 +93,173 @@ const SEMANTIC_LAYERS = [
   { name: 'fine', maxChars: 420, overlapChars: 96, weight: 1, boundarySlackChars: 72 },
   { name: 'coarse', maxChars: 1800, overlapChars: 240, weight: 0.96, boundarySlackChars: 180 },
 ]
+
+function resolveDebugChannelPort(rawValue) {
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
+    return null
+  }
+
+  const parsedPort = Number.parseInt(rawValue.trim(), 10)
+
+  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+    return null
+  }
+
+  return parsedPort
+}
+
+function createDebugChannelState(port) {
+  if (!port) {
+    return null
+  }
+
+  return {
+    port,
+    nextEventId: 0,
+    server: null,
+    clients: new Set(),
+    history: [],
+  }
+}
+
+function formatDebugChannelEvent(event) {
+  return `event: mdv-debug\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`
+}
+
+function emitDebugChannelEvent(type, payload = null) {
+  if (!debugChannelState) {
+    return
+  }
+
+  debugChannelState.nextEventId += 1
+
+  const event = {
+    id: String(debugChannelState.nextEventId),
+    type,
+    timestamp: new Date().toISOString(),
+    payload,
+  }
+
+  debugChannelState.history.push(event)
+
+  if (debugChannelState.history.length > 200) {
+    debugChannelState.history.shift()
+  }
+
+  const serializedEvent = formatDebugChannelEvent(event)
+
+  for (const client of debugChannelState.clients) {
+    client.write(serializedEvent)
+  }
+}
+
+function readDebugChannelRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+
+    request.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    })
+
+    request.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf8'))
+    })
+
+    request.on('error', reject)
+  })
+}
+
+function startDebugChannelServer() {
+  if (!debugChannelState || debugChannelState.server) {
+    return
+  }
+
+  const server = http.createServer(async (request, response) => {
+    const requestUrl = new URL(request.url || '/', `http://127.0.0.1:${debugChannelState.port}`)
+
+    if (request.method === 'GET' && requestUrl.pathname === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      response.end(JSON.stringify({ ok: true, port: debugChannelState.port, clients: debugChannelState.clients.size }))
+      return
+    }
+
+    if (request.method === 'GET' && requestUrl.pathname === '/events') {
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'access-control-allow-origin': '*',
+      })
+      response.write(': connected\n\n')
+      debugChannelState.clients.add(response)
+
+      if (requestUrl.searchParams.get('replay') !== '0') {
+        for (const event of debugChannelState.history) {
+          response.write(formatDebugChannelEvent(event))
+        }
+      }
+
+      const heartbeat = setInterval(() => {
+        response.write(': heartbeat\n\n')
+      }, 15_000)
+
+      request.on('close', () => {
+        clearInterval(heartbeat)
+        debugChannelState.clients.delete(response)
+      })
+      return
+    }
+
+    if (request.method === 'POST' && requestUrl.pathname === '/publish') {
+      try {
+        const rawBody = await readDebugChannelRequestBody(request)
+        const parsedBody = rawBody.trim().length > 0 ? JSON.parse(rawBody) : {}
+        const eventType = typeof parsedBody?.type === 'string' && parsedBody.type.trim().length > 0
+          ? parsedBody.type.trim()
+          : 'external:message'
+
+        emitDebugChannelEvent(eventType, parsedBody?.payload ?? null)
+        response.writeHead(202, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({ ok: true }))
+      } catch (error) {
+        response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(JSON.stringify({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      }
+      return
+    }
+
+    response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+    response.end(JSON.stringify({ ok: false, error: 'Not found' }))
+  })
+
+  server.on('error', (error) => {
+    writeLog('ERROR', 'debug-channel', 'Debug channel server failed', error instanceof Error ? error.message : String(error))
+  })
+
+  server.listen(debugChannelState.port, '127.0.0.1', () => {
+    writeLog('INFO', 'debug-channel', 'Debug channel listening', { port: debugChannelState.port })
+    emitDebugChannelEvent('debug-channel:listening', { port: debugChannelState.port })
+  })
+
+  debugChannelState.server = server
+}
+
+function stopDebugChannelServer() {
+  if (!debugChannelState?.server) {
+    return
+  }
+
+  for (const client of debugChannelState.clients) {
+    client.end()
+  }
+
+  debugChannelState.clients.clear()
+  debugChannelState.server.close()
+  debugChannelState.server = null
+}
 
 function createE2eDialogResponseState() {
   const rawValue = process.env.MDV_E2E_DIALOG_RESPONSES
@@ -5504,11 +5674,13 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         })
 
         toolEvents.push({
+          phase: 'call',
           title: `${functionCall.name} call`,
           content: formatToolEventContent(args),
         })
         onStreamEvent?.({
           type: 'tool-event',
+          phase: 'call',
           title: `${functionCall.name} call`,
           content: formatToolEventContent(args),
         })
@@ -5530,11 +5702,13 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         })
 
         toolEvents.push({
+          phase: 'result',
           title: `${functionCall.name} result`,
           content: formatToolEventContent(result),
         })
         onStreamEvent?.({
           type: 'tool-event',
+          phase: 'result',
           title: `${functionCall.name} result`,
           content: formatToolEventContent(result),
         })
@@ -6935,6 +7109,11 @@ async function createWindow(initialLaunchRequest = null) {
     },
   })
 
+  emitDebugChannelEvent('window:created', {
+    windowId: mainWindow.id,
+    hiddenForLaunch: Boolean(initialLaunchRequest?.filePath),
+  })
+
   launchStateByWindowId.set(mainWindow.id, {
     filePath: initialLaunchRequest?.filePath || null,
     initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
@@ -6980,6 +7159,7 @@ async function createWindow(initialLaunchRequest = null) {
   }
 
   mainWindow.on('closed', () => {
+    emitDebugChannelEvent('window:closed', { windowId: mainWindow.id })
     const revealTimer = hiddenLaunchRevealTimerByWindowId.get(mainWindow.id)
     if (revealTimer) {
       clearTimeout(revealTimer)
@@ -7008,7 +7188,16 @@ async function createWindow(initialLaunchRequest = null) {
   managedMainWindow = mainWindow
   writeLog('INFO', 'main', 'BrowserWindow created')
 
+  mainWindow.once('ready-to-show', () => {
+    emitDebugChannelEvent('window:ready-to-show', { windowId: mainWindow.id })
+  })
+
   mainWindow.webContents.on('did-finish-load', () => {
+    emitDebugChannelEvent('window:did-finish-load', {
+      windowId: mainWindow.id,
+      url: mainWindow.webContents.getURL(),
+    })
+
     if (isManagedClient()) {
       void registerManagedClient(mainWindow)
     }
@@ -7058,6 +7247,19 @@ ipcMain.handle('mdv:read-file', async (_event, filePath) => {
 
   writeLog('INFO', 'ipc', 'read-file', filePath)
   return readUtf8File(filePath)
+})
+
+ipcMain.on('mdv:debug-channel-notify', (event, payload) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  const eventType = typeof payload?.type === 'string' && payload.type.trim().length > 0
+    ? payload.type.trim()
+    : 'renderer:message'
+
+  emitDebugChannelEvent(`renderer:${eventType}`, {
+    windowId: sourceWindow?.id ?? null,
+    webContentsId: event.sender.id,
+    payload: payload?.payload ?? null,
+  })
 })
 
 ipcMain.handle('mdv:autosave-recovery-upsert', async (_event, payload) => {
@@ -7553,6 +7755,12 @@ app.on('second-instance', (_event, argv) => {
 
 app.whenReady().then(() => {
   writeLog('INFO', 'main', 'app.whenReady resolved')
+  startDebugChannelServer()
+  emitDebugChannelEvent('app:ready', {
+    isDev,
+    forceStaticRenderer,
+    platform: process.platform,
+  })
   createApplicationMenu()
   const initialLaunchRequest = pendingLaunchRequest
   pendingLaunchRequest = null
@@ -7571,6 +7779,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   writeLog('INFO', 'main', 'window-all-closed')
+  stopDebugChannelServer()
   flushAutosaveRecoveryStoreSync()
   if (commandPollTimer) {
     clearInterval(commandPollTimer)

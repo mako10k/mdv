@@ -467,6 +467,7 @@ type MdvAiSemanticSearchPayload = {
 }
 
 type MdvAiToolEvent = {
+  phase: 'call' | 'result'
   title: string
   content: string
 }
@@ -491,6 +492,7 @@ type MdvAiChatStreamEvent =
   | {
       requestId: string
       type: 'tool-event'
+      phase: 'call' | 'result'
       title: string
       content: string
     }
@@ -545,6 +547,9 @@ interface Window {
     writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert' | 'append'; title?: string }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
     sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
+    debug?: {
+      notify: (type: string, payload?: unknown) => void
+    }
     onAiChatStreamEvent: (callback: (event: MdvAiChatStreamEvent) => void) => () => void
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap

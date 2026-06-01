@@ -297,7 +297,7 @@ test.describe('AI chat streaming', () => {
 
       type TestStreamEvent =
         | { requestId: string; type: 'text-delta'; delta: string }
-        | { requestId: string; type: 'tool-event'; title: string; content: string }
+        | { requestId: string; type: 'tool-event'; phase: 'call' | 'result'; title: string; content: string }
         | { requestId: string; type: 'completed'; reply: string; model: string; responseId: string | null }
 
       type TestDesktopApi = {
@@ -373,6 +373,7 @@ test.describe('AI chat streaming', () => {
             streamCallback?.({
               requestId: payload.requestId,
               type: 'tool-event',
+              phase: 'result',
               title: 'read_selection',
               content: 'Selection loaded',
             })
@@ -408,7 +409,7 @@ test.describe('AI chat streaming', () => {
     await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
 
     await expect(aiPage.getByText('Working reply')).toBeVisible()
-  await expect(aiPage.getByText('Selection loaded')).toBeVisible()
+    await expect(aiPage.getByText('Selection loaded')).toBeVisible()
     await expect(aiPage.getByText('ignore me')).toHaveCount(0)
 
     await aiPage.close()

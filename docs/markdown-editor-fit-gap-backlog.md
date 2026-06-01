@@ -53,24 +53,23 @@ MDV は次の点ですでに強い。
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
-| 復旧性 | Partial Fit | 明示保存と競合保護はある | autosave、crash recovery、session restore がない |
+| 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
 | 起動初期状態 | Partial Fit | bootstrap settings と initial document の仕組みはある | 初期 placeholder 文書が open / recovery 解決前に見える瞬間が残る |
 | マルチ文書作業 | Partial Fit | 複数 window は可能 | タブ、最近使った文書、クイックスイッチがない |
 | 出力手段 | Partial Fit | 印刷、HTML export はある | PDF / copy as HTML など軽出力がない |
 
 ## 結論
 
-Markdown 編集という観点での優先 gap は次の 5 つに集約される。
+Markdown 編集という観点での優先 gap は次の 4 つに集約される。
 
-1. autosave / recovery 不足
-2. Markdown command surface の重複と挿入アンカー不安定
-3. 画像 / media asset workflow と参照管理の不足分
-4. active heading と構造追従性の不足
-5. 起動 / 検索 / topbar の workspace UX 整理不足
+1. Markdown command surface の重複と挿入アンカー不安定
+2. 画像 / media asset workflow と参照管理の不足分
+3. active heading と構造追従性の不足
+4. 起動 / 検索 / topbar の workspace UX 整理不足
 
 見出しアウトラインとジャンプは今回の時点で一段前進しているため、以後は「長文構造ナビゲーションそのもの」ではなく「active heading と追従性の強化」として扱う。
 
-逆に、AI 連携強化や高度な workspace 機能より先に、上の 5 つを埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
+逆に、AI 連携強化や高度な workspace 機能より先に、上の 4 つを埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
 
 ## バックログ
 
@@ -102,15 +101,17 @@ Markdown 編集という観点での優先 gap は次の 5 つに集約される
 
 #### MD-BL-003 Autosave / Crash Recovery
 
-- 種別: 追加
+- 種別: 完了
 - 目的: 作業喪失を防ぐ
-- 内容:
+- 実装済み内容:
   - ローカルドラフト autosave
   - 異常終了後の復元提案
-  - 明示保存済みファイルと draft を区別して扱う
-- 完了条件:
+  - 明示保存済みファイルと draft の区別
+  - stale recovery cleanup と close/save/discard/cancel 分岐
+- 完了確認:
   - クラッシュや強制終了後に最新編集中内容を復元候補として提示できる
   - 既存の競合保存フローと矛盾しない
+  - Electron E2E で recovery precedence、stale cleanup、close flow、復元画像 draft を固定済み
 
 ### P1
 
@@ -252,19 +253,18 @@ Markdown 編集という観点での優先 gap は次の 5 つに集約される
 ## 実装順の推奨
 
 1. MD-BL-001 Find & Replace
-2. MD-BL-003 Autosave / Crash Recovery
-3. MD-BL-002 見出しアウトライン追従強化
-4. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
-5. MD-BL-005 画像 / メディア asset workflow と参照管理
-6. MD-BL-012 起動時 placeholder ちらつき抑制
-7. MD-BL-006 表編集補助
-8. MD-BL-007 リスト継続と task list 操作補助
-9. MD-BL-013 workspace topbar grouping / overflow 再設計
-10. MD-BL-014 検索 surface の再設計
-11. MD-BL-008 Preview 同期強化
-12. MD-BL-009 スペルチェック
-13. MD-BL-010 最近使った文書 / クイックオープン
-14. MD-BL-011 PDF 出力
+2. MD-BL-002 見出しアウトライン追従強化
+3. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
+4. MD-BL-005 画像 / メディア asset workflow と参照管理
+5. MD-BL-012 起動時 placeholder ちらつき抑制
+6. MD-BL-006 表編集補助
+7. MD-BL-007 リスト継続と task list 操作補助
+8. MD-BL-013 workspace topbar grouping / overflow 再設計
+9. MD-BL-014 検索 surface の再設計
+10. MD-BL-008 Preview 同期強化
+11. MD-BL-009 スペルチェック
+12. MD-BL-010 最近使った文書 / クイックオープン
+13. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 

@@ -148,6 +148,14 @@ body,
   color: var(--text-muted);
 }
 
+.chat-bubble-status {
+  margin: 0 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 .chat-bubble-pre {
   margin: 0;
   white-space: pre-wrap;

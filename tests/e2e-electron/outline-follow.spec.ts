@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { _electron as electron } from 'playwright'
 import fs from 'node:fs/promises'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { waitForDebugEvent } from '../support/debug-channel'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const primaryModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -13,7 +15,34 @@ async function makeTempDir(prefix: string) {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
 }
 
-async function launchElectronApp(userDataDir: string) {
+async function reserveDebugPort() {
+  return new Promise<number>((resolve, reject) => {
+    const server = net.createServer()
+
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to reserve a debug port')))
+        return
+      }
+
+      const { port } = address
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve(port)
+      })
+    })
+
+    server.on('error', reject)
+  })
+}
+
+async function launchElectronApp(userDataDir: string, debugPort: number) {
   return electron.launch({
     args: ['.'],
     cwd: repoRoot,
@@ -22,6 +51,7 @@ async function launchElectronApp(userDataDir: string) {
       MDV_FORCE_STATIC_RENDERER: '1',
       MDV_E2E_USER_DATA_DIR: userDataDir,
       MDV_E2E_DIALOG_RESPONSES: JSON.stringify({}),
+      MDV_DEBUG_CHANNEL_PORT: String(debugPort),
     },
   })
 }
@@ -64,15 +94,22 @@ async function placeEditorCursorFromStart(page: import('@playwright/test').Page,
 test('outline active heading follows the editor caret', async () => {
   const tempRoot = await makeTempDir('mdv-electron-outline-')
   const userDataDir = path.join(tempRoot, 'user-data')
+  const debugPort = await reserveDebugPort()
 
   await fs.mkdir(userDataDir, { recursive: true })
 
-  const app = await launchElectronApp(userDataDir)
+  const app = await launchElectronApp(userDataDir, debugPort)
 
   try {
     const page = await app.firstWindow()
     const markdown = '# Alpha\n\nalpha body\n\n## Beta\n\nbeta body\n'
     const betaBodyOffset = markdown.indexOf('beta body') + 2
+
+    await waitForDebugEvent({
+      port: debugPort,
+      eventType: 'renderer:workspace-interactive',
+      timeoutMs: 15_000,
+    })
 
     await openWritePanel(page)
     await replaceMarkdownDocument(page, markdown)
