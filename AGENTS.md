@@ -49,6 +49,7 @@
 - Route GitHub-facing git commands through `secdat exec git ...` so `GH_TOKEN` is injected by the local secure store.
 - Route GitHub CLI commands through `secdat exec gh ...` for the same reason.
 - Local-only git inspection such as `git status`, `git diff`, and `git log` does not need `secdat`.
+- If Codex sandboxing cannot see the `secdat unlock` session, use the `ptyterm` workaround documented in [docs/codex-secure-github-access.md](docs/codex-secure-github-access.md).
 
 ## ADR Workflow
 

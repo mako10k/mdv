@@ -55,6 +55,8 @@ npm run build
 
 `codex:map` は Codex / agent が作業開始時に読む入口、変更中の area、関連 docs、検証候補、review gate を 1 回で表示します。`codex:validate` は現在の diff に対する最小の検証候補と、commit 前に必要な custom agent review を表示します。
 
+GitHub へアクセスする `git` / `gh` は `secdat` 経由で token を注入します。Codex sandbox で unlock session が見えない場合は `ptyterm` 経由で実行します。詳細と `secdat` / `ptyterm` の導入方法は [docs/codex-secure-github-access.md](docs/codex-secure-github-access.md) を参照してください。
+
 ## E2E 回帰テスト
 
 ```bash

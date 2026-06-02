@@ -16,6 +16,7 @@ The repository also has commit review requirements and a secure GitHub access co
 - Keep the scripts local and deterministic: they inspect tracked workspace files, package scripts, git status, and submodule status without requiring network access.
 - Keep `AGENTS.md` as the rule surface for agents and link these commands from `DEVELOPMENT.md` for human discoverability.
 - Require GitHub-facing `git` and `gh` usage to go through `secdat exec` so token injection stays outside prompts and shell history.
+- Document `ptyterm` as the Codex sandbox workaround when direct commands cannot see the active `secdat unlock` session.
 
 ## Consequences
 
@@ -23,4 +24,5 @@ The repository also has commit review requirements and a secure GitHub access co
 - Validation recommendations are explicit but still require the agent to run and report the actual commands it used.
 - Release-only test changes no longer suggest the full default E2E test entrypoint.
 - The command output is advisory; `AGENTS.md`, architecture docs, and release docs remain authoritative when there is a conflict.
+- GitHub access remains token-safe in Codex environments where `secdat` session-agent visibility depends on XDG runtime socket access.
 - Future workflow changes should update the script, `AGENTS.md`, and this ADR together when the entrypoint contract changes.

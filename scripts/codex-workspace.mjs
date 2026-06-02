@@ -212,6 +212,7 @@ function printWorkspaceMap() {
   printList([
     'Use "secdat exec git ..." for GitHub-facing git commands.',
     'Use "secdat exec gh ..." for GitHub CLI commands.',
+    'If the Codex sandbox cannot see the secdat unlock session, use docs/codex-secure-github-access.md.',
     'Local git inspection such as status, diff, and log does not need secdat.',
   ])
 
