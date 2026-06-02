@@ -91,12 +91,16 @@ function run(command, args) {
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
 
+  if (result.status === 0) {
+    return { ok: true, output }
+  }
+
   if (result.error && output.length === 0) {
     return { ok: false, output: result.error.message }
   }
 
   return {
-    ok: result.status === 0,
+    ok: false,
     output,
   }
 }
