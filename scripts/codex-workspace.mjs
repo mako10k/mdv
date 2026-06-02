@@ -52,10 +52,29 @@ const areaRules = [
     reviewAgents: ['packaging-review'],
   },
   {
-    name: 'Tests',
-    docs: ['DEVELOPMENT.md', 'tests/'],
-    patterns: [/^tests\//, /^playwright.*\.config\.ts$/, /^tsconfig\.playwright\.json$/],
+    name: 'Release workflow tests',
+    docs: ['DEVELOPMENT.md', 'docs/release-workflow.md', 'tests/release/'],
+    patterns: [/^tests\/release\//],
+    validations: ['npm run lint', 'npm run build', 'npm run test:release'],
+    reviewAgents: ['packaging-review'],
+  },
+  {
+    name: 'Renderer E2E tests',
+    docs: ['DEVELOPMENT.md', 'tests/e2e/', 'playwright.config.ts'],
+    patterns: [/^tests\/e2e\//, /^playwright\.config\.ts$/],
     validations: ['npm run lint', 'npm run build', 'npm test'],
+  },
+  {
+    name: 'Electron E2E tests',
+    docs: ['DEVELOPMENT.md', 'tests/e2e-electron/', 'playwright.electron.config.ts'],
+    patterns: [/^tests\/e2e-electron\//, /^playwright\.electron\.config\.ts$/],
+    validations: ['npm run lint', 'npm run build', 'npm run test:e2e:electron'],
+  },
+  {
+    name: 'Shared test support',
+    docs: ['DEVELOPMENT.md', 'tests/support/'],
+    patterns: [/^tests\/support\//, /^tsconfig\.playwright\.json$/],
+    validations: ['npm run lint', 'npm run build', 'npm test', 'npm run test:e2e:electron'],
   },
   {
     name: 'Agent and workflow guidance',
