@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { memo, useDeferredValue, useEffect, useMemo, useState, type ReactElement } from 'react'
 import MarkdownIt from 'markdown-it'
 import markdownItContainer from 'markdown-it-container'
 import markdownItFootnote from 'markdown-it-footnote'
@@ -19,6 +19,10 @@ type CodeBlockRenderer = (props: CodeBlockProps) => ReactElement
 type MarkdownSegment =
   | { type: 'markdown'; value: string }
   | { type: 'code'; language: string; code: string }
+
+type MarkdownFragmentProps = {
+  value: string
+}
 
 const markdownParser = new MarkdownIt({
   html: false,
@@ -124,13 +128,26 @@ function renderMarkdownSegment(value: string): string {
   return markdownParser.render(value)
 }
 
+const MarkdownFragment = memo(function MarkdownFragment({ value }: MarkdownFragmentProps) {
+  const html = useMemo(() => renderMarkdownSegment(value), [value])
+
+  return (
+    <section
+      className="markdown-fragment"
+      dangerouslySetInnerHTML={{
+        __html: html,
+      }}
+    />
+  )
+})
+
 type ChatMarkdownProps = {
   markdown: string
   theme: ResolvedTheme
   streaming?: boolean
 }
 
-function ChatMarkdown({ markdown, theme, streaming = false }: ChatMarkdownProps) {
+const ChatMarkdown = memo(function ChatMarkdown({ markdown, theme, streaming = false }: ChatMarkdownProps) {
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
   const deferredMarkdown = useDeferredValue(markdown)
   const renderedMarkdown = streaming ? deferredMarkdown : markdown
@@ -140,15 +157,7 @@ function ChatMarkdown({ markdown, theme, streaming = false }: ChatMarkdownProps)
     <div className="chat-markdown-content">
       {segments.map((segment, index) => {
         if (segment.type === 'markdown') {
-          return (
-            <section
-              key={`md-${index}`}
-              className="markdown-fragment"
-              dangerouslySetInnerHTML={{
-                __html: renderMarkdownSegment(segment.value),
-              }}
-            />
-          )
+          return <MarkdownFragment key={`md-${index}`} value={segment.value} />
         }
 
         const Renderer = rendererRegistry.get(segment.language) ?? DefaultCodeBlock
@@ -164,6 +173,6 @@ function ChatMarkdown({ markdown, theme, streaming = false }: ChatMarkdownProps)
       })}
     </div>
   )
-}
+})
 
 export default ChatMarkdown

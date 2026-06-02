@@ -111,7 +111,7 @@
 
 - 上の 4 項目は望ましい分解であり、厳密な waterfall ではない
 - AI-RT-003 は first slice として段階反映を導入済みで、assistant bubble に preparing / tool / streaming phase を表示する
-- AI-RT-004 は first slice として streaming 中の Markdown render を deferred に切り替えており、残件は flush cadence と重い transcript 条件での tuning である
+- AI-RT-004 は streaming 中の Markdown render を deferred に切り替え、応答長 / pending delta / transcript 量に応じた flush cadence と、既存 chat Markdown の再 render 抑制を導入済みである
 - transport を SSE、WS、あるいは現行 main process 経路の streaming 再編で解くかは実装時に決めてよい
 - UI と renderer 負荷の見合いが取れるなら、AI-RT-001 から AI-RT-004 をまとめて一気に進めてもよい
 
@@ -177,6 +177,7 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 - MD-BL-002 見出しアウトライン追従強化は完了。outline pane に active heading 表示を追加し、editor caret に追従して現在位置の見出しを強調できるようにした。
 - MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
 - MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
+- AI-RT-004 streaming Markdown render tuning は完了。assistant delta の flush cadence を応答長と transcript 量に合わせて調整し、過去 chat bubble の Markdown 再レンダリングを抑制した。
 
 ## Historical Documents
 

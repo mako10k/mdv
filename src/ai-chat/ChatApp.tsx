@@ -16,6 +16,13 @@ const MODEL_CONTEXT_WINDOW_BY_NAME: Record<string, number> = {
   'gpt-5.4-mini': 128000,
 }
 const ATTACHMENT_PREVIEW_LIMIT = 220
+const ASSISTANT_DELTA_FLUSH_FAST_MS = 40
+const ASSISTANT_DELTA_FLUSH_STEADY_MS = 80
+const ASSISTANT_DELTA_FLUSH_HEAVY_MS = 140
+const ASSISTANT_DELTA_IMMEDIATE_FLUSH_CHARS = 1200
+const ASSISTANT_LONG_STREAM_CHARS = 4000
+const ASSISTANT_HEAVY_STREAM_CHARS = 16000
+const ASSISTANT_HEAVY_TRANSCRIPT_CHARS = 60000
 
 type AttachmentTransport = 'inline' | 'hint'
 
@@ -115,6 +122,33 @@ function toModelMessages(messages: Message[], chatText: ReturnType<typeof useI18
       content: buildMessageContent(message, chatText),
       title: message.title,
     }))
+}
+
+function getTranscriptTextLength(messages: Message[]): number {
+  return messages.reduce((total, message) => total + message.content.length, 0)
+}
+
+function getAssistantDeltaFlushDelayMs(input: {
+  streamedTextLength: number
+  pendingDeltaLength: number
+  transcriptTextLength: number
+}): number {
+  if (input.pendingDeltaLength >= ASSISTANT_DELTA_IMMEDIATE_FLUSH_CHARS) {
+    return 0
+  }
+
+  if (
+    input.streamedTextLength >= ASSISTANT_HEAVY_STREAM_CHARS
+    || input.transcriptTextLength >= ASSISTANT_HEAVY_TRANSCRIPT_CHARS
+  ) {
+    return ASSISTANT_DELTA_FLUSH_HEAVY_MS
+  }
+
+  if (input.streamedTextLength >= ASSISTANT_LONG_STREAM_CHARS) {
+    return ASSISTANT_DELTA_FLUSH_STEADY_MS
+  }
+
+  return ASSISTANT_DELTA_FLUSH_FAST_MS
 }
 
 function resolveExternalAnchor(target: EventTarget | null): ExternalAnchor | null {
@@ -452,6 +486,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const activeAssistantMessageIdRef = useRef<string | null>(null)
   const pendingAssistantDeltaRef = useRef('')
   const pendingAssistantDeltaTimerRef = useRef<number | null>(null)
+  const assistantStreamedTextLengthRef = useRef(0)
   const assistantStreamPhaseRef = useRef<Message['streamPhase'] | null>(null)
   const assistantStreamDetailRef = useRef<string | null>(null)
   const [messages, setMessages] = useState<Message[]>(() => createInitialMessages(t.chat.welcome))
@@ -647,6 +682,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     }
 
     pendingAssistantDeltaRef.current = ''
+    assistantStreamedTextLengthRef.current += nextDelta.length
     updateMessage(assistantMessageId, (message) => ({
       ...message,
       content: message.content + nextDelta,
@@ -654,6 +690,22 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   }
 
   const schedulePendingAssistantDeltaFlush = () => {
+    const delayMs = getAssistantDeltaFlushDelayMs({
+      streamedTextLength: assistantStreamedTextLengthRef.current,
+      pendingDeltaLength: pendingAssistantDeltaRef.current.length,
+      transcriptTextLength: getTranscriptTextLength(messages),
+    })
+
+    if (delayMs === 0) {
+      if (pendingAssistantDeltaTimerRef.current !== null) {
+        window.clearTimeout(pendingAssistantDeltaTimerRef.current)
+        pendingAssistantDeltaTimerRef.current = null
+      }
+
+      flushPendingAssistantDelta({ forceScroll: shouldStickToBottomRef.current })
+      return
+    }
+
     if (pendingAssistantDeltaTimerRef.current !== null) {
       return
     }
@@ -661,7 +713,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     pendingAssistantDeltaTimerRef.current = window.setTimeout(() => {
       pendingAssistantDeltaTimerRef.current = null
       flushPendingAssistantDelta({ forceScroll: shouldStickToBottomRef.current })
-    }, 40)
+    }, delayMs)
   }
 
   const handleAiChatStreamEvent = useEffectEvent((event: MdvAiChatStreamEvent) => {
@@ -720,6 +772,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
 
       assistantStreamPhaseRef.current = null
       assistantStreamDetailRef.current = null
+      assistantStreamedTextLengthRef.current = 0
       activeRequestIdRef.current = null
       activeAssistantMessageIdRef.current = null
       setIsSending(false)
@@ -750,6 +803,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
 
     assistantStreamPhaseRef.current = null
     assistantStreamDetailRef.current = null
+    assistantStreamedTextLengthRef.current = 0
     activeRequestIdRef.current = null
     activeAssistantMessageIdRef.current = null
     setIsSending(false)
@@ -771,6 +825,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
       }
 
       pendingAssistantDeltaRef.current = ''
+      assistantStreamedTextLengthRef.current = 0
     }
   }, [])
 
@@ -1001,6 +1056,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
     activeRequestIdRef.current = requestId
     activeAssistantMessageIdRef.current = assistantMessageId
     pendingAssistantDeltaRef.current = ''
+    assistantStreamedTextLengthRef.current = 0
     assistantStreamPhaseRef.current = 'preparing'
     assistantStreamDetailRef.current = null
 
@@ -1017,6 +1073,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
         pendingAssistantDeltaRef.current = ''
         assistantStreamPhaseRef.current = null
         assistantStreamDetailRef.current = null
+        assistantStreamedTextLengthRef.current = 0
 
         updateMessage(assistantMessageId, (message) => ({
           ...message,
