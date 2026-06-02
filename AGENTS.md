@@ -3,14 +3,14 @@
 ## Scope
 
 - Keep this file minimal. Link to existing docs instead of duplicating them.
-- Use [README.md](README.md) for setup, packaging commands, and the current project overview.
+- Use [README.md](README.md) for the current project overview, [DEVELOPMENT.md](DEVELOPMENT.md) for setup/build/testing/packaging and the release entrypoint, and [docs/release-workflow.md](docs/release-workflow.md) for detailed release runbook steps.
 - Use [docs/ai-chat-design.md](docs/ai-chat-design.md) and [docs/ai-chat-feasibility.md](docs/ai-chat-feasibility.md) before changing AI chat behavior, IPC contracts, or editor tool semantics.
 
 ## Validation
 
 - Primary validation is `npm run build`.
 - Run `npm run lint` when touching TypeScript, React, Electron, or build scripts.
-- There is no automated test suite today. Do not claim test coverage that does not exist.
+- Automated checks exist for build, Playwright E2E, and release validation. Do not overstate coverage beyond the commands you actually ran.
 
 ## Architecture Boundaries
 

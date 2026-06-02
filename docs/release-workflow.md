@@ -2,7 +2,7 @@
 
 ## Scope
 
-この文書は、MDV の外向け binary release を切るときの実務 runbook である。
+この文書は、MDV の外向け binary release を切るときの詳細 runbook である。日常的な運用入口と要約手順は [../DEVELOPMENT.md](../DEVELOPMENT.md) を正本とし、この文書は release 実務の詳細、preview / publish の差分、内部 packaging refresh の扱いを補足する。
 
 内部 packaging refresh と正式 release を混ぜないことを目的にする。
 
@@ -16,12 +16,14 @@
 
 ## Public Release Checklist
 
+以下の `npm run ...:noadmin` は WSL / bash から Windows host を呼ぶ alias である。native Windows PowerShell では同じ action を `.\scripts\build-win-host.ps1 ...` で実行する。
+
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
 3. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
 4. 必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置して検証する
 5. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
-6. release notes を [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
+6. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
 7. version bump と artifact と release notes を同じ release commit として commit する
 8. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
 9. `main` へ push する
@@ -55,16 +57,34 @@ candidate artifact generate:
 npm run win:host:generate:noadmin
 ```
 
+candidate artifact generate (native Windows PowerShell):
+
+```powershell
+.\scripts\build-win-host.ps1 -Action generate
+```
+
 candidate local deploy:
 
 ```bash
 npm run win:host:deploy:candidate:noadmin
 ```
 
+candidate local deploy (native Windows PowerShell):
+
+```powershell
+.\scripts\build-win-host.ps1 -Action deploy -ArtifactSource candidate
+```
+
 canonical artifact promote:
 
 ```bash
 npm run win:host:promote:noadmin
+```
+
+canonical artifact promote (native Windows PowerShell):
+
+```powershell
+.\scripts\build-win-host.ps1 -Action promote
 ```
 
 GitHub Release command preview:

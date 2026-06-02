@@ -24,7 +24,7 @@ You are a code review specialist for this repository. Review the current diff be
 - `electron/preload.cjs` and `src/shims.d.ts`
 - `electron/main.cjs` and renderer callers in `src/` or `src/ai-chat/`
 - AI tool behavior and the design notes in `docs/ai-chat-design.md` or `docs/ai-chat-feasibility.md`
-- Build or packaging changes and the operational notes in `README.md`
+- Build or packaging changes and the operational notes in `DEVELOPMENT.md` and `docs/release-workflow.md`
 
 ## Constraints
 

@@ -16,14 +16,15 @@ You are a packaging review specialist for this repository. Review diffs that aff
 
 1. Command path integrity: Do `package.json`, shell wrappers, and PowerShell scripts still agree on the supported build commands?
 2. Environment symmetry: If the WSL path changed, was the Windows host path updated too, and vice versa?
-3. Artifact expectations: Do output paths, executable names, release directories, and local runnable copy paths still match README and scripts?
+3. Artifact expectations: Do output paths, executable names, release directories, and local runnable copy paths still match DEVELOPMENT.md, docs/release-workflow.md, and scripts?
 4. Known platform pitfalls: Does the change preserve the existing handling for `winCodeSign`, `signAndEditExecutable=false`, `rcedit`, and UNC-path avoidance?
 5. Validation coverage: Was the narrowest realistic validation run, and was any packaging-only risk left unverified?
 
 ## Files To Cross-Check
 
 - `package.json`
-- `README.md`
+- `DEVELOPMENT.md`
+- `docs/release-workflow.md`
 - `scripts/build-win-host.sh`
 - `scripts/build-win-host.ps1`
 - `build/`

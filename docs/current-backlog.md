@@ -65,8 +65,7 @@
 
 ### Supporting Backlog
 
-1. DOC-BL-001 README と開発文書の責務分離
-2. ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+1. ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -174,18 +173,16 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 
 ## Recent Progress
 
+- DOC-BL-001 README と開発文書の責務分離は完了。README を project overview と関連資料リンクへ絞り、セットアップ、build、test、packaging の正本と、release の運用入口を DEVELOPMENT.md へ移した。
 - MD-BL-002 見出しアウトライン追従強化は完了。outline pane に active heading 表示を追加し、editor caret に追従して現在位置の見出しを強調できるようにした。
 - MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
+- MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
 
 ## Historical Documents
 
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) は separate chat window 前提を含む初期分解であり、履歴資料として保持する
 - [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md) は editor backlog の詳細定義として使う
 - [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) は context management Phase 1 の詳細定義として使う
-
-## Recent Progress
-
-- MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
 
 ## Recommended Execution Order
 
