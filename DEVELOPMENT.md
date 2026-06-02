@@ -47,9 +47,13 @@ npm run build
 ## 日常確認
 
 ```bash
+npm run codex:map
+npm run codex:validate
 npm run lint
 npm run build
 ```
+
+`codex:map` は Codex / agent が作業開始時に読む入口、変更中の area、関連 docs、検証候補、review gate を 1 回で表示します。`codex:validate` は現在の diff に対する最小の検証候補と、commit 前に必要な custom agent review を表示します。
 
 ## E2E 回帰テスト
 
@@ -261,10 +265,10 @@ npm run dist:win:dir
 6. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
 7. version bump、対応する Windows artifact、release notes を同じ release slice として commit する。
 8. tag 作成直前は `npm run release:check` を通す。
-9. その release commit を `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
-10. 作成した tag を remote へ push する。
-11. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `gh release create` の preview を確認する。
-12. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で GitHub Release を publish する。
+9. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
+10. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
+11. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
+12. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
 13. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
 
 通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` と `docs/release-workflow.md` を参照してください。

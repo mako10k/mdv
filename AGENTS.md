@@ -8,6 +8,8 @@
 
 ## Validation
 
+- Run `npm run codex:map` when you need a quick project map, current worktree routing, or validation suggestions.
+- Run `npm run codex:validate` after making changes to print the recommended validation and pre-commit review gates for the current diff.
 - Primary validation is `npm run build`.
 - Run `npm run lint` when touching TypeScript, React, Electron, or build scripts.
 - Automated checks exist for build, Playwright E2E, and release validation. Do not overstate coverage beyond the commands you actually ran.
@@ -41,6 +43,12 @@
 - If the diff touches Windows packaging, Electron distribution, release artifacts, or `scripts/build-win-host.*`, also run the `packaging-review` custom agent before commit.
 - The review must check consistency, symmetry, and coverage first, then report bugs, regressions, and missing validation.
 - If a higher-priority session policy forbids automatic commits, stop after the review and present the proposed commit message instead of committing silently.
+
+## GitHub Access
+
+- Route GitHub-facing git commands through `secdat exec git ...` so `GH_TOKEN` is injected by the local secure store.
+- Route GitHub CLI commands through `secdat exec gh ...` for the same reason.
+- Local-only git inspection such as `git status`, `git diff`, and `git log` does not need `secdat`.
 
 ## ADR Workflow
 

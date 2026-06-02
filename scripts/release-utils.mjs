@@ -70,7 +70,7 @@ function readGitStatus(rootDir) {
     encoding: 'utf8',
   })
 
-  if (result.error) {
+  if (result.error && result.status === null) {
     throw result.error
   }
 
@@ -91,7 +91,7 @@ export function readGitRevision(rootDir, revision) {
     encoding: 'utf8',
   })
 
-  if (result.error) {
+  if (result.error && result.status === null) {
     throw result.error
   }
 

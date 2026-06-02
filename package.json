@@ -17,6 +17,8 @@
     "dev:with-mdast": "concurrently -k \"npm run mdast:watch\" \"vite\" \"wait-on tcp:5173 && electron .\"",
     "server:start": "node ./server/mdv-server.cjs",
     "build:icons": "node ./scripts/build-icons.mjs",
+    "codex:map": "node ./scripts/codex-workspace.mjs map",
+    "codex:validate": "node ./scripts/codex-workspace.mjs validate",
     "typecheck:electron-openai": "tsc -p tsconfig.electron-openai.json --noEmit",
     "build": "npm run mdast:build && tsc -b && npm run typecheck:electron-openai && vite build",
     "start": "electron .",

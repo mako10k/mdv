@@ -1,8 +1,9 @@
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { validateReleaseWorkspace } from './release-utils.mjs'
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = {
     rootDir: process.cwd(),
     requireCleanGit: true,
@@ -41,21 +42,45 @@ function parseArgs(argv) {
   return options
 }
 
-const options = parseArgs(process.argv.slice(2))
-const result = await validateReleaseWorkspace(options)
-
-if (options.json) {
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
-} else if (result.ok) {
-  process.stdout.write(`Release candidate is ready for ${result.expectedTag}\n`)
-  for (const artifact of result.artifacts) {
-    process.stdout.write(`- ${artifact.label}: ${artifact.path}\n`)
+export function formatReleaseCheckResult(result, options) {
+  if (options.json) {
+    return {
+      stdout: `${JSON.stringify(result, null, 2)}\n`,
+      stderr: '',
+    }
   }
-} else {
-  process.stderr.write(`Release candidate check failed for ${result.expectedTag}\n`)
+
+  if (result.ok) {
+    let stdout = `Release candidate is ready for ${result.expectedTag}\n`
+    for (const artifact of result.artifacts) {
+      stdout += `- ${artifact.label}: ${artifact.path}\n`
+    }
+
+    return { stdout, stderr: '' }
+  }
+
+  let stderr = `Release candidate check failed for ${result.expectedTag}\n`
   for (const error of result.errors) {
-    process.stderr.write(`- ${error}\n`)
+    stderr += `- ${error}\n`
+  }
+
+  return { stdout: '', stderr }
+}
+
+export async function runReleaseCheck(argv) {
+  const options = parseArgs(argv)
+  const result = await validateReleaseWorkspace(options)
+  const output = formatReleaseCheckResult(result, options)
+
+  return {
+    ...output,
+    exitCode: result.ok ? 0 : 1,
   }
 }
 
-process.exit(result.ok ? 0 : 1)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const result = await runReleaseCheck(process.argv.slice(2))
+  process.stdout.write(result.stdout)
+  process.stderr.write(result.stderr)
+  process.exit(result.exitCode)
+}

@@ -26,10 +26,10 @@
 6. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
 7. version bump と artifact と release notes を同じ release commit として commit する
 8. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
-9. `main` へ push する
+9. `secdat exec git push origin main` で `main` へ push する
 10. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
-11. `git push origin vX.Y.Z` を実行する
-12. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `gh release create` の dry-run command を確認する
+11. `secdat exec git push origin vX.Y.Z` を実行する
+12. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
 13. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
 
 ## Internal Packaging Refresh
@@ -87,13 +87,13 @@ canonical artifact promote (native Windows PowerShell):
 .\scripts\build-win-host.ps1 -Action promote
 ```
 
-GitHub Release command preview:
+GitHub Release command preview. This stages ignored upload files under `release/.github-upload` and prints a runnable command routed through `secdat exec gh`:
 
 ```bash
 npm run release:github -- --notes docs/release-notes/vX.Y.Z.md
 ```
 
-GitHub Release actual publish:
+GitHub Release actual publish. This executes `secdat exec gh ...`:
 
 ```bash
 npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute

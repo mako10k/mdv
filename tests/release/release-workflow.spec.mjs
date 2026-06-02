@@ -5,9 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-const repoRoot = path.resolve(import.meta.dirname, '..', '..')
-const releaseCheckScript = path.join(repoRoot, 'scripts', 'check-release-candidate.mjs')
-const githubReleaseScript = path.join(repoRoot, 'scripts', 'prepare-github-release.mjs')
+import { runReleaseCheck } from '../../scripts/check-release-candidate.mjs'
+import { runGithubReleasePreparation } from '../../scripts/prepare-github-release.mjs'
 
 async function makeTempRepo(version, options = {}) {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdv-release-workflow-'))
@@ -57,16 +56,38 @@ function runGit(cwd, args) {
   }
 }
 
-function runNode(scriptPath, args) {
-  return spawnSync(process.execPath, [scriptPath, ...args], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  })
+async function pathExists(targetPath) {
+  try {
+    await fs.access(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function runReleaseCheckCli(args) {
+  const result = await runReleaseCheck(args)
+
+  return {
+    status: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  }
+}
+
+async function runGithubReleaseCli(args) {
+  const result = await runGithubReleasePreparation(args)
+
+  return {
+    status: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  }
 }
 
 test('release check passes for a clean repo with version-matching artifacts', async () => {
   const rootDir = await makeTempRepo('1.2.3')
-  const result = runNode(releaseCheckScript, ['--root', rootDir, '--expect-tag', 'v1.2.3'])
+  const result = await runReleaseCheckCli(['--root', rootDir, '--expect-tag', 'v1.2.3'])
 
   assert.equal(result.status, 0)
   assert.match(result.stdout, /Release candidate is ready for v1\.2\.3/)
@@ -75,7 +96,7 @@ test('release check passes for a clean repo with version-matching artifacts', as
 
 test('release check fails when a required artifact is missing', async () => {
   const rootDir = await makeTempRepo('1.2.3', { includePortable: false })
-  const result = runNode(releaseCheckScript, ['--root', rootDir])
+  const result = await runReleaseCheckCli(['--root', rootDir])
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /Missing portable executable/)
@@ -83,7 +104,7 @@ test('release check fails when a required artifact is missing', async () => {
 
 test('release check fails when the expected tag does not match package version', async () => {
   const rootDir = await makeTempRepo('1.2.3')
-  const result = runNode(releaseCheckScript, ['--root', rootDir, '--expect-tag', 'v1.2.4'])
+  const result = await runReleaseCheckCli(['--root', rootDir, '--expect-tag', 'v1.2.4'])
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /does not match package\.json version 1\.2\.3/)
@@ -92,7 +113,7 @@ test('release check fails when the expected tag does not match package version',
 test('release check fails when the git worktree is dirty', async () => {
   const rootDir = await makeTempRepo('1.2.3')
   await fs.writeFile(path.join(rootDir, 'dirty.txt'), 'pending')
-  const result = runNode(releaseCheckScript, ['--root', rootDir])
+  const result = await runReleaseCheckCli(['--root', rootDir])
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /Git worktree must be clean before tagging/)
@@ -101,15 +122,20 @@ test('release check fails when the git worktree is dirty', async () => {
 test('github release helper prints the exact gh command for the tagged artifacts', async () => {
   const rootDir = await makeTempRepo('1.2.3')
   const notesPath = 'docs/release-notes/v1.2.3.md'
-  const result = runNode(githubReleaseScript, ['--root', rootDir, '--notes', notesPath])
+  const result = await runGithubReleaseCli(['--root', rootDir, '--notes', notesPath])
 
   assert.equal(result.status, 0)
-  assert.match(result.stdout, /gh release create v1\.2\.3/)
+  assert.match(result.stdout, /secdat exec gh release create v1\.2\.3/)
   assert.match(result.stdout, /MarkDownViewer-1\.2\.3-portable-win\.exe/)
   assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe/)
   assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe\.blockmap/)
   assert.match(result.stdout, /--verify-tag/)
   assert.match(result.stdout, /--notes-file/)
+
+  const uploadDir = path.join(rootDir, 'release', '.github-upload')
+  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-portable-win.exe')), true)
+  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe')), true)
+  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe.blockmap')), true)
 })
 
 test('github release helper fails when the release tag does not point to HEAD', async () => {
@@ -118,7 +144,7 @@ test('github release helper fails when the release tag does not point to HEAD', 
   runGit(rootDir, ['add', 'post-tag.txt'])
   runGit(rootDir, ['commit', '-m', 'post tag commit'])
 
-  const result = runNode(githubReleaseScript, ['--root', rootDir, '--notes', 'docs/release-notes/v1.2.3.md'])
+  const result = await runGithubReleaseCli(['--root', rootDir, '--notes', 'docs/release-notes/v1.2.3.md'])
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /points to .* but HEAD is .*/)
