@@ -72,7 +72,7 @@ async function expectFreshUntitledDocument(page: import('@playwright/test').Page
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
   await expect.poll(async () => page.title()).toMatch(/(無題\.md\*?|Untitled\.md\*?) - MDV/i)
   await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('text to replace')
-  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('MarkDownViewer')
+  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toHaveText('')
 }
 
 test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {

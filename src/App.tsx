@@ -426,6 +426,12 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
   const onSelectionChangeRef = useRef(onSelectionChange)
   const selectionFrameRef = useRef<number | null>(null)
 
+  useLayoutEffect(() => {
+    if (editorInstanceRef.current === null) {
+      initialValueRef.current = value
+    }
+  }, [value])
+
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
@@ -1696,11 +1702,13 @@ async function waitForDelay(delayMs: number) {
   })
 }
 
+const EMPTY_UNTITLED_DOCUMENT = ''
+
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const { t } = useI18n()
   const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
-  const [markdownText, setMarkdownText] = useState<string>(() => t.app.initialDocument)
+  const [markdownText, setMarkdownText] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
   const [activePanel, setActivePanel] = useState<'write' | 'preview'>(() => {
     return bootstrap?.initialPanel === 'write' ? 'write' : 'preview'
   })
@@ -1732,14 +1740,13 @@ function App() {
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
-  const [persistedMarkdown, setPersistedMarkdown] = useState<string>(() => t.app.initialDocument)
+  const [persistedMarkdown, setPersistedMarkdown] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const previewRootRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const currentFilePathRef = useRef<string | null>(null)
-  const persistedMarkdownRef = useRef<string>(t.app.initialDocument)
+  const persistedMarkdownRef = useRef<string>(EMPTY_UNTITLED_DOCUMENT)
   const currentFileSnapshotRef = useRef<MdvFileSnapshot | null>(null)
-  const initialDocumentRef = useRef<string>(t.app.initialDocument)
   const untitledTitleRef = useRef<string>(t.app.untitledTitle)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
   const toastIdRef = useRef(0)
@@ -1762,8 +1769,8 @@ function App() {
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
   const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
-    markdownText: t.app.initialDocument,
-    persistedMarkdown: t.app.initialDocument,
+    markdownText: EMPTY_UNTITLED_DOCUMENT,
+    persistedMarkdown: EMPTY_UNTITLED_DOCUMENT,
     currentFilePath: null,
     fileSnapshot: null,
     draftWorkspace: null,
@@ -1783,8 +1790,8 @@ function App() {
   const isStartupPending = !isInitialLaunchOpenSettled || !isStartupRecoveryResolved
   const isPlaceholderDocument = currentFilePath === null
     && displayTitle === t.app.untitledTitle
-    && markdownText === t.app.initialDocument
-    && persistedMarkdown === t.app.initialDocument
+    && markdownText === EMPTY_UNTITLED_DOCUMENT
+    && persistedMarkdown === EMPTY_UNTITLED_DOCUMENT
 
   const setStatusText = (message: string, options?: { toast?: boolean }) => {
     setStatusTextState(message)
@@ -1856,24 +1863,11 @@ function App() {
 
       localeRef.current = nextSettings.general.locale
       const nextTranslations = getTranslations(nextSettings.general.locale)
-      const previousInitialDocument = initialDocumentRef.current
       const previousUntitledTitle = untitledTitleRef.current
 
       if (currentFilePath === null && displayTitle === previousUntitledTitle) {
         setDisplayTitle(nextTranslations.app.untitledTitle)
       }
-
-      if (
-        currentFilePath === null
-        && markdownText === previousInitialDocument
-        && persistedMarkdown === previousInitialDocument
-      ) {
-        replaceLoadedDocument(nextTranslations.app.initialDocument)
-        setPersistedMarkdown(nextTranslations.app.initialDocument)
-        persistedMarkdownRef.current = nextTranslations.app.initialDocument
-      }
-
-      initialDocumentRef.current = nextTranslations.app.initialDocument
       untitledTitleRef.current = nextTranslations.app.untitledTitle
       setStatusText(nextTranslations.common.ready, { toast: false })
     })
@@ -2502,14 +2496,14 @@ function App() {
     invalidateEditorSearch()
     shouldCanonicalizeLoadedBaselineRef.current = true
     recoveryKeyRef.current = ''
-    replaceLoadedDocument(i18nRef.current.app.initialDocument)
+    replaceLoadedDocument(EMPTY_UNTITLED_DOCUMENT)
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
     setPendingImportedAssets([])
     setDisplayTitle(i18nRef.current.app.untitledTitle)
-    persistedMarkdownRef.current = i18nRef.current.app.initialDocument
-    setPersistedMarkdown(i18nRef.current.app.initialDocument)
+    persistedMarkdownRef.current = EMPTY_UNTITLED_DOCUMENT
+    setPersistedMarkdown(EMPTY_UNTITLED_DOCUMENT)
     setActivePanel('write')
     setStatusText(t.app.status.createdNewDocument)
   }
