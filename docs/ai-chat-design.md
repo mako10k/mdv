@@ -19,6 +19,10 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - mdast Query 言語、handle、エラー回復の導線は専用の `get_structure_help` で取得し、structure action tool schema には help 分岐を混ぜない
+- `replace_structure` は既定で `maxReplacements=1` と `onMaxExceeded=error` を使う安全契約とし、複数件を置換しうる query を使う場合は caller が上限と overflow 動作を明示する
+- `replace_structure` の結果では `effectiveMatched` と `maxExceeded` を見て partial success を判別する。`matched` は raw selector 件数、`changed` は実際に置換した件数。
+- 既定動作では 1 件だけ置換し、2 件目の effective match が見えた時点で error になる。`onMaxExceeded=break` を明示したときだけ、上限で止まった partial success が返りうる。
+- `effectiveMatched` は overlap 正規化後の、実際に cap 判定へ使う件数を指す。成功時は `maxExceeded=false` が full success、`maxExceeded=true` が cap-limited partial success を意味する。
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 

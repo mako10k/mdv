@@ -3615,6 +3615,12 @@ function normalizeStructureMutationError(toolName, error) {
     }
   }
 
+  if (toolName === 'replace_structure') {
+    if (message.startsWith('Replace exceeds maxReplacements=')) {
+      return new AiToolUserError(toolName, 'The replace selector exceeded maxReplacements.', 'Narrow the query, use an exact handle, raise maxReplacements, or set onMaxExceeded="break" to stop after the configured limit.', 'too_many_matches')
+    }
+  }
+
   return error
 }
 
@@ -3696,6 +3702,34 @@ function requireStructureInsertPositionArg(toolName, payload, fieldName = 'posit
   return position
 }
 
+function requireStructureMaxReplacementsArg(toolName, payload) {
+  if (payload?.maxReplacements === undefined || payload?.maxReplacements === null) {
+    return 1
+  }
+
+  const maxReplacements = Number(payload.maxReplacements)
+
+  if (!Number.isInteger(maxReplacements) || maxReplacements < 1) {
+    throw new AiToolUserError(toolName, 'maxReplacements must be a positive integer.', 'Omit maxReplacements for the safe default of 1, or pass 1 or greater.', 'invalid_argument')
+  }
+
+  return maxReplacements
+}
+
+function requireStructureReplaceOverflowBehaviorArg(toolName, payload) {
+  if (payload?.onMaxExceeded === undefined || payload?.onMaxExceeded === null || payload.onMaxExceeded === '') {
+    return 'error'
+  }
+
+  const behavior = requireStringArg(toolName, payload, 'onMaxExceeded', 'one of break or error')
+
+  if (behavior !== 'break' && behavior !== 'error') {
+    throw new AiToolUserError(toolName, `Unsupported onMaxExceeded value "${behavior}".`, 'Use break to stop after maxReplacements or error to reject the operation when the limit would be exceeded.', 'invalid_argument')
+  }
+
+  return behavior
+}
+
 async function applyStructureMutationForWindow(editorWindow, toolName, operation, payload) {
   const selectorInput = resolveStructureSelectorInput(editorWindow, toolName, payload)
   await validateStructureSelectorQuery(toolName, selectorInput)
@@ -3708,6 +3742,11 @@ async function applyStructureMutationForWindow(editorWindow, toolName, operation
 
   if (operation === 'insert' || operation === 'replace' || operation === 'wrap') {
     mutationPayload.markdown = requireStructureMarkdownArg(toolName, payload, 'markdown')
+  }
+
+  if (operation === 'replace') {
+    mutationPayload.maxReplacements = requireStructureMaxReplacementsArg(toolName, payload)
+    mutationPayload.onMaxExceeded = requireStructureReplaceOverflowBehaviorArg(toolName, payload)
   }
 
   if (operation === 'insert') {
@@ -3760,6 +3799,8 @@ async function applyStructureMutationForWindow(editorWindow, toolName, operation
     fingerprintBefore: document.fingerprint,
     fingerprintAfter: fingerprintMarkdown(mutationResult.markdown),
     matched: Number.isFinite(Number(mutationResult.matched)) ? Number(mutationResult.matched) : undefined,
+    effectiveMatched: Number.isFinite(Number(mutationResult.effectiveMatched)) ? Number(mutationResult.effectiveMatched) : undefined,
+    maxExceeded: mutationResult?.maxExceeded === true,
     targetMatched: Number.isFinite(Number(mutationResult.targetMatched)) ? Number(mutationResult.targetMatched) : undefined,
     changed: Number.isFinite(Number(mutationResult.changed)) ? Number(mutationResult.changed) : undefined,
     inserted: Number.isFinite(Number(mutationResult.inserted)) ? Number(mutationResult.inserted) : undefined,
@@ -4408,12 +4449,14 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'replace_structure',
-    description: 'Replace one or more structure nodes selected by query or handle with markdown parsed through mdast.',
+    description: 'Replace matched structure nodes selected by query or handle with markdown parsed through mdast, capped by maxReplacements.',
     parameters: buildAiToolParameters({
         editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
         query: { type: 'string', description: aiStructureSelectorDescription },
         handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
         markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Replacement markdown snippet.' }),
+      maxReplacements: { type: 'integer', description: 'Optional positive integer cap. Defaults to 1.' },
+      onMaxExceeded: { type: 'string', enum: ['break', 'error'], description: 'Optional overflow behavior when effective matches exceed maxReplacements. Defaults to error.' },
       }),
   },
   {
@@ -4688,15 +4731,19 @@ const aiToolHelpDocs = {
     ],
   },
   replace_structure: {
-    summary: 'Replace matched nodes with markdown parsed into mdast nodes.',
+    summary: 'By default, replace_structure replaces one effective match and returns an error as soon as a second effective match would be touched. effectiveMatched means the overlap-normalized match count used for cap decisions. Use maxReplacements to raise the cap. On a successful call, maxExceeded=false means full success and maxExceeded=true means a cap-limited partial success.',
     parameters: [
       { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
       { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
       { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
       { name: 'markdown', required: true, type: 'string', description: 'Replacement markdown snippet.' },
+      { name: 'maxReplacements', required: false, type: 'integer', description: 'Optional positive integer cap. Defaults to 1.' },
+      { name: 'onMaxExceeded', required: false, type: 'string', description: 'Optional. break stops after maxReplacements and succeeds. error rejects the operation if the effective match count exceeds the cap. Defaults to error.' },
     ],
     examples: [
       { description: 'Replace one exact paragraph', args: { query: 'paragraph[text*=Draft]', markdown: 'Final paragraph' } },
+      { description: 'Replace two matches and still fail if a third would be touched', args: { query: 'paragraph[text*=TODO]', markdown: 'Resolved paragraph', maxReplacements: 2 } },
+      { description: 'Replace up to three matches and stop successfully. If maxExceeded is true in the result, the replace stopped at the cap and did not touch every effective match.', args: { query: 'paragraph[text*=TODO]', markdown: 'Resolved paragraph', maxReplacements: 3, onMaxExceeded: 'break' } },
     ],
   },
   delete_structure: {
@@ -5015,6 +5062,9 @@ function buildStructureHelpResult(topic) {
         'invalid_query: the selector syntax is wrong. Call get_structure_help with {"topic":"query-language"}.',
         'no_match: the selector matched nothing. Inspect the current document with list_structure_map or query_structure.',
         'invalid_handle or stale_handle: rerun a structure read tool and reuse one returned handle.',
+        'too_many_matches on replace_structure: the effective match count exceeded maxReplacements. Narrow the query, use a handle, raise maxReplacements, or set onMaxExceeded to break.',
+        'When onMaxExceeded is break, inspect maxExceeded and effectiveMatched in the result. maxExceeded=true means the replace stopped at the configured cap instead of touching every effective match.',
+        'matched is the raw selector match count before overlap normalization. effectiveMatched is the normalized count used for maxReplacements and overflow decisions. changed is the number of replacements actually applied.',
         'Move target queries must resolve to exactly one node. Use a handle when you need exact targeting.',
       ],
     },
@@ -6176,6 +6226,8 @@ function summarizeAiToolResultForLog(toolName, result) {
     return {
       editorId: typeof result?.editorId === 'string' ? result.editorId : null,
       matched: Number.isFinite(Number(result?.matched)) ? Number(result.matched) : null,
+      effectiveMatched: Number.isFinite(Number(result?.effectiveMatched)) ? Number(result.effectiveMatched) : null,
+      maxExceeded: result?.maxExceeded === true,
       targetMatched: Number.isFinite(Number(result?.targetMatched)) ? Number(result.targetMatched) : null,
       changed: Number.isFinite(Number(result?.changed)) ? Number(result.changed) : null,
       inserted: Number.isFinite(Number(result?.inserted)) ? Number(result.inserted) : null,

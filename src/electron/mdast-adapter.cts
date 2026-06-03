@@ -87,6 +87,7 @@ type GetMarkdownStructureOptions = {
 }
 
 type StructureInsertPosition = 'before' | 'after' | 'prepend' | 'append'
+type StructureReplaceOverflowBehavior = 'break' | 'error'
 type StructureMutationOperation = 'insert' | 'delete' | 'replace' | 'wrap' | 'unwrap' | 'move'
 
 type StructureMutationPayload = {
@@ -94,6 +95,8 @@ type StructureMutationPayload = {
   markdown?: string
   position?: StructureInsertPosition
   targetSelector?: QuerySelector
+  maxReplacements?: number
+  onMaxExceeded?: StructureReplaceOverflowBehavior
 }
 
 type StructureMutationResult = {
@@ -102,6 +105,8 @@ type StructureMutationResult = {
   inserted?: number
   changed?: number
   targetMatched?: number
+  effectiveMatched?: number
+  maxExceeded?: boolean
 }
 
 type MdastControlModule = {
@@ -404,10 +409,27 @@ function applyDelete(tree: MdastNode, matches: QueryMatch[]) {
   return { tree, changed }
 }
 
-function applyReplace(tree: MdastNode, matches: QueryMatch[], snippetNodes: MdastNode[]) {
+function applyReplace(
+  tree: MdastNode,
+  matches: QueryMatch[],
+  snippetNodes: MdastNode[],
+  options: {
+    maxReplacements?: number
+    onMaxExceeded?: StructureReplaceOverflowBehavior
+  } = {},
+) {
   const normalizedMatches = normalizeNonOverlappingMatches(matches)
+  const maxReplacements = Number.isInteger(options.maxReplacements) && Number(options.maxReplacements) > 0 ? Number(options.maxReplacements) : 1
+  const onMaxExceeded = options.onMaxExceeded === 'break' ? 'break' : 'error'
+
+  if (normalizedMatches.length > maxReplacements && onMaxExceeded === 'error') {
+    throw new Error(`Replace exceeds maxReplacements=${String(maxReplacements)} with ${String(normalizedMatches.length)} effective matches`)
+  }
+
+  const selectedMatches = normalizedMatches.slice(0, maxReplacements)
+
   let changed = 0
-  const orderedMatches = [...normalizedMatches].sort((left, right) => comparePath(right.path, left.path))
+  const orderedMatches = [...selectedMatches].sort((left, right) => comparePath(right.path, left.path))
 
   for (const match of orderedMatches) {
     if (!Array.isArray(match.parent?.children) || match.index < 0) {
@@ -418,7 +440,12 @@ function applyReplace(tree: MdastNode, matches: QueryMatch[], snippetNodes: Mdas
     changed += 1
   }
 
-  return { tree, changed }
+  return {
+    tree,
+    changed,
+    effectiveMatched: normalizedMatches.length,
+    maxExceeded: normalizedMatches.length > maxReplacements,
+  }
 }
 
 function applyWrap(tree: MdastNode, matches: QueryMatch[], wrapperNodes: MdastNode[]) {
@@ -550,11 +577,16 @@ async function mutateMarkdownStructure(markdown: string, operation: StructureMut
 
   if (operation === 'replace') {
     const snippetTree = mdast.parseMarkdown(typeof payload.markdown === 'string' ? payload.markdown : '')
-    const result = applyReplace(tree, matches, snippetTree.children ?? [])
+    const result = applyReplace(tree, matches, snippetTree.children ?? [], {
+      maxReplacements: payload.maxReplacements,
+      onMaxExceeded: payload.onMaxExceeded,
+    })
     return {
       markdown: mdast.stringifyAst(result.tree),
       changed: result.changed,
       matched: matches.length,
+      effectiveMatched: result.effectiveMatched,
+      maxExceeded: result.maxExceeded,
     }
   }
 
