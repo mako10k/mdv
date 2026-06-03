@@ -3916,6 +3916,22 @@ function focusWindow(window) {
   window.focus()
 }
 
+function findEditorWindowByTrackedFilePath(filePath) {
+  const normalizedPath = normalizeRecoveryFilePath(filePath)
+
+  if (!normalizedPath) {
+    return null
+  }
+
+  return BrowserWindow.getAllWindows().find((window) => {
+    if (!isEditorWindow(window) || window.isDestroyed()) {
+      return false
+    }
+
+    return ensureEditorRuntimeState(window).trackedFilePath === normalizedPath
+  }) ?? null
+}
+
 async function confirmAiWriteAction(parentWindow, options) {
   const messages = getMainI18n()
   const response = await showMessageBox(parentWindow, {
@@ -7314,6 +7330,17 @@ function queueOrDispatchOpenFile(launchRequest) {
     return
   }
 
+  const existingWindow = launchRequest?.filePath ? findEditorWindowByTrackedFilePath(launchRequest.filePath) : null
+
+  if (existingWindow) {
+    writeLog('INFO', 'main', 'Focused existing editor for launch/open file request', {
+      filePath: launchRequest.filePath,
+      windowId: existingWindow.id,
+    })
+    focusWindow(existingWindow)
+    return
+  }
+
   const targetWindow = getDefaultEditorWindow()
 
   if (!targetWindow || targetWindow.webContents.isLoading()) {
@@ -8299,6 +8326,17 @@ ipcMain.handle('mdv:open-file', async () => {
     return null
   }
 
+  const existingWindow = findEditorWindowByTrackedFilePath(result.filePaths[0])
+
+  if (existingWindow) {
+    writeLog('INFO', 'ipc', 'open-file focused existing editor', {
+      filePath: result.filePaths[0],
+      windowId: existingWindow.id,
+    })
+    focusWindow(existingWindow)
+    return null
+  }
+
   writeLog('INFO', 'ipc', 'open-file selected', result.filePaths[0])
   return readUtf8File(result.filePaths[0])
 })
@@ -8795,6 +8833,17 @@ process.on('unhandledRejection', (reason) => {
 
 app.on('second-instance', (_event, argv) => {
   const launchRequest = resolveLaunchRequest(argv)
+  const existingWindow = launchRequest.filePath ? findEditorWindowByTrackedFilePath(launchRequest.filePath) : null
+
+  if (existingWindow) {
+    writeLog('INFO', 'main', 'Focused existing editor for second-instance file open', {
+      filePath: launchRequest.filePath,
+      windowId: existingWindow.id,
+    })
+    focusWindow(existingWindow)
+    return
+  }
+
   const shouldOpenAdditionalWindow = Boolean(launchRequest.filePath) && !isManagedClient()
 
   if (shouldOpenAdditionalWindow) {

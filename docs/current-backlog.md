@@ -38,8 +38,10 @@
 1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 2. MD-BL-005 画像 / メディア asset workflow と参照管理
 3. MD-BL-012 起動時 placeholder ちらつき抑制
-4. MD-BL-006 表編集補助
-5. MD-BL-007 リスト継続と task list 操作補助
+4. MD-BL-017 同一ファイル再オープン時の editor focus dedupe
+5. MD-BL-018 H3/H4 heading 表示崩れ修正
+6. MD-BL-006 表編集補助
+7. MD-BL-007 リスト継続と task list 操作補助
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
@@ -47,21 +49,29 @@
 
 - MD-BL-004 には MDV topbar と Toast UI toolbar の責務重複整理、footnote を含む挿入コマンドの caret / selection anchor 安定化を含める
 - MD-BL-005 には単なる挿入 UI だけでなく、draft workspace、asset manager、assetId continuity、base64 data URL の相対 asset 正規化を含む local asset foundation を含める
+- MD-BL-017 は OS / second-instance launch と app 内 open dialog の両方で、同一 file が既に開いている場合は既存 editor window を focus して重複 open を避ける
+- MD-BL-018 は editor / preview / assistant bubble の Markdown heading style 競合を含めて直す
 
 ### P2 Editor Expansion
 
-1. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
-2. MD-BL-014 検索 surface の再設計
-3. MD-BL-008 Preview 同期強化
-4. MD-BL-009 スペルチェック
-5. MD-BL-010 最近使った文書 / クイックオープン
-6. MD-BL-011 PDF 出力
+1. MD-BL-019 workspace topbar / outline / typography density 整理
+2. MD-BL-020 変更プレビューと merge UI 基盤
+3. MD-BL-021 Span comment と orphan 管理
+4. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
+5. MD-BL-014 検索 surface の再設計
+6. MD-BL-008 Preview 同期強化
+7. MD-BL-009 スペルチェック
+8. MD-BL-010 最近使った文書 / クイックオープン
+9. MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
 注記:
 
 - MD-BL-014 は現行の editor 内検索 surface を捨てる話ではなく、workspace-first を既定に保ったまま、必要なら detached search window を secondary mode として評価する
+- MD-BL-019 には outline の行間見直し、editor / AI chat 別 font size、AI chat の padding / margin / 説明文削減を含める
+- MD-BL-020 は save conflict preview だけでなく、AI 書き込みや将来の hunk apply/discard/edit を支える merge UI foundation として扱う
+- MD-BL-021 は XDG 永続化、span 自動追従、orphaned comment 管理、AI tool CRUD surface をまとめて扱う
 
 ### Supporting Backlog
 
@@ -85,12 +95,19 @@
 10. iteration limit 到達時の継続 / 中断選択: AI-UX-004
 11. 破損画像や末尾添付の削除・整理導線: MD-BL-005
 12. Electron 側肥大化の解消と TS ライブラリ化: ENG-BL-001
+13. Span comment / orphan comment / XDG 保存 / tool CRUD: MD-BL-021
+14. 同一ファイル再オープン時は既存 editor を focus: MD-BL-017
+15. アウトライン密度、AI chat / editor font size 分離、説明文削減: MD-BL-019
+16. H3/H4 heading がインラインコード風に囲われる表示崩れ: MD-BL-018
+17. 変更プレビューと merge UI 基盤: MD-BL-020
 
 補足:
 
 - 10 は editor backlog ではなく、assistant interaction の product gap として AI-P2 に置く
 - 11 は新しい独立 PBI を増やさず、MD-BL-005 の media reference manager / orphan cleanup / 削除導線 refinement として吸収する
 - 12 は user-facing 機能ではないため Supporting Backlog の ENG-BL-001 に置く
+- 13 は UI だけでなく AI tool surface と XDG 永続化を跨ぐため、単独 backlog として切り出す
+- 15 は MDV topbar の grouping とは分け、読みやすさと表示密度の調整として MD-BL-019 へ置く
 
 ## Active AI Backlog
 
@@ -188,9 +205,9 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 ## Recommended Execution Order
 
 1. AI-P1 Response UX
-2. MD-BL-004, MD-BL-005, MD-BL-012
+2. MD-BL-004, MD-BL-005, MD-BL-012, MD-BL-017, MD-BL-018
 3. MD-BL-006, MD-BL-007
-4. MD-BL-013, MD-BL-014, MD-BL-008
+4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
 5. AI-P2 の再分解と tool surface 残件の整理
 6. AI-P3 context management
 7. AI-CM context lifecycle

@@ -45,3 +45,18 @@
 
 - [ ] 14. バグ: write target=":new" の時にコンテンツがプレースフォルダ内容のまま
   2026-06-03 13:17-13:19 JST 頃の Windows ホストアプリログでは、`write_target` の `destination.editorId=":new"` は複数回 `created=true` かつ `bytesWritten>0` で完了している。したがって main process の tool write 自体は成功している。コード上でも `createNewEditorWindowFromContent -> requestEditorContext -> requestEditorWindowData(type="write")` の順で write は投げられている。一方 renderer 側は editor instance 未生成の段階でも write request を受けられるが、`EditorSurface` は初回 render の `initialValue` を固定して editor を作るため、pre-mount write が placeholder 初期値に負ける競合があり得た。対策として pre-mount の最新 value を editor 初期化へ反映し、untitled の既定 state も空文書へ変更して、プレースホルダ注入は前提値ではなく最終フォールバック寄りに後退させた。
+
+- [ ] 15. Span Comment 機能を追加する
+  指定 Span への comment 追加、編集、削除を行えるようにする。コメント作成者と編集者が user / AI のどちらかを判別できるようにし、hover で内容を見せる。本文編集に追従して span を自動補正し、追従不能になった orphaned comment の閲覧・整理も行えるようにする。保存先は XDG 配下に置き、tool surface から span 内 comment と orphaned comment の一覧取得、CRUD を行えるようにする。
+
+- [ ] 16. 同一ファイル再オープン時は既存エディタをフォーカスする
+  すでに同じファイルを開いている場合、新しい window や重複読込を行わず、既存 editor window を前面へ出してフォーカスする。OS からの再オープンと app 内 open dialog の両方で重複を避ける。
+
+- [ ] 17. アウトラインと文字組の表示密度を上げる
+  見出しアウトラインの行間が広すぎるため、同じ高さでより多くの情報を読めるようにする。editor / AI chat のフォントサイズを別々に調整できるようにし、AI chat は padding・margin・補助説明を減らして密度を上げる。
+
+- [ ] 18. H3/H4 がインラインコード風に囲われる表示バグを直す
+  文書冒頭付近の H3/H4 heading がインラインコードのような枠で囲われる表示崩れを修正する。Markdown preview、editor、AI chat の Markdown fragment で CSS 競合がないか確認する。
+
+- [ ] 19. 変更プレビュー / マージ UI 基盤を追加する
+  保存前や AI 変更適用前に、byte 数だけでなく diff を見ながら確認できるようにする。inline diff や merge UI を使って hunk 単位の適用・破棄・編集を行える基盤を先に整備し、その上に変更プレビューを載せる。
