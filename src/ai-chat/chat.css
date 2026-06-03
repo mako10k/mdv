@@ -227,6 +227,17 @@ body,
   line-height: 1.5;
 }
 
+.ai-chat-shell.embedded .chat-bubble .markdown-fragment p,
+.ai-chat-shell.embedded .chat-bubble .markdown-fragment ul,
+.ai-chat-shell.embedded .chat-bubble .markdown-fragment ol,
+.ai-chat-shell.embedded .chat-bubble .markdown-fragment blockquote,
+.ai-chat-shell.embedded .chat-tool-content .markdown-fragment p,
+.ai-chat-shell.embedded .chat-tool-content .markdown-fragment ul,
+.ai-chat-shell.embedded .chat-tool-content .markdown-fragment ol,
+.ai-chat-shell.embedded .chat-tool-content .markdown-fragment blockquote {
+  line-height: var(--chat-line-height);
+}
+
 .chat-bubble .markdown-fragment h1,
 .chat-bubble .markdown-fragment h2,
 .chat-bubble .markdown-fragment h3,
@@ -463,6 +474,10 @@ body,
   word-break: break-word;
 }
 
+.ai-chat-shell.embedded .chat-tool-json {
+  font: 10px/1.4 var(--mono);
+}
+
 .ai-chat-composer-shell {
   display: grid;
   gap: 8px;
@@ -582,14 +597,55 @@ body,
 .ai-chat-shell.embedded {
   height: 100%;
   min-height: 0;
+  gap: 8px;
 }
 
 .ai-chat-shell.embedded .ai-chat-header h1 {
-  font-size: 1.2rem;
+  font-size: 1.02rem;
 }
 
+.ai-chat-shell.embedded .ai-chat-header-actions {
+  gap: 8px;
+}
+
+.ai-chat-shell.embedded .ai-chat-eyebrow,
 .ai-chat-shell.embedded .ai-chat-subtitle {
-  max-width: none;
+  display: none;
+}
+
+.ai-chat-shell.embedded .ai-chat-header {
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-chat-shell.embedded .ai-chat-transcript {
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.ai-chat-shell.embedded .chat-bubble {
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
+}
+
+.ai-chat-shell.embedded .chat-tool-content {
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
+}
+
+.ai-chat-shell.embedded .chat-bubble-title,
+.ai-chat-shell.embedded .chat-bubble-status {
+  margin-bottom: 3px;
+}
+
+.ai-chat-shell.embedded .chat-markdown-content {
+  gap: 6px;
+}
+
+.ai-chat-shell.embedded .chat-context-badges {
+  margin-bottom: 4px;
 }
 
 @media (max-width: 640px) {

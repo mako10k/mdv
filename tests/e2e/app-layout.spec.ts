@@ -119,6 +119,44 @@ test('editor mode keeps the outline and a non-zero Toast UI surface', async ({ p
   expect(toastRect.height).toBeGreaterThan(300)
 })
 
+test('editor mode uses denser outline and editor typography', async ({ page }) => {
+  await openWritePanel(page)
+  await page.evaluate(() => {
+    const panel = document.querySelector('.outline-panel')
+
+    if (!(panel instanceof HTMLElement)) {
+      return
+    }
+
+    const existingEmpty = panel.querySelector('.outline-empty')
+    if (existingEmpty) {
+      existingEmpty.remove()
+    }
+
+    const list = document.createElement('div')
+    list.className = 'outline-list'
+
+    const probe = document.createElement('button')
+    probe.type = 'button'
+    probe.className = 'outline-item'
+    probe.innerHTML = '<span class="outline-item-depth">H2</span><span class="outline-item-label">Synthetic outline item</span>'
+    list.appendChild(probe)
+    panel.appendChild(list)
+  })
+
+  await expect(page.locator('.outline-panel .outline-item')).toBeVisible()
+
+  await expect(computedStyle(page, '.outline-panel-header', 'paddingTop')).resolves.toBe('11px')
+  await expect(computedStyle(page, '.outline-list', 'paddingTop')).resolves.toBe('8px')
+  await expect(computedStyle(page, '.outline-list', 'rowGap')).resolves.toBe('2px')
+  await expect(computedStyle(page, '.outline-panel .outline-item', 'paddingTop')).resolves.toBe('6px')
+  await expect(computedStyle(page, '.outline-panel .outline-item', 'paddingBottom')).resolves.toBe('6px')
+  await expect(computedStyle(page, '.outline-panel .outline-item-label', 'fontSize')).resolves.toBe('11px')
+  await expect(computedStyle(page, '.outline-panel .outline-item-label', 'lineHeight')).resolves.toBe('14.3px')
+  await expect(computedStyle(page, '.compact-preview', 'fontSize')).resolves.toBe('13px')
+  await expect(computedStyle(page, '.compact-preview', 'lineHeight')).resolves.toBe('21.84px')
+})
+
 test('editor mode groups topbar commands and hides the Toast UI toolbar', async ({ page }) => {
   await openWritePanel(page)
 
@@ -262,6 +300,34 @@ test('editor mode with AI dock keeps editor and dock separated', async ({ page }
 
   expect(editorRect.right).toBeLessThanOrEqual(assistantRect.left)
   expect(toastRect.height).toBeGreaterThan(300)
+})
+
+test('embedded AI chat trims header chrome and uses denser message spacing', async ({ page }) => {
+  await openWritePanel(page)
+  await openAiDock(page)
+
+  await page.evaluate(() => {
+    const transcript = document.querySelector('.assistant-dock .ai-chat-transcript')
+
+    if (!(transcript instanceof HTMLElement)) {
+      return
+    }
+
+    const bubble = document.createElement('article')
+    bubble.className = 'chat-bubble chat-bubble-probe'
+    bubble.innerHTML = '<section class="markdown-fragment"><p>Synthetic message</p></section>'
+    transcript.appendChild(bubble)
+  })
+
+  await expect(page.locator('.assistant-dock .chat-bubble-probe')).toBeVisible()
+
+  await expect(computedStyle(page, '.assistant-dock .ai-chat-eyebrow', 'display')).resolves.toBe('none')
+  await expect(computedStyle(page, '.assistant-dock .ai-chat-subtitle', 'display')).resolves.toBe('none')
+  await expect(computedStyle(page, '.assistant-dock .ai-chat-header h1', 'fontSize')).resolves.toBe('16.32px')
+  await expect(computedStyle(page, '.assistant-dock .ai-chat-shell.embedded', 'paddingTop')).resolves.toBe('8px')
+  await expect(computedStyle(page, '.assistant-dock .chat-bubble-probe', 'paddingTop')).resolves.toBe('6px')
+  await expect(computedStyle(page, '.assistant-dock .chat-bubble-probe .markdown-fragment p', 'lineHeight')).resolves.toBe('16.8px')
+  await expect(computedStyle(page, '.assistant-dock .chat-tool-json', 'fontSize')).resolves.toBe('10px')
 })
 
 test.describe('responsive stacked layout', () => {
