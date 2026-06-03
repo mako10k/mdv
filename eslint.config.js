@@ -15,7 +15,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['**/*.{ts,tsx,cts,mts}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.electron-lib.tsbuildinfo",
+    "rootDir": "./src/electron",
+    "outDir": "./electron/lib",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "verbatimModuleSyntax": false,
+    "noEmit": false,
+    "composite": true,
+    "declaration": true
+  },
+  "include": ["src/electron/**/*.cts"]
+}

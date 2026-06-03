@@ -16,6 +16,8 @@ npm install
 
 `npm install` は submodule 未初期化でも完了しますが、`npm run mdast:build`、`npm run build`、Windows packaging は `vendor/mdast-control` 初期化済みが前提です。
 
+`npm install` はあわせて TypeScript source から `electron/lib` の CommonJS runtime を再生成します。`src/electron/**/*.cts` を直接編集した場合は `npm run electron:build` を再実行してください。
+
 submodule だけ後から入れた場合:
 
 ```bash
@@ -30,7 +32,7 @@ npm run mdast:build
 npm run dev
 ```
 
-初回起動前に `vendor/mdast-control/dist` を生成しておく前提です。
+初回起動前に `vendor/mdast-control/dist` と `electron/lib` が生成済みである前提です。
 
 mdast も同時に watch しながら起動する場合:
 
@@ -84,6 +86,7 @@ npm run test:e2e:headed
 ## mdast 単体確認
 
 ```bash
+npm run electron:build
 npm run mdast:check
 npm run mdast:build
 ```
