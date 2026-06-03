@@ -9,7 +9,14 @@ const { createHash, randomUUID } = require('node:crypto')
 const { createPatch, applyPatch } = require('diff')
 const OpenAI = require('openai')
 const { createOpenAiResponseStream } = require('./openai-response-stream.cjs')
-const { extractHeadingOutline, getMdastCapabilities } = require('./mdast-adapter.cjs')
+const {
+  extractHeadingOutline,
+  getMarkdownStructure,
+  getMdastCapabilities,
+  mapMarkdownStructure,
+  mutateMarkdownStructure,
+  validateMarkdownQuery,
+} = require('./mdast-adapter.cjs')
 const {
   addFetchAclDecisionRule,
   createDefaultFetchAclText,
@@ -234,7 +241,6 @@ function startDebugChannelServer() {
     response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
     response.end(JSON.stringify({ ok: false, error: 'Not found' }))
   })
-
   server.on('error', (error) => {
     writeLog('ERROR', 'debug-channel', 'Debug channel server failed', error instanceof Error ? error.message : String(error))
   })
@@ -1610,7 +1616,6 @@ function scheduleSemanticCachePersist() {
       }))
       fs.writeFileSync(semanticCachePath, `${JSON.stringify({ version: 1, entries }, null, 2)}\n`, 'utf8')
     } catch (error) {
-      writeLog('WARN', 'semantic-search', 'Failed to persist semantic cache', error instanceof Error ? error.message : String(error))
     }
   }, 1000)
 }
@@ -1861,6 +1866,7 @@ function createEditorRuntimeState() {
     createdAt: timestamp,
     updatedAt: timestamp,
     trackedFilePath: null,
+    structureHandles: new Map(),
     protectedContextItems: new Map(),
     compressionState: {
       summaryText: '',
@@ -1898,6 +1904,89 @@ function clearEditorRuntimeState(windowId) {
   clearTrackedFileWatcher(windowId)
   editorRuntimeStateByWindowId.delete(windowId)
   clearSessionBuffersForWindow(windowId)
+}
+
+function getStructureHandleRegistry(editorWindow) {
+  const runtimeState = ensureEditorRuntimeState(editorWindow)
+
+  if (!(runtimeState.structureHandles instanceof Map)) {
+    runtimeState.structureHandles = new Map()
+  }
+
+  return runtimeState.structureHandles
+}
+
+function fingerprintMarkdown(text) {
+  return createHash('sha1').update(typeof text === 'string' ? text : '', 'utf8').digest('hex').slice(0, 16)
+}
+
+function normalizeStructurePath(path) {
+  if (!Array.isArray(path) || path.some((value) => !Number.isInteger(value) || value < 0)) {
+    throw new Error('Invalid structure path')
+  }
+
+  return [...path]
+}
+
+function structurePathsEqual(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index])
+}
+
+function pruneStructureHandlesForEditor(registry, editorId, fingerprint) {
+  for (const [handle, record] of registry.entries()) {
+    if (record?.editorId === editorId && record?.fingerprint !== fingerprint) {
+      registry.delete(handle)
+    }
+  }
+}
+
+function buildStructureSelectorFromHandleRecord(record) {
+  return {
+    path: normalizeStructurePath(record.path),
+  }
+}
+
+function registerStructureHandle(editorWindow, payload) {
+  const registry = getStructureHandleRegistry(editorWindow)
+  const normalizedPath = normalizeStructurePath(payload.path)
+  const timestamp = new Date().toISOString()
+
+  pruneStructureHandlesForEditor(registry, payload.editorId, payload.fingerprint)
+
+  for (const record of registry.values()) {
+    if (
+      record?.editorId === payload.editorId
+      && record?.fingerprint === payload.fingerprint
+      && structurePathsEqual(record.path, normalizedPath)
+    ) {
+      record.query = typeof payload.query === 'string' && payload.query.trim().length > 0 ? payload.query.trim() : record.query
+      record.type = typeof payload.type === 'string' ? payload.type : record.type
+      record.updatedAt = timestamp
+      return record
+    }
+  }
+
+  const handle = `mdast:${randomUUID()}`
+  const record = {
+    handle,
+    editorId: payload.editorId,
+    fingerprint: payload.fingerprint,
+    path: normalizedPath,
+    query: typeof payload.query === 'string' && payload.query.trim().length > 0 ? payload.query.trim() : null,
+    type: typeof payload.type === 'string' ? payload.type : 'unknown',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }
+  registry.set(handle, record)
+  return record
+}
+
+function getStructureHandleRecord(editorWindow, handle) {
+  const registry = getStructureHandleRegistry(editorWindow)
+  return registry.get(handle) || null
 }
 
 function normalizeProtectedContextPriority(value) {
@@ -3358,6 +3447,374 @@ function resolveTargetForSession(editorWindow, target) {
   throw new Error(`Unknown editor target: ${target.editorId}`)
 }
 
+function buildStructureTargetFromPosition(editorId, position) {
+  const start = position?.start
+  const end = position?.end
+
+  if (!Number.isFinite(Number(start?.line)) || !Number.isFinite(Number(start?.column)) || !Number.isFinite(Number(end?.line)) || !Number.isFinite(Number(end?.column))) {
+    return null
+  }
+
+  return buildAiTargetRef(editorId, {
+    kind: 'range',
+    start: {
+      line: Number(start.line),
+      column: Number(start.column),
+    },
+    end: {
+      line: Number(end.line),
+      column: Number(end.column),
+    },
+  })
+}
+
+function createStructureNodePayload(editorWindow, editorId, fingerprint, match, query, includeMarkdown = false) {
+  const handleRecord = registerStructureHandle(editorWindow, {
+    editorId,
+    fingerprint,
+    path: match.path,
+    query,
+    type: match.type,
+  })
+
+  const payload = {
+    handle: handleRecord.handle,
+    type: match.type,
+    path: Array.isArray(match.path) ? [...match.path] : [],
+    parentPath: Array.isArray(match.parentPath) ? [...match.parentPath] : null,
+    treeDepth: Number.isFinite(Number(match.treeDepth)) ? Number(match.treeDepth) : 0,
+    childCount: Number.isFinite(Number(match.childCount)) ? Number(match.childCount) : 0,
+    depth: Number.isFinite(Number(match.depth)) ? Number(match.depth) : undefined,
+    ordered: typeof match.ordered === 'boolean' ? match.ordered : undefined,
+    checked: typeof match.checked === 'boolean' ? match.checked : undefined,
+    lang: typeof match.lang === 'string' ? match.lang : undefined,
+    url: typeof match.url === 'string' ? match.url : undefined,
+    title: typeof match.title === 'string' ? match.title : undefined,
+    textPreview: createPreviewText(typeof match.text === 'string' ? match.text : ''),
+    position: match.position || null,
+    target: buildStructureTargetFromPosition(editorId, match.position),
+  }
+
+  if (includeMarkdown) {
+    payload.markdown = typeof match.markdown === 'string' ? match.markdown : ''
+  }
+
+  return payload
+}
+
+async function readStructureDocumentForEditor(editorWindow, editorId) {
+  const resolvedEditorId = typeof editorId === 'string' && editorId.length > 0 ? editorId : 'editor:active'
+  const textPayload = await readFullTargetTextForWindow(editorWindow, {
+    target: {
+      editorId: resolvedEditorId,
+      span: { kind: 'document' },
+    },
+  })
+
+  return {
+    editorId: textPayload.editorId,
+    text: textPayload.text,
+    fingerprint: fingerprintMarkdown(textPayload.text),
+  }
+}
+
+function resolveStructureSelectorInput(editorWindow, toolName, payload, options = {}) {
+  const query = typeof payload?.query === 'string' ? payload.query.trim() : ''
+  const handle = typeof payload?.handle === 'string' ? payload.handle.trim() : ''
+  const allowNone = options.allowNone === true
+
+  if (query && handle) {
+    throw new AiToolUserError(toolName, 'Provide either query or handle, not both.', 'Choose one structure selector mode and retry.')
+  }
+
+  if (!query && !handle && !allowNone) {
+    throw new AiToolUserError(toolName, 'A structure selector is required.', 'Provide query for a mdast selector string or handle from a previous structure result.')
+  }
+
+  if (query) {
+    return {
+      editorId: typeof payload?.editorId === 'string' && payload.editorId.trim().length > 0 ? payload.editorId.trim() : 'editor:active',
+      selector: { query },
+      query,
+      handle: null,
+    }
+  }
+
+  if (!handle) {
+    return {
+      editorId: typeof payload?.editorId === 'string' && payload.editorId.trim().length > 0 ? payload.editorId.trim() : 'editor:active',
+      selector: null,
+      query: '',
+      handle: null,
+    }
+  }
+
+  const handleRecord = getStructureHandleRecord(editorWindow, handle)
+
+  if (!handleRecord) {
+    throw new AiToolUserError(toolName, `Unknown structure handle: ${handle}`, 'Call query_structure or list_structure_map again and reuse one returned handle.', 'invalid_handle')
+  }
+
+  if (typeof payload?.editorId === 'string' && payload.editorId.trim().length > 0 && payload.editorId.trim() !== handleRecord.editorId) {
+    throw new AiToolUserError(toolName, 'handle and editorId do not refer to the same document.', 'Omit editorId when using a handle, or use a handle returned from that editorId.', 'invalid_handle')
+  }
+
+  return {
+    editorId: handleRecord.editorId,
+    selector: buildStructureSelectorFromHandleRecord(handleRecord),
+    query: handleRecord.query || '',
+    handle: handleRecord,
+  }
+}
+
+async function validateStructureSelectorQuery(toolName, selectorInput) {
+  if (!selectorInput?.query) {
+    return
+  }
+
+  const diagnostics = await validateMarkdownQuery(selectorInput.query)
+  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
+    throw new AiToolUserError(toolName, diagnostics[0], 'Call get_structure_help with {"topic":"query-language"} and retry with a valid selector.', 'invalid_query')
+  }
+}
+
+function ensureFreshStructureHandle(toolName, handleRecord, fingerprint) {
+  if (!handleRecord) {
+    return
+  }
+
+  if (handleRecord.fingerprint !== fingerprint) {
+    throw new AiToolUserError(toolName, `Structure handle ${handleRecord.handle} is stale because the document changed.`, 'Call query_structure or list_structure_map again to get fresh handles for the current document.', 'stale_handle')
+  }
+}
+
+function normalizeStructureMutationError(toolName, error) {
+  if (error instanceof AiToolUserError) {
+    return error
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (toolName === 'wrap_structure') {
+    if (message === 'Wrap requires exactly one top-level wrapper node') {
+      return new AiToolUserError(toolName, message, 'Provide markdown that parses to exactly one top-level container node and retry.', 'invalid_target_kind')
+    }
+
+    if (message.startsWith('Cannot wrap with non-container node type')) {
+      return new AiToolUserError(toolName, message, 'Use wrapper markdown that parses to a container node such as blockquote, list, or listItem.', 'invalid_target_kind')
+    }
+  }
+
+  if (toolName === 'move_structure') {
+    if (message.startsWith('Move requires exactly one target match')) {
+      return new AiToolUserError(toolName, 'The move target selector must resolve to exactly one node.', 'Use targetHandle from query_structure or narrow targetQuery before retrying move_structure.', 'invalid_target_kind')
+    }
+
+    if (message === 'Move target cannot be the same as, or nested inside, the moved source selection') {
+      return new AiToolUserError(toolName, 'The move target cannot be the source node or one of its descendants.', 'Choose a target outside the moved source selection and retry.', 'invalid_target_kind')
+    }
+  }
+
+  return error
+}
+
+async function listStructureMapForWindow(editorWindow, payload) {
+  const includeRoot = payload?.includeRoot === true
+  const maxNodes = Math.min(400, Math.max(1, Math.round(Number(payload?.maxNodes) || 120)))
+  const maxDepth = Math.min(12, Math.max(0, Math.round(Number(payload?.maxDepth) || 4)))
+  const document = await readStructureDocumentForEditor(editorWindow, typeof payload?.editorId === 'string' ? payload.editorId.trim() : 'editor:active')
+  const structureMap = await mapMarkdownStructure(document.text, {
+    includeRoot,
+    maxNodes,
+    maxDepth,
+  })
+
+  return {
+    editorId: document.editorId,
+    fingerprint: document.fingerprint,
+    truncated: structureMap.truncated,
+    nodes: structureMap.nodes.map((match) => createStructureNodePayload(editorWindow, document.editorId, document.fingerprint, match, '', false)),
+  }
+}
+
+async function queryStructureForWindow(editorWindow, payload) {
+  const selectorInput = resolveStructureSelectorInput(editorWindow, 'query_structure', payload)
+  const maxResults = Math.min(100, Math.max(1, Math.round(Number(payload?.maxResults) || 20)))
+  const includeMarkdown = payload?.includeMarkdown === true
+  await validateStructureSelectorQuery('query_structure', selectorInput)
+  const document = await readStructureDocumentForEditor(editorWindow, selectorInput.editorId)
+  ensureFreshStructureHandle('query_structure', selectorInput.handle, document.fingerprint)
+  const structureResult = await getMarkdownStructure(document.text, selectorInput.selector, { maxMatches: maxResults })
+
+  return {
+    editorId: document.editorId,
+    fingerprint: document.fingerprint,
+    query: selectorInput.query,
+    totalMatches: structureResult.totalMatches,
+    truncated: structureResult.truncated,
+    matches: structureResult.matches.map((match) => createStructureNodePayload(editorWindow, document.editorId, document.fingerprint, match, selectorInput.query, includeMarkdown)),
+  }
+}
+
+async function getStructureContentForWindow(editorWindow, payload) {
+  const selectorInput = resolveStructureSelectorInput(editorWindow, 'get_structure_content', payload)
+  await validateStructureSelectorQuery('get_structure_content', selectorInput)
+  const document = await readStructureDocumentForEditor(editorWindow, selectorInput.editorId)
+  ensureFreshStructureHandle('get_structure_content', selectorInput.handle, document.fingerprint)
+  const structureResult = await getMarkdownStructure(document.text, selectorInput.selector, { maxMatches: 1 })
+
+  if (structureResult.totalMatches === 0 || structureResult.matches.length === 0) {
+    throw new AiToolUserError('get_structure_content', 'The structure selector matched no nodes.', 'Run query_structure first to inspect the current structure map and then retry with a narrower selector.', 'no_match')
+  }
+
+  return {
+    editorId: document.editorId,
+    fingerprint: document.fingerprint,
+    query: selectorInput.query,
+    totalMatches: structureResult.totalMatches,
+    node: createStructureNodePayload(editorWindow, document.editorId, document.fingerprint, structureResult.matches[0], selectorInput.query, true),
+  }
+}
+
+function requireStructureMarkdownArg(toolName, payload, fieldName) {
+  const markdown = typeof payload?.[fieldName] === 'string' ? payload[fieldName] : ''
+
+  if (markdown.trim().length === 0) {
+    throw new AiToolUserError(toolName, `${fieldName} must be a non-empty markdown string.`, `Provide ${fieldName} as markdown content to insert, replace, or wrap with.`)
+  }
+
+  return markdown
+}
+
+function requireStructureInsertPositionArg(toolName, payload, fieldName = 'position') {
+  const position = requireStringArg(toolName, payload, fieldName, 'one of before, after, prepend, or append')
+
+  if (position !== 'before' && position !== 'after' && position !== 'prepend' && position !== 'append') {
+    throw new AiToolUserError(toolName, `Unsupported insert position "${position}".`, 'Use one of before, after, prepend, or append.', 'unsupported_position')
+  }
+
+  return position
+}
+
+async function applyStructureMutationForWindow(editorWindow, toolName, operation, payload) {
+  const selectorInput = resolveStructureSelectorInput(editorWindow, toolName, payload)
+  await validateStructureSelectorQuery(toolName, selectorInput)
+  const document = await readStructureDocumentForEditor(editorWindow, selectorInput.editorId)
+  ensureFreshStructureHandle(toolName, selectorInput.handle, document.fingerprint)
+
+  const mutationPayload = {
+    selector: selectorInput.selector,
+  }
+
+  if (operation === 'insert' || operation === 'replace' || operation === 'wrap') {
+    mutationPayload.markdown = requireStructureMarkdownArg(toolName, payload, 'markdown')
+  }
+
+  if (operation === 'insert') {
+    mutationPayload.position = requireStructureInsertPositionArg(toolName, payload)
+  }
+
+  if (operation === 'move') {
+    const targetInput = resolveStructureSelectorInput(editorWindow, toolName, {
+      editorId: payload?.editorId,
+      query: payload?.targetQuery,
+      handle: payload?.targetHandle,
+    })
+    await validateStructureSelectorQuery(toolName, targetInput)
+    if (targetInput.editorId !== document.editorId) {
+      throw new AiToolUserError(toolName, 'source and target must refer to the same editor or buffer.', 'Use source and target handles or queries from the same editorId.', 'invalid_target_kind')
+    }
+    ensureFreshStructureHandle(toolName, targetInput.handle, document.fingerprint)
+    mutationPayload.targetSelector = targetInput.selector
+    mutationPayload.position = requireStructureInsertPositionArg(toolName, payload)
+  }
+
+  let mutationResult
+
+  try {
+    mutationResult = await mutateMarkdownStructure(document.text, operation, mutationPayload)
+  } catch (error) {
+    throw normalizeStructureMutationError(toolName, error)
+  }
+
+  if (Number(mutationResult?.matched) === 0) {
+    throw new AiToolUserError(toolName, 'The structure selector matched no nodes.', 'Run query_structure first to inspect the current structure map and then retry with a narrower selector.', 'no_match')
+  }
+
+  const writeResult = await writeAiTargetForWindow(editorWindow, {
+    destination: {
+      editorId: document.editorId,
+      span: { kind: 'document' },
+    },
+    sources: [
+      {
+        type: 'literal',
+        text: mutationResult.markdown,
+      },
+    ],
+    mode: 'replace',
+  })
+
+  return {
+    editorId: document.editorId,
+    fingerprintBefore: document.fingerprint,
+    fingerprintAfter: fingerprintMarkdown(mutationResult.markdown),
+    matched: Number.isFinite(Number(mutationResult.matched)) ? Number(mutationResult.matched) : undefined,
+    targetMatched: Number.isFinite(Number(mutationResult.targetMatched)) ? Number(mutationResult.targetMatched) : undefined,
+    changed: Number.isFinite(Number(mutationResult.changed)) ? Number(mutationResult.changed) : undefined,
+    inserted: Number.isFinite(Number(mutationResult.inserted)) ? Number(mutationResult.inserted) : undefined,
+    bytesWritten: writeResult?.bytesWritten || Buffer.byteLength(mutationResult.markdown, 'utf8'),
+    documentTarget: buildAiTargetRef(document.editorId, { kind: 'document' }),
+    target: writeResult?.target,
+  }
+}
+
+async function copyStructureForWindow(editorWindow, payload) {
+  const sourceInput = resolveStructureSelectorInput(editorWindow, 'copy_structure', {
+    editorId: payload?.editorId,
+    query: payload?.sourceQuery,
+    handle: payload?.sourceHandle,
+  })
+  const targetInput = resolveStructureSelectorInput(editorWindow, 'copy_structure', {
+    editorId: payload?.editorId,
+    query: payload?.targetQuery,
+    handle: payload?.targetHandle,
+  })
+  await validateStructureSelectorQuery('copy_structure', sourceInput)
+  await validateStructureSelectorQuery('copy_structure', targetInput)
+  const document = await readStructureDocumentForEditor(editorWindow, sourceInput.editorId)
+
+  if (targetInput.editorId !== document.editorId) {
+    throw new AiToolUserError('copy_structure', 'source and target must refer to the same editor or buffer.', 'Use source and target handles or queries from the same editorId.', 'invalid_target_kind')
+  }
+
+  ensureFreshStructureHandle('copy_structure', sourceInput.handle, document.fingerprint)
+  ensureFreshStructureHandle('copy_structure', targetInput.handle, document.fingerprint)
+
+  const sourceResult = await getMarkdownStructure(document.text, sourceInput.selector, { maxMatches: 2 })
+  if (sourceResult.totalMatches === 0 || sourceResult.matches.length === 0) {
+    throw new AiToolUserError('copy_structure', 'The source selector matched no nodes.', 'Run query_structure first to inspect the current structure map and then retry with a narrower source selector.', 'no_match')
+  }
+
+  if (sourceResult.totalMatches !== 1 || sourceResult.matches.length !== 1) {
+    throw new AiToolUserError('copy_structure', 'The source selector must resolve to exactly one node.', 'Use sourceHandle from query_structure or narrow sourceQuery before retrying copy_structure.', 'too_many_matches')
+  }
+
+  const snippet = typeof sourceResult.matches[0]?.markdown === 'string' ? sourceResult.matches[0].markdown : ''
+
+  if (snippet.length === 0) {
+    throw new AiToolUserError('copy_structure', 'The source selector did not resolve reusable markdown content.', 'Retry with a block-level node such as heading, paragraph, listItem, blockquote, code, or table.', 'invalid_target_kind')
+  }
+
+  return applyStructureMutationForWindow(editorWindow, 'copy_structure', 'insert', {
+    editorId: document.editorId,
+    query: payload?.targetQuery,
+    handle: payload?.targetHandle,
+    position: requireStructureInsertPositionArg('copy_structure', payload),
+    markdown: snippet,
+  })
+}
+
 function getFileArgumentStartIndex() {
   return process.defaultApp ? 2 : 1
 }
@@ -3779,6 +4236,8 @@ const openAiChatInstructions = [
   'For follow-up tool calls, prefer the returned target object exactly as-is; resolved span objects with start/end/isEmpty are output metadata, not SPAN input schema.',
   'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
   'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
+  'For mdast structure work, prefer list_structure_map or query_structure before mutating. Structure handles are session-scoped exact node references and become stale after the document changes.',
+  'When structure tools return handles, reuse those handles for exact follow-up operations instead of guessing new selectors.',
   'Use write_target with destination.editorId=":new" when the user asked for a new document instead of mutating the current one.',
   'write_target mode "insert" inserts at the destination span start unless you provide a point span for an exact position; mode "append" inserts at the destination span end.',
   'Use save_context_item only for short high-value facts, constraints, or TODOs that should survive compression in this session; protected context is tightly budgeted.',
@@ -3805,6 +4264,8 @@ const aiSpanDescription = [
 const aiTargetDescription = `Target object as {"editorId":"editor:active","span":SPAN}. ${aiSpanDescription}`
 const aiDestinationDescription = `Destination object as {"editorId":"editor:active"|":new","span":SPAN}. ${aiSpanDescription}`
 const aiSliceRefSourceDescription = `Slice-ref source as either {"type":"slice-ref","target":{"editorId":"...","span":SPAN}} or {"type":"slice-ref","editorId":"...","span":SPAN}. ${aiSpanDescription}`
+const aiStructureSelectorDescription = 'Provide query as a selector string such as heading[depth=2], or provide handle separately as an exact mdast:... value from a previous structure tool result. Query and handle are mutually exclusive.'
+const aiStructureInsertPositionDescription = 'One of before, after, prepend, or append.'
 
 function buildRequiredAiToolParameter(definition) {
   if (!definition || typeof definition !== 'object') {
@@ -3889,6 +4350,127 @@ const aiToolDefinitions = [
     description: 'Return usage guidance, parameter rules, and examples for one AI tool.',
     parameters: buildAiToolParameters({
         toolName: buildRequiredAiToolParameter({ type: 'string', description: 'Exact tool name to describe.' }),
+      }),
+  },
+  {
+    type: 'function',
+    name: 'get_structure_help',
+    description: 'Return mdast query language help, handle semantics, DOM-like structure operations, and error recovery guidance.',
+    parameters: buildAiToolParameters({
+        topic: { type: 'string', enum: ['overview', 'query-language', 'handles', 'errors', 'examples'] },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'list_structure_map',
+    description: 'Return a flattened structural map of the current Markdown document with reusable structure handles.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor.' },
+        maxNodes: { type: 'number' },
+        maxDepth: { type: 'number' },
+        includeRoot: { type: 'boolean' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'query_structure',
+    description: 'Query mdast structure nodes by selector or exact handle and return reusable structure handles plus target refs.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+        maxResults: { type: 'number' },
+        includeMarkdown: { type: 'boolean' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'get_structure_content',
+    description: 'Get one structure node content, markdown, and target ref by query or exact handle.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'insert_structure',
+    description: 'Insert markdown before, after, prepend into, or append into one or more structure nodes selected by query or handle.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+        position: buildRequiredAiToolParameter({ type: 'string', description: aiStructureInsertPositionDescription }),
+        markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Markdown snippet to insert.' }),
+      }),
+  },
+  {
+    type: 'function',
+    name: 'replace_structure',
+    description: 'Replace one or more structure nodes selected by query or handle with markdown parsed through mdast.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+        markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Replacement markdown snippet.' }),
+      }),
+  },
+  {
+    type: 'function',
+    name: 'delete_structure',
+    description: 'Delete one or more structure nodes selected by query or handle.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'wrap_structure',
+    description: 'Wrap matched structure nodes with exactly one top-level container parsed from markdown.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+        markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Wrapper markdown such as \"> Quote\" or \"- item\". It must parse to exactly one top-level wrapper node.' }),
+      }),
+  },
+  {
+    type: 'function',
+    name: 'unwrap_structure',
+    description: 'Remove one container layer from matched structure nodes selected by query or handle.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: aiStructureSelectorDescription },
+        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'move_structure',
+    description: 'Move matched structure nodes to exactly one target node using before, after, prepend, or append positioning.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        query: { type: 'string', description: 'Source structure selector query.' },
+        handle: { type: 'string', description: 'Exact source structure handle from a previous structure result.' },
+        targetQuery: { type: 'string', description: 'Target selector query. The target must resolve to exactly one node.' },
+        targetHandle: { type: 'string', description: 'Exact target structure handle from a previous structure result.' },
+        position: buildRequiredAiToolParameter({ type: 'string', description: aiStructureInsertPositionDescription }),
+      }),
+  },
+  {
+    type: 'function',
+    name: 'copy_structure',
+    description: 'Copy one exact source structure node markdown and insert it at another structure target without removing the source.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
+        sourceQuery: { type: 'string', description: 'Source structure selector query. It must resolve to exactly one node.' },
+        sourceHandle: { type: 'string', description: 'Exact source structure handle from a previous structure result.' },
+        targetQuery: { type: 'string', description: 'Target selector query. The target may match one or more nodes.' },
+        targetHandle: { type: 'string', description: 'Exact target structure handle from a previous structure result.' },
+        position: buildRequiredAiToolParameter({ type: 'string', description: aiStructureInsertPositionDescription }),
       }),
   },
   {
@@ -4041,6 +4623,142 @@ const aiToolHelpDocs = {
     ],
     examples: [
       { description: 'Describe read_target', args: { toolName: 'read_target' } },
+    ],
+  },
+  get_structure_help: {
+    summary: 'Return mdast query language help, structure handle semantics, mutation examples, and error recovery guidance.',
+    parameters: [
+      { name: 'topic', required: false, type: 'string', description: 'Optional. overview, query-language, handles, errors, or examples.' },
+    ],
+    examples: [
+      { description: 'Query language overview', args: { topic: 'query-language' } },
+      { description: 'Handle lifecycle help', args: { topic: 'handles' } },
+    ],
+  },
+  list_structure_map: {
+    summary: 'Inspect the Markdown structure as a flattened pre-order map with reusable handles.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID. Omit it for the active editor.' },
+      { name: 'maxNodes', required: false, type: 'number', description: 'Optional positive cap. Defaults to 120.' },
+      { name: 'maxDepth', required: false, type: 'number', description: 'Optional depth cap. Defaults to 4.' },
+      { name: 'includeRoot', required: false, type: 'boolean', description: 'Optional. Include the mdast root node when true.' },
+    ],
+    examples: [
+      { description: 'Map the active document structure', args: {} },
+      { description: 'Deeper map with the root node', args: { maxDepth: 6, includeRoot: true } },
+    ],
+  },
+  query_structure: {
+    summary: 'Select structure nodes by mdast query or by one exact handle returned earlier.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID. When handle is used, omit editorId unless it matches that handle document.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector such as heading[depth=2] or listItem text[value*=TODO].' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact handle from list_structure_map, query_structure, or get_structure_content.' },
+      { name: 'maxResults', required: false, type: 'number', description: 'Optional positive cap. Defaults to 20.' },
+      { name: 'includeMarkdown', required: false, type: 'boolean', description: 'Optional. Include the exact matched markdown slices.' },
+    ],
+    examples: [
+      { description: 'Find level-2 headings', args: { query: 'heading[depth=2]' } },
+      { description: 'Find one exact previously returned node', args: { handle: 'mdast:example' } },
+    ],
+  },
+  get_structure_content: {
+    summary: 'Fetch one exact node markdown and metadata by query or handle.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector. Use a narrow selector or handle when you need exactly one node.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact handle from a previous structure result.' },
+    ],
+    examples: [
+      { description: 'Read one exact handle', args: { handle: 'mdast:example' } },
+      { description: 'Read one matched paragraph', args: { query: 'paragraph[text*=Overview]' } },
+    ],
+  },
+  insert_structure: {
+    summary: 'Insert a markdown snippet relative to matched nodes using before, after, prepend, or append.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+      { name: 'position', required: true, type: 'string', description: 'before, after, prepend, or append.' },
+      { name: 'markdown', required: true, type: 'string', description: 'Markdown snippet to insert.' },
+    ],
+    examples: [
+      { description: 'Insert a paragraph after one heading', args: { query: 'heading[depth=1,text=Title]', position: 'after', markdown: 'Intro paragraph' } },
+    ],
+  },
+  replace_structure: {
+    summary: 'Replace matched nodes with markdown parsed into mdast nodes.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+      { name: 'markdown', required: true, type: 'string', description: 'Replacement markdown snippet.' },
+    ],
+    examples: [
+      { description: 'Replace one exact paragraph', args: { query: 'paragraph[text*=Draft]', markdown: 'Final paragraph' } },
+    ],
+  },
+  delete_structure: {
+    summary: 'Delete matched nodes by query or one exact handle.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+    ],
+    examples: [
+      { description: 'Delete one exact node', args: { handle: 'mdast:example' } },
+    ],
+  },
+  wrap_structure: {
+    summary: 'Wrap matched nodes inside exactly one parsed wrapper node while preserving any existing wrapper children.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+      { name: 'markdown', required: true, type: 'string', description: 'Wrapper markdown that parses to exactly one top-level container node. Existing wrapper children are preserved before the wrapped nodes.' },
+    ],
+    examples: [
+      { description: 'Wrap one paragraph in a quote with a lead-in line', args: { query: 'paragraph[text*=Risk]', markdown: '> Lead-in' } },
+    ],
+  },
+  unwrap_structure: {
+    summary: 'Remove one container layer from matched nodes.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+    ],
+    examples: [
+      { description: 'Unwrap one blockquote', args: { query: 'blockquote' } },
+    ],
+  },
+  move_structure: {
+    summary: 'Move matched source nodes to one exact target node.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: false, type: 'string', description: 'Source selector query.' },
+      { name: 'handle', required: false, type: 'string', description: 'Exact source handle.' },
+      { name: 'targetQuery', required: false, type: 'string', description: 'Target selector query. It must resolve to exactly one node.' },
+      { name: 'targetHandle', required: false, type: 'string', description: 'Exact target handle.' },
+      { name: 'position', required: true, type: 'string', description: 'before, after, prepend, or append.' },
+    ],
+    examples: [
+      { description: 'Move one heading after another', args: { query: 'heading[text=One]', targetQuery: 'heading[text=Two]', position: 'after' } },
+    ],
+  },
+  copy_structure: {
+    summary: 'Copy one exact source node markdown and insert it at a target location without deleting the source.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'sourceQuery', required: false, type: 'string', description: 'Source selector query. It must resolve to exactly one node.' },
+      { name: 'sourceHandle', required: false, type: 'string', description: 'Exact source handle.' },
+      { name: 'targetQuery', required: false, type: 'string', description: 'Target selector query.' },
+      { name: 'targetHandle', required: false, type: 'string', description: 'Exact target handle.' },
+      { name: 'position', required: true, type: 'string', description: 'before, after, prepend, or append.' },
+    ],
+    examples: [
+      { description: 'Copy one heading after another heading', args: { sourceQuery: 'heading[text=Template]', targetQuery: 'heading[text=Appendix]', position: 'after' } },
     ],
   },
   get_context: {
@@ -4261,12 +4979,82 @@ function buildAiToolHelpResult(toolName) {
   }
 }
 
+function buildStructureHelpResult(topic) {
+  const resolvedTopic = typeof topic === 'string' && topic.length > 0 ? topic : 'overview'
+  const topics = ['overview', 'query-language', 'handles', 'errors', 'examples']
+
+  const helpByTopic = {
+    overview: {
+      summary: 'Use structure tools for mdast node targeting instead of SPAN when the task is about headings, lists, tables, blockquotes, code blocks, or other Markdown structure.',
+      notes: [
+        'Start with list_structure_map for a broad map or query_structure for selector-based discovery.',
+        'Use handles for exact follow-up operations. Handles are session-scoped and become stale after the document changes.',
+        'Use insert_structure, replace_structure, delete_structure, wrap_structure, unwrap_structure, move_structure, or copy_structure for DOM-like mutations.',
+      ],
+    },
+    'query-language': {
+      summary: 'The structure query language follows mdast-control selectors.',
+      notes: [
+        'Examples: heading, root, heading[depth=2], heading[text*=Release], paragraph > text, listItem text[value*=TODO], tableCell[columnIndex=1,cellText=Open].',
+        'Operators: = exact, *= contains, ^= startsWith, $= endsWith, != not equal.',
+        'Special fields: text, rowIndex, columnIndex, headerText, cellText.',
+        'Use spaces for descendant and > for direct child.',
+      ],
+    },
+    handles: {
+      summary: 'A structure handle is an exact node reference returned by list_structure_map, query_structure, or get_structure_content.',
+      notes: [
+        'Handles are opaque ids like mdast:... and should be reused as-is.',
+        'Handles are valid only inside the current AI session and only while the document fingerprint stays unchanged.',
+        'If a handle becomes stale, rerun list_structure_map or query_structure to obtain fresh handles.',
+      ],
+    },
+    errors: {
+      summary: 'Structure tool errors include a reason, a fix, and a get_tool_help or get_structure_help follow-up path.',
+      notes: [
+        'invalid_query: the selector syntax is wrong. Call get_structure_help with {"topic":"query-language"}.',
+        'no_match: the selector matched nothing. Inspect the current document with list_structure_map or query_structure.',
+        'invalid_handle or stale_handle: rerun a structure read tool and reuse one returned handle.',
+        'Move target queries must resolve to exactly one node. Use a handle when you need exact targeting.',
+      ],
+    },
+    examples: {
+      summary: 'Typical structure tool flow examples.',
+      notes: [
+        'Map headings: list_structure_map {} then query_structure {"query":"heading[depth=2]"}.',
+        'Insert after one heading: query_structure {"query":"heading[text=Overview]"} then insert_structure {"handle":"mdast:...","position":"after","markdown":"New paragraph"}.',
+        'Copy one heading node: copy_structure {"sourceQuery":"heading[text=Template]","targetQuery":"heading[text=Appendix]","position":"after"}.',
+      ],
+    },
+  }
+
+  const help = helpByTopic[resolvedTopic] || helpByTopic.overview
+
+  return {
+    ok: true,
+    topic: resolvedTopic,
+    topics,
+    help,
+  }
+}
+
 function buildAiToolErrorResult(toolName, error) {
   const message = error instanceof Error ? error.message : String(error)
   const helpCall = {
     tool: 'get_tool_help',
     args: { toolName },
   }
+  const structureHelpCall = {
+    tool: 'get_structure_help',
+    args: {
+      topic: error instanceof AiToolUserError && error.code === 'invalid_query'
+        ? 'query-language'
+        : error instanceof AiToolUserError && (error.code === 'invalid_handle' || error.code === 'stale_handle')
+          ? 'handles'
+          : 'errors',
+    },
+  }
+  const isStructureTool = toolName === 'get_structure_help' || toolName === 'list_structure_map' || toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure'
 
   if (error instanceof AiToolUserError) {
     return {
@@ -4277,8 +5065,10 @@ function buildAiToolErrorResult(toolName, error) {
         reason: error.reason,
         fix: error.fix,
         help: {
-          call: helpCall,
-          note: `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
+          call: isStructureTool ? structureHelpCall : helpCall,
+          note: isStructureTool
+            ? `Call get_structure_help for query, handle, and recovery guidance, or get_tool_help with {"toolName":"${toolName}"} for the exact schema.`
+            : `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
         },
       },
     }
@@ -4292,8 +5082,10 @@ function buildAiToolErrorResult(toolName, error) {
       reason: message,
       fix: 'Adjust the arguments, retry a narrower operation, or inspect tool help before the next call.',
       help: {
-        call: helpCall,
-        note: `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
+        call: isStructureTool ? structureHelpCall : helpCall,
+        note: isStructureTool
+          ? `Call get_structure_help for recovery guidance, or get_tool_help with {"toolName":"${toolName}"} for the exact schema.`
+          : `Call get_tool_help with {"toolName":"${toolName}"} for the exact schema and examples.`,
       },
     },
   }
@@ -4340,6 +5132,36 @@ function validateAiToolArgs(toolName, args) {
 
   if (toolName === 'get_tool_help') {
     requireStringArg(toolName, args, 'toolName', 'an exact registered tool name such as read_target')
+    return
+  }
+
+  if (toolName === 'get_structure_help') {
+    return
+  }
+
+  if (toolName === 'list_structure_map') {
+    return
+  }
+
+  if (toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'delete_structure' || toolName === 'unwrap_structure') {
+    return
+  }
+
+  if (toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'wrap_structure') {
+    if (toolName === 'insert_structure') {
+      requireStringArg(toolName, args, 'position', 'one of before, after, prepend, or append')
+    }
+    requireStringArg(toolName, args, 'markdown', 'a non-empty markdown string')
+    return
+  }
+
+  if (toolName === 'move_structure') {
+    requireStringArg(toolName, args, 'position', 'one of before, after, prepend, or append')
+    return
+  }
+
+  if (toolName === 'copy_structure') {
+    requireStringArg(toolName, args, 'position', 'one of before, after, prepend, or append')
     return
   }
 
@@ -5175,6 +5997,55 @@ function summarizeAiToolArgsForLog(toolName, args) {
     }
   }
 
+  if (toolName === 'get_structure_help') {
+    return {
+      topic: typeof args?.topic === 'string' ? args.topic : null,
+    }
+  }
+
+  if (toolName === 'list_structure_map') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+      maxNodes: Number.isFinite(Number(args?.maxNodes)) ? Number(args.maxNodes) : undefined,
+      maxDepth: Number.isFinite(Number(args?.maxDepth)) ? Number(args.maxDepth) : undefined,
+      includeRoot: args?.includeRoot === true,
+    }
+  }
+
+  if (toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'delete_structure' || toolName === 'unwrap_structure' || toolName === 'replace_structure' || toolName === 'wrap_structure' || toolName === 'insert_structure') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+      query: typeof args?.query === 'string' ? args.query.slice(0, 160) : null,
+      handle: typeof args?.handle === 'string' ? args.handle : null,
+      position: typeof args?.position === 'string' ? args.position : undefined,
+      markdownBytes: typeof args?.markdown === 'string' ? Buffer.byteLength(args.markdown, 'utf8') : undefined,
+      maxResults: Number.isFinite(Number(args?.maxResults)) ? Number(args.maxResults) : undefined,
+      includeMarkdown: args?.includeMarkdown === true,
+    }
+  }
+
+  if (toolName === 'move_structure') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+      query: typeof args?.query === 'string' ? args.query.slice(0, 160) : null,
+      handle: typeof args?.handle === 'string' ? args.handle : null,
+      targetQuery: typeof args?.targetQuery === 'string' ? args.targetQuery.slice(0, 160) : null,
+      targetHandle: typeof args?.targetHandle === 'string' ? args.targetHandle : null,
+      position: typeof args?.position === 'string' ? args.position : undefined,
+    }
+  }
+
+  if (toolName === 'copy_structure') {
+    return {
+      editorId: typeof args?.editorId === 'string' ? args.editorId : null,
+      sourceQuery: typeof args?.sourceQuery === 'string' ? args.sourceQuery.slice(0, 160) : null,
+      sourceHandle: typeof args?.sourceHandle === 'string' ? args.sourceHandle : null,
+      targetQuery: typeof args?.targetQuery === 'string' ? args.targetQuery.slice(0, 160) : null,
+      targetHandle: typeof args?.targetHandle === 'string' ? args.targetHandle : null,
+      position: typeof args?.position === 'string' ? args.position : undefined,
+    }
+  }
+
   if (toolName === 'write_target') {
     return {
       destination: summarizeTargetForLog(args?.destination),
@@ -5269,6 +6140,50 @@ function summarizeAiToolArgsForLog(toolName, args) {
 }
 
 function summarizeAiToolResultForLog(toolName, result) {
+  if (toolName === 'get_structure_help') {
+    return {
+      topic: typeof result?.topic === 'string' ? result.topic : null,
+    }
+  }
+
+  if (toolName === 'list_structure_map') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      nodeCount: Array.isArray(result?.nodes) ? result.nodes.length : null,
+      truncated: result?.truncated === true,
+    }
+  }
+
+  if (toolName === 'query_structure') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      totalMatches: Number.isFinite(Number(result?.totalMatches)) ? Number(result.totalMatches) : null,
+      returnedMatches: Array.isArray(result?.matches) ? result.matches.length : null,
+      truncated: result?.truncated === true,
+    }
+  }
+
+  if (toolName === 'get_structure_content') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      totalMatches: Number.isFinite(Number(result?.totalMatches)) ? Number(result.totalMatches) : null,
+      handle: typeof result?.node?.handle === 'string' ? result.node.handle : null,
+      target: summarizeTargetForLog(result?.node?.target),
+    }
+  }
+
+  if (toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure') {
+    return {
+      editorId: typeof result?.editorId === 'string' ? result.editorId : null,
+      matched: Number.isFinite(Number(result?.matched)) ? Number(result.matched) : null,
+      targetMatched: Number.isFinite(Number(result?.targetMatched)) ? Number(result.targetMatched) : null,
+      changed: Number.isFinite(Number(result?.changed)) ? Number(result.changed) : null,
+      inserted: Number.isFinite(Number(result?.inserted)) ? Number(result.inserted) : null,
+      bytesWritten: Number.isFinite(Number(result?.bytesWritten)) ? Number(result.bytesWritten) : null,
+      target: summarizeTargetForLog(result?.target),
+    }
+  }
+
   if (toolName === 'write_target') {
     return {
       editorId: typeof result?.editorId === 'string' ? result.editorId : null,
@@ -5416,6 +6331,28 @@ async function executeAiToolCall(editorWindow, toolName, args) {
 
     if (toolName === 'get_tool_help') {
       result = buildAiToolHelpResult(args.toolName)
+    } else if (toolName === 'get_structure_help') {
+      result = buildStructureHelpResult(typeof args?.topic === 'string' ? args.topic : 'overview')
+    } else if (toolName === 'list_structure_map') {
+      result = listStructureMapForWindow(editorWindow, args)
+    } else if (toolName === 'query_structure') {
+      result = queryStructureForWindow(editorWindow, args)
+    } else if (toolName === 'get_structure_content') {
+      result = getStructureContentForWindow(editorWindow, args)
+    } else if (toolName === 'insert_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'insert', args)
+    } else if (toolName === 'replace_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'replace', args)
+    } else if (toolName === 'delete_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'delete', args)
+    } else if (toolName === 'wrap_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'wrap', args)
+    } else if (toolName === 'unwrap_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'unwrap', args)
+    } else if (toolName === 'move_structure') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'move', args)
+    } else if (toolName === 'copy_structure') {
+      result = copyStructureForWindow(editorWindow, args)
     } else if (toolName === 'get_context') {
       const requestedEditorId = typeof args?.editorId === 'string' && args.editorId.length > 0 ? args.editorId : null
 

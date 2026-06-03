@@ -6,6 +6,7 @@
 
 - この文書の T0-3 は separate chat window entry を評価した時点の feasibility record
 - 現在の primary surface は editor window 内の assistant dock であり、別 entry の記述は履歴扱いとする
+- 現在の shipped AI tool surface は [docs/ai-chat-design.md](docs/ai-chat-design.md) を正とし、mdast ベースの structure tool surface もそちらに含まれる
 
 この文書は [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) の Track 0 を事実ベースで確認した結果をまとめる。
 
@@ -27,6 +28,10 @@
 - ただし Markdown mode と WYSIWYG mode で selection の表現が異なるため、AI tool 向けには Markdown 座標へ正規化する必要がある
 - 現在の [src/shims.d.ts](src/shims.d.ts) は必要 API を宣言していないため、実装時には shim 拡張が必要
 - chat window は Vite の別 entry と Electron の別 HTML 読み込みで分離実装できる
+
+注記:
+
+- 現在の実装はこの feasibility record を踏まえて editor dock へ統合され、EditorID + SPAN surface に加えて mdast structure tools も main process から利用可能になっている
 
 ## T0-1 Toast UI Selection Read Feasibility
 
