@@ -317,9 +317,15 @@ test('embedded AI chat trims header chrome and uses denser message spacing', asy
     bubble.className = 'chat-bubble chat-bubble-probe'
     bubble.innerHTML = '<section class="markdown-fragment"><p>Synthetic message</p></section>'
     transcript.appendChild(bubble)
+
+    const toolEntry = document.createElement('article')
+    toolEntry.className = 'chat-tool-entry'
+    toolEntry.innerHTML = '<div class="chat-tool-content"><pre class="chat-tool-json">{"ok":true}</pre></div>'
+    transcript.appendChild(toolEntry)
   })
 
   await expect(page.locator('.assistant-dock .chat-bubble-probe')).toBeVisible()
+  await expect(page.locator('.assistant-dock .chat-tool-json')).toBeVisible()
 
   await expect(computedStyle(page, '.assistant-dock .ai-chat-eyebrow', 'display')).resolves.toBe('none')
   await expect(computedStyle(page, '.assistant-dock .ai-chat-subtitle', 'display')).resolves.toBe('none')
