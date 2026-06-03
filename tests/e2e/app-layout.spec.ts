@@ -172,6 +172,84 @@ test('preview highlights and scrolls the heading nearest the editor cursor', asy
   expect(previewScrollTop).toBeGreaterThanOrEqual(0)
 })
 
+test('preview H3 and H4 headings reset inline-code chrome', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    '### Third `Heading`\n\nbody\n\n#### Fourth `Heading`\n\nmore\n',
+  )
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+
+  await expect(page.locator('.preview-panel .markdown-fragment h3')).toBeVisible()
+  await expect(page.locator('.preview-panel .markdown-fragment h4')).toBeVisible()
+  await expect(page.locator('.preview-panel .markdown-fragment h3 code')).toBeVisible()
+  await expect(page.locator('.preview-panel .markdown-fragment h4 code')).toBeVisible()
+
+  const headingStyles = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+
+      if (!element) {
+        return null
+      }
+
+      const styles = getComputedStyle(element)
+
+      return {
+        backgroundColor: styles.backgroundColor,
+        borderTopStyle: styles.borderTopStyle,
+        borderTopWidth: styles.borderTopWidth,
+        paddingTop: styles.paddingTop,
+        paddingRight: styles.paddingRight,
+        paddingBottom: styles.paddingBottom,
+        paddingLeft: styles.paddingLeft,
+      }
+    }
+
+    return {
+      h3: pick('.preview-panel .markdown-fragment h3'),
+      h4: pick('.preview-panel .markdown-fragment h4'),
+      h3Code: pick('.preview-panel .markdown-fragment h3 code'),
+      h4Code: pick('.preview-panel .markdown-fragment h4 code'),
+    }
+  })
+
+  expect(headingStyles.h3).not.toBeNull()
+  expect(headingStyles.h4).not.toBeNull()
+  expect(headingStyles.h3Code).not.toBeNull()
+  expect(headingStyles.h4Code).not.toBeNull()
+  expect(headingStyles.h3?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h4?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h3?.borderTopStyle).toBe('none')
+  expect(headingStyles.h4?.borderTopStyle).toBe('none')
+  expect(headingStyles.h3?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h4?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h3?.paddingTop).toBe('0px')
+  expect(headingStyles.h3?.paddingRight).toBe('0px')
+  expect(headingStyles.h3?.paddingBottom).toBe('0px')
+  expect(headingStyles.h3?.paddingLeft).toBe('0px')
+  expect(headingStyles.h4?.paddingTop).toBe('0px')
+  expect(headingStyles.h4?.paddingRight).toBe('0px')
+  expect(headingStyles.h4?.paddingBottom).toBe('0px')
+  expect(headingStyles.h4?.paddingLeft).toBe('0px')
+  expect(headingStyles.h3Code?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h4Code?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h3Code?.borderTopStyle).toBe('none')
+  expect(headingStyles.h4Code?.borderTopStyle).toBe('none')
+  expect(headingStyles.h3Code?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h4Code?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h3Code?.paddingTop).toBe('0px')
+  expect(headingStyles.h3Code?.paddingRight).toBe('0px')
+  expect(headingStyles.h3Code?.paddingBottom).toBe('0px')
+  expect(headingStyles.h3Code?.paddingLeft).toBe('0px')
+  expect(headingStyles.h4Code?.paddingTop).toBe('0px')
+  expect(headingStyles.h4Code?.paddingRight).toBe('0px')
+  expect(headingStyles.h4Code?.paddingBottom).toBe('0px')
+  expect(headingStyles.h4Code?.paddingLeft).toBe('0px')
+})
+
 test('editor mode with AI dock keeps editor and dock separated', async ({ page }) => {
   await openWritePanel(page)
   await openAiDock(page)

@@ -667,6 +667,11 @@
   margin: 1.4em 0 0.6em;
   color: var(--text-h);
   line-height: 1.18;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
 }
 
 .editor-panel .toastui-editor-contents h1,
@@ -693,6 +698,32 @@
 .editor-panel .ProseMirror h3,
 .markdown-fragment h3 {
   font-size: 1.15rem;
+}
+
+.editor-panel .toastui-editor-contents h4,
+.editor-panel .ProseMirror h4,
+.markdown-fragment h4 {
+  font-size: 1rem;
+}
+
+.editor-panel .toastui-editor-contents h1 code,
+.editor-panel .toastui-editor-contents h2 code,
+.editor-panel .toastui-editor-contents h3 code,
+.editor-panel .toastui-editor-contents h4 code,
+.editor-panel .ProseMirror h1 code,
+.editor-panel .ProseMirror h2 code,
+.editor-panel .ProseMirror h3 code,
+.editor-panel .ProseMirror h4 code,
+.markdown-fragment h1 code,
+.markdown-fragment h2 code,
+.markdown-fragment h3 code,
+.markdown-fragment h4 code {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }
 
 .editor-panel .toastui-editor-contents a,

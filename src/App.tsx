@@ -1581,10 +1581,16 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
         color: ${textHeading};
         line-height: 1.18;
         margin: 1.4em 0 0.6em;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        font-family: inherit;
       }
       .markdown-fragment h1 { font-size: 1.9rem; }
       .markdown-fragment h2 { font-size: 1.45rem; }
       .markdown-fragment h3 { font-size: 1.15rem; }
+      .markdown-fragment h4 { font-size: 1rem; }
       .markdown-fragment p,
       .markdown-fragment ul,
       .markdown-fragment ol,
@@ -1620,6 +1626,17 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
         border: 1px solid ${codeBorder};
         padding: 0.1em 0.35em;
         border-radius: 6px;
+      }
+      .markdown-fragment h1 code,
+      .markdown-fragment h2 code,
+      .markdown-fragment h3 code,
+      .markdown-fragment h4 code {
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
       }
       .code-block-shell {
         display: flex;

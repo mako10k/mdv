@@ -238,6 +238,11 @@ body,
   margin: 0.9em 0 0.35em;
   color: var(--text-h);
   line-height: 1.18;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
 }
 
 .chat-bubble .markdown-fragment h1,
@@ -253,6 +258,27 @@ body,
 .chat-bubble .markdown-fragment h3,
 .chat-tool-content .markdown-fragment h3 {
   font-size: 0.95rem;
+}
+
+.chat-bubble .markdown-fragment h4,
+.chat-tool-content .markdown-fragment h4 {
+  font-size: 0.88rem;
+}
+
+.chat-bubble .markdown-fragment h1 code,
+.chat-bubble .markdown-fragment h2 code,
+.chat-bubble .markdown-fragment h3 code,
+.chat-bubble .markdown-fragment h4 code,
+.chat-tool-content .markdown-fragment h1 code,
+.chat-tool-content .markdown-fragment h2 code,
+.chat-tool-content .markdown-fragment h3 code,
+.chat-tool-content .markdown-fragment h4 code {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
 }
 
 .chat-bubble .markdown-fragment a,
