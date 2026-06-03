@@ -14,7 +14,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 注記:
 
-- 現在の実装は editor window 右 dock の assistant surface / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
+- 現在の実装は editor window 右 dock の assistant surface / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、get_app_metadata / list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
 - 現在の実装は mdast ベースの structure tool surface として get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure も含む
 - 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
@@ -45,6 +45,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - Current Editor / Whole Document / Selection の明示ボタンで editor context を transcript に添付できること
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
+- get_app_metadata を main process の tool loop から呼べること
 - get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
@@ -122,6 +123,7 @@ AI が使う操作面。
 
 - get_tool_help
 - get_structure_help
+- get_app_metadata
 - get_context
 - list_buffers
 - list_structure_map

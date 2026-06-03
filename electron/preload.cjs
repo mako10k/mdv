@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
         : 'interactive',
     startupRecoveryDelayMs: Number.parseInt(process.env.MDV_E2E_STARTUP_RECOVERY_DELAY_MS ?? '0', 10) || 0,
   },
+  getAppMetadata: () => ipcRenderer.invoke('mdv:get-app-metadata'),
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   getMdastCapabilities: () => ipcRenderer.invoke('mdv:mdast-get-capabilities'),

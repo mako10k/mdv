@@ -379,6 +379,13 @@ type MdvSettingsBootstrap = {
   initialPanel: MdvInitialPanel
 }
 
+type MdvAppMetadata = {
+  productName: string
+  version: string
+  releaseTag: string
+  platform: string
+}
+
 type MdvAiContextPayload = {
   editorId: MdvAiEditorId
   currentFilePath: string | null
@@ -517,6 +524,7 @@ interface Window {
       recoveryPromptMode: 'accept' | 'decline' | 'interactive'
       startupRecoveryDelayMs?: number
     }
+    getAppMetadata: () => Promise<MdvAppMetadata>
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     getMdastCapabilities: () => Promise<MdvJsonValue>

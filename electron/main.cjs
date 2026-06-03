@@ -370,6 +370,8 @@ const MAIN_I18N = {
       saveAs: '名前を付けて保存',
       settings: '設定',
       view: '表示',
+      help: 'ヘルプ',
+      about: 'MDV について',
       aiChat: 'AI Chat',
       editor: 'エディタ',
       renderedPreview: 'レンダリングプレビュー',
@@ -450,6 +452,8 @@ const MAIN_I18N = {
       saveAs: 'Save As',
       settings: 'Settings',
       view: 'View',
+      help: 'Help',
+      about: 'About MDV',
       aiChat: 'AI Chat',
       editor: 'Editor',
       renderedPreview: 'Rendered Preview',
@@ -534,6 +538,8 @@ let settingsWindow = null
 let settingsWindowOwnerEditorId = null
 let fetchPermissionsWindow = null
 let fetchPermissionsWindowOwnerEditorId = null
+let aboutWindow = null
+let aboutWindowOwnerEditorId = null
 const approvedWindowCloseIds = new Set()
 const pendingWindowCloseIds = new Set()
 let settingsState = loadSettings()
@@ -4400,6 +4406,17 @@ function getValidatedOpenAiToolDefinitions() {
   return aiToolDefinitions
 }
 
+function getAppMetadata() {
+  const version = app.getVersion()
+
+  return {
+    productName: 'MarkDownViewer',
+    version,
+    releaseTag: `v${version}`,
+    platform: process.platform,
+  }
+}
+
 const aiToolDefinitions = [
   {
     type: 'function',
@@ -4539,6 +4556,12 @@ const aiToolDefinitions = [
     parameters: buildAiToolParameters({
         editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor.' },
       }),
+  },
+  {
+    type: 'function',
+    name: 'get_app_metadata',
+    description: 'Get canonical application metadata such as product name, version, release tag, and platform.',
+    parameters: buildAiToolParameters({}),
   },
   {
     type: 'function',
@@ -4832,6 +4855,13 @@ const aiToolHelpDocs = {
     examples: [
       { description: 'Active editor context', args: {} },
       { description: 'Known temp buffer context', args: { editorId: 'buffer:example' } },
+    ],
+  },
+  get_app_metadata: {
+    summary: 'Return canonical application metadata sourced from the authoritative app version.',
+    parameters: [],
+    examples: [
+      { description: 'Application metadata', args: {} },
     ],
   },
   list_buffers: {
@@ -6139,6 +6169,10 @@ function summarizeAiToolArgsForLog(toolName, args) {
     }
   }
 
+  if (toolName === 'get_app_metadata') {
+    return null
+  }
+
   if (toolName === 'list_buffers') {
     return null
   }
@@ -6444,6 +6478,8 @@ async function executeAiToolCall(editorWindow, toolName, args) {
           isDirty: false,
         }
       }
+    } else if (toolName === 'get_app_metadata') {
+      result = getAppMetadata()
     } else if (toolName === 'list_buffers') {
       result = listAiBuffersForWindow(editorWindow)
     } else if (toolName === 'read_target') {
@@ -6816,8 +6852,12 @@ function isFetchPermissionsWindow(window) {
   return Boolean(fetchPermissionsWindow) && Boolean(window) && fetchPermissionsWindow.id === window.id
 }
 
+function isAboutWindow(window) {
+  return Boolean(aboutWindow) && Boolean(window) && aboutWindow.id === window.id
+}
+
 function isEditorWindow(window) {
-  return Boolean(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window)
+  return Boolean(window) && !isSettingsWindow(window) && !isFetchPermissionsWindow(window) && !isAboutWindow(window)
 }
 
 function getDefaultEditorWindow() {
@@ -6843,6 +6883,17 @@ function getEditorWindowForAiAction(candidateWindow) {
   if (isFetchPermissionsWindow(candidateWindow)) {
     if (fetchPermissionsWindowOwnerEditorId) {
       const ownerWindow = BrowserWindow.fromId(fetchPermissionsWindowOwnerEditorId)
+      if (ownerWindow && !ownerWindow.isDestroyed()) {
+        return ownerWindow
+      }
+    }
+
+    return getDefaultEditorWindow()
+  }
+
+  if (isAboutWindow(candidateWindow)) {
+    if (aboutWindowOwnerEditorId) {
+      const ownerWindow = BrowserWindow.fromId(aboutWindowOwnerEditorId)
       if (ownerWindow && !ownerWindow.isDestroyed()) {
         return ownerWindow
       }
@@ -7302,6 +7353,50 @@ function openFetchPermissionsWindow(targetWindow) {
   return { status: 'opened' }
 }
 
+function openAboutWindow(targetWindow) {
+  const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
+
+  if (!ownerEditorWindow && (!aboutWindow || aboutWindow.isDestroyed())) {
+    writeLog('WARN', 'about', 'No editor window available for about owner')
+    return { status: 'focused' }
+  }
+
+  if (ownerEditorWindow && !ownerEditorWindow.isDestroyed()) {
+    aboutWindowOwnerEditorId = ownerEditorWindow.id
+  }
+
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    focusWindow(aboutWindow)
+    return { status: 'focused' }
+  }
+
+  aboutWindow = new BrowserWindow({
+    width: 720,
+    height: 640,
+    minWidth: 620,
+    minHeight: 520,
+    backgroundColor: '#fffaf4',
+    autoHideMenuBar: true,
+    icon: windowIcon,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  aboutWindow.on('closed', () => {
+    aboutWindow = null
+    aboutWindowOwnerEditorId = null
+  })
+
+  loadRendererWindow(aboutWindow, 'about.html')
+  focusWindow(aboutWindow)
+  writeLog('INFO', 'about', 'About window opened')
+
+  return { status: 'opened' }
+}
+
 function dispatchOpenFileToWindow(targetWindow, launchRequest) {
   if (!targetWindow || (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel)) {
     return
@@ -7607,7 +7702,6 @@ async function saveContentToPath(parentWindow, payload) {
       }
     }
   }
-
   if (!currentPath && (payload?.draftWorkspace || payload?.recoveryKey)) {
     nextContent = await materializeDraftWorkspaceAssets(payload.draftWorkspace, targetPath, nextContent, payload?.recoveryKey)
   }
@@ -7627,7 +7721,6 @@ async function saveContentToPath(parentWindow, payload) {
     snapshot: buildFileSnapshot(targetPath, nextContent, stat),
   }
 }
-
 async function saveHtmlExportToPath(parentWindow, payload) {
   const content = typeof payload?.content === 'string' ? payload.content : ''
   const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
@@ -7871,12 +7964,13 @@ async function registerManagedClient(window) {
     return
   }
 
+  const appMetadata = getAppMetadata()
   const registration = {
     clientId: managedClientId,
     windowId: managedWindowId,
     pid: process.pid,
     filePath: pendingLaunchFilePath,
-    version: app.getVersion(),
+    version: appMetadata.version,
   }
 
   await postServerJson('/api/clients/register', registration)
@@ -8178,6 +8272,15 @@ function createApplicationMenu() {
         { role: 'toggleDevTools' },
       ],
     },
+    {
+      label: messages.help,
+      submenu: [
+        {
+          label: messages.about,
+          click: () => openAboutWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
+        },
+      ],
+    },
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -8266,6 +8369,9 @@ async function createWindow(initialLaunchRequest = null) {
     if (fetchPermissionsWindowOwnerEditorId === mainWindow.id) {
       fetchPermissionsWindowOwnerEditorId = null
     }
+    if (aboutWindowOwnerEditorId === mainWindow.id) {
+      aboutWindowOwnerEditorId = null
+    }
 
     clearEditorRuntimeState(mainWindow.id)
 
@@ -8274,6 +8380,9 @@ async function createWindow(initialLaunchRequest = null) {
     }
     if (!getDefaultEditorWindow() && fetchPermissionsWindow && !fetchPermissionsWindow.isDestroyed()) {
       fetchPermissionsWindow.close()
+    }
+    if (!getDefaultEditorWindow() && aboutWindow && !aboutWindow.isDestroyed()) {
+      aboutWindow.close()
     }
   })
   managedMainWindow = mainWindow
@@ -8457,6 +8566,11 @@ ipcMain.handle('mdv:open-fetch-permissions-window', async (event) => {
   return openFetchPermissionsWindow(sourceWindow)
 })
 
+ipcMain.handle('mdv:open-about-window', async (event) => {
+  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  return openAboutWindow(sourceWindow)
+})
+
 ipcMain.on('mdv:settings-bootstrap', (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)
   const launchState = sourceWindow ? launchStateByWindowId.get(sourceWindow.id) : null
@@ -8551,6 +8665,8 @@ ipcMain.handle('mdv:settings-clear-tavily-api-key', async () => {
 })
 
 ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
+
+ipcMain.handle('mdv:get-app-metadata', async () => getAppMetadata())
 
 ipcMain.handle('mdv:ai-chat-get-context', async (event) => {
   const sourceWindow = BrowserWindow.fromWebContents(event.sender)

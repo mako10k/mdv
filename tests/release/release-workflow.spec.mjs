@@ -10,27 +10,52 @@ import { runGithubReleasePreparation } from '../../scripts/prepare-github-releas
 
 async function makeTempRepo(version, options = {}) {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mdv-release-workflow-'))
-  await fs.mkdir(path.join(rootDir, 'release', 'windows-host', 'portable'), { recursive: true })
-  await fs.mkdir(path.join(rootDir, 'release', 'windows-host', 'installer'), { recursive: true })
-  await fs.mkdir(path.join(rootDir, 'release', 'windows-host', 'win-unpacked'), { recursive: true })
+  const artifactSource = options.artifactSource ?? 'release'
+  const artifactRoot = path.join(rootDir, 'release', artifactSource === 'candidate' ? 'windows-host-candidate' : 'windows-host')
+  await fs.mkdir(path.join(artifactRoot, 'portable'), { recursive: true })
+  await fs.mkdir(path.join(artifactRoot, 'installer'), { recursive: true })
+  await fs.mkdir(path.join(artifactRoot, 'win-unpacked', 'resources'), { recursive: true })
   await fs.mkdir(path.join(rootDir, 'docs', 'release-notes'), { recursive: true })
 
   await fs.writeFile(path.join(rootDir, 'package.json'), JSON.stringify({ name: 'fixture', version }, null, 2))
 
   if (options.includePortable !== false) {
-    await fs.writeFile(path.join(rootDir, 'release', 'windows-host', 'portable', `MarkDownViewer-${version}-win.exe`), 'portable')
+    await fs.writeFile(path.join(artifactRoot, 'portable', `MarkDownViewer-${version}-win.exe`), 'portable')
   }
 
   if (options.includeInstaller !== false) {
-    await fs.writeFile(path.join(rootDir, 'release', 'windows-host', 'installer', `MarkDownViewer-${version}-win.exe`), 'installer')
+    await fs.writeFile(path.join(artifactRoot, 'installer', `MarkDownViewer-${version}-win.exe`), 'installer')
   }
 
   if (options.includeBlockmap !== false) {
-    await fs.writeFile(path.join(rootDir, 'release', 'windows-host', 'installer', `MarkDownViewer-${version}-win.exe.blockmap`), 'blockmap')
+    await fs.writeFile(path.join(artifactRoot, 'installer', `MarkDownViewer-${version}-win.exe.blockmap`), 'blockmap')
   }
 
   if (options.includeUnpacked !== false) {
-    await fs.writeFile(path.join(rootDir, 'release', 'windows-host', 'win-unpacked', 'MarkDownViewer.exe'), 'unpacked')
+    await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'MarkDownViewer.exe'), 'unpacked')
+  }
+
+  if (options.includeAppArchive !== false) {
+    await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'resources', 'app.asar'), 'asar')
+  }
+
+  if (options.includeMetadata !== false) {
+    const metadataVersion = options.metadataVersion ?? version
+    const metadataArtifactSource = options.metadataArtifactSource ?? artifactSource
+    const versionedExeName = `MarkDownViewer-${metadataVersion}-win.exe`
+    await fs.writeFile(path.join(artifactRoot, 'artifact-metadata.json'), JSON.stringify({
+      productName: 'MarkDownViewer',
+      version: metadataVersion,
+      releaseTag: `v${metadataVersion}`,
+      artifactSource: metadataArtifactSource,
+      artifacts: {
+        portableExe: path.posix.join('portable', versionedExeName),
+        installerExe: path.posix.join('installer', versionedExeName),
+        installerBlockmap: path.posix.join('installer', `${versionedExeName}.blockmap`),
+        winUnpackedExe: path.posix.join('win-unpacked', 'MarkDownViewer.exe'),
+        appArchive: path.posix.join('win-unpacked', 'resources', 'app.asar'),
+      },
+    }, null, 2))
   }
 
   await fs.writeFile(path.join(rootDir, 'docs', 'release-notes', `v${version}.md`), '# Notes\n')
@@ -65,6 +90,10 @@ async function pathExists(targetPath) {
   }
 }
 
+async function readDirNames(targetPath) {
+  return (await fs.readdir(targetPath)).sort()
+}
+
 async function runReleaseCheckCli(args) {
   const result = await runReleaseCheck(args)
 
@@ -90,8 +119,16 @@ test('release check passes for a clean repo with version-matching artifacts', as
   const result = await runReleaseCheckCli(['--root', rootDir, '--expect-tag', 'v1.2.3'])
 
   assert.equal(result.status, 0)
-  assert.match(result.stdout, /Release candidate is ready for v1\.2\.3/)
+  assert.match(result.stdout, /Release candidate is ready for v1\.2\.3 \(release\)/)
   assert.match(result.stdout, /portable executable/)
+})
+
+test('release check passes for candidate artifacts when artifact source is candidate', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { artifactSource: 'candidate' })
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate'])
+
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /Release candidate is ready for v1\.2\.3 \(candidate\)/)
 })
 
 test('release check fails when a required artifact is missing', async () => {
@@ -100,6 +137,14 @@ test('release check fails when a required artifact is missing', async () => {
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /Missing portable executable/)
+})
+
+test('release check fails when artifact metadata version drifts from package version', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { metadataVersion: '1.2.4' })
+  const result = await runReleaseCheckCli(['--root', rootDir])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Artifact metadata version mismatch/)
 })
 
 test('release check fails when the expected tag does not match package version', async () => {
@@ -136,6 +181,11 @@ test('github release helper prints the exact gh command for the tagged artifacts
   assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-portable-win.exe')), true)
   assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe')), true)
   assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe.blockmap')), true)
+  assert.deepEqual(await readDirNames(uploadDir), [
+    'MarkDownViewer-1.2.3-installer-win.exe',
+    'MarkDownViewer-1.2.3-installer-win.exe.blockmap',
+    'MarkDownViewer-1.2.3-portable-win.exe',
+  ])
 })
 
 test('github release helper fails when the release tag does not point to HEAD', async () => {

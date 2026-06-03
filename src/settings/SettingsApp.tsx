@@ -60,6 +60,7 @@ function SettingsApp() {
   const [isSavingOpenAiApiKey, setIsSavingOpenAiApiKey] = useState(false)
   const [isSavingTavily, setIsSavingTavily] = useState(false)
   const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false)
+  const [appMetadata, setAppMetadata] = useState<MdvAppMetadata | null>(null)
   const [logPath, setLogPath] = useState<string>(t.settings.loadingLogPath)
   const [statusText, setStatusText] = useState<string>(t.settings.loadingSettings)
 
@@ -100,9 +101,10 @@ function SettingsApp() {
     void Promise.all([
       window.mdvDesktop?.settings.getSettings(),
       window.mdvDesktop?.settings.getProviderStatus(),
+      window.mdvDesktop?.getAppMetadata(),
       window.mdvDesktop?.getLogPath(),
     ])
-      .then(([nextSettings, nextProviderStatus, nextLogPath]) => {
+      .then(([nextSettings, nextProviderStatus, nextAppMetadata, nextLogPath]) => {
         if (!active) {
           return
         }
@@ -113,6 +115,7 @@ function SettingsApp() {
           syncTavilyDraft(nextSettings)
         }
         setProviderStatus(nextProviderStatus ?? null)
+        setAppMetadata(nextAppMetadata ?? null)
         setLogPath(nextLogPath ?? i18nRef.current.common.unavailable)
         setStatusText(i18nRef.current.settings.settingsReady)
       })
@@ -654,6 +657,18 @@ function SettingsApp() {
             <section className="settings-card">
               <h2>{t.settings.advancedSection.title}</h2>
               <dl className="settings-facts">
+                <div>
+                  <dt>{t.settings.advancedSection.appVersion}</dt>
+                  <dd>{appMetadata?.version ?? 'unknown'}</dd>
+                </div>
+                <div>
+                  <dt>{t.settings.advancedSection.releaseTag}</dt>
+                  <dd>{appMetadata?.releaseTag ?? 'unknown'}</dd>
+                </div>
+                <div>
+                  <dt>{t.settings.advancedSection.platform}</dt>
+                  <dd>{appMetadata?.platform ?? window.mdvDesktop?.platform ?? 'unknown'}</dd>
+                </div>
                 <div>
                   <dt>{t.settings.advancedSection.schemaVersion}</dt>
                   <dd>{settings?.version ?? 1}</dd>

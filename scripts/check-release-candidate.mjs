@@ -8,6 +8,7 @@ export function parseArgs(argv) {
     rootDir: process.cwd(),
     requireCleanGit: true,
     expectedTag: null,
+    artifactSource: 'release',
     json: false,
   }
 
@@ -23,6 +24,16 @@ export function parseArgs(argv) {
     if (arg === '--expect-tag') {
       index += 1
       options.expectedTag = argv[index] ?? null
+      continue
+    }
+
+    if (arg === '--artifact-source') {
+      index += 1
+      const artifactSource = argv[index] ?? 'release'
+      if (artifactSource !== 'release' && artifactSource !== 'candidate') {
+        throw new Error(`Unsupported artifact source: ${artifactSource}`)
+      }
+      options.artifactSource = artifactSource
       continue
     }
 
@@ -51,7 +62,7 @@ export function formatReleaseCheckResult(result, options) {
   }
 
   if (result.ok) {
-    let stdout = `Release candidate is ready for ${result.expectedTag}\n`
+    let stdout = `Release candidate is ready for ${result.expectedTag} (${result.artifactSource})\n`
     for (const artifact of result.artifacts) {
       stdout += `- ${artifact.label}: ${artifact.path}\n`
     }
@@ -59,7 +70,7 @@ export function formatReleaseCheckResult(result, options) {
     return { stdout, stderr: '' }
   }
 
-  let stderr = `Release candidate check failed for ${result.expectedTag}\n`
+  let stderr = `Release candidate check failed for ${result.expectedTag} (${result.artifactSource})\n`
   for (const error of result.errors) {
     stderr += `- ${error}\n`
   }

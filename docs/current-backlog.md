@@ -76,8 +76,15 @@
 ### Supporting Backlog
 
 1. ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+2. REL-BL-001 アップデート基盤と version metadata surface の整備
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
+
+注記:
+
+- REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](docs/adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
+- 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供を含める
+- first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 
 ## Usernote Intake
 
@@ -100,6 +107,7 @@
 15. アウトライン密度、AI chat / editor font size 分離、説明文削減: MD-BL-019
 16. H3/H4 heading がインラインコード風に囲われる表示崩れ: MD-BL-018
 17. 変更プレビューと merge UI 基盤: MD-BL-020
+18. アップデート基盤とバージョンメタデータ基盤: REL-BL-001
 
 補足:
 
@@ -108,6 +116,7 @@
 - 12 は user-facing 機能ではないため Supporting Backlog の ENG-BL-001 に置く
 - 13 は UI だけでなく AI tool surface と XDG 永続化を跨ぐため、単独 backlog として切り出す
 - 15 は MDV topbar の grouping とは分け、読みやすさと表示密度の調整として MD-BL-019 へ置く
+- 18 は version authority 自体の再議論ではなく、ADR 0008 を前提に release/update/help/AI metadata へ同じ version facts を配る implementation backlog として切り出す
 
 ## Active AI Backlog
 
@@ -208,14 +217,16 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 2. MD-BL-004, MD-BL-005, MD-BL-012, MD-BL-017, MD-BL-018
 3. MD-BL-006, MD-BL-007
 4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
-5. AI-P2 の再分解と tool surface 残件の整理
-6. AI-P3 context management
-7. AI-CM context lifecycle
-8. AI-P4 subagent orchestration
+5. REL-BL-001 update foundation と version metadata surface
+6. AI-P2 の再分解と tool surface 残件の整理
+7. AI-P3 context management
+8. AI-CM context lifecycle
+9. AI-P4 subagent orchestration
 
 注記:
 
 - AI-P1 は新機能拡張というより、現行 assistant の待ち時間知覚を改善する response UX 修正として editor comfort より前に扱う
+- REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
 

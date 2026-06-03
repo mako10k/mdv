@@ -1,0 +1,17 @@
+.about-shell {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.about-shortcuts {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--bg-panel-strong);
+}
+
+.about-shortcuts h2,
+.about-shortcuts p {
+  margin: 0;
+}

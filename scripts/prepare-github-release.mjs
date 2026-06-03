@@ -107,7 +107,7 @@ export async function runGithubReleasePreparation(argv) {
 
   const title = options.title ?? `MDV ${validation.expectedTag}`
   const uploadArtifacts = validation.artifacts
-    .filter((artifact) => artifact.label !== 'win-unpacked executable')
+    .filter((artifact) => typeof artifact.githubAssetName === 'string' && artifact.githubAssetName.length > 0)
     .map((artifact) => ({
       sourcePath: artifact.path,
       uploadName: artifact.githubAssetName ?? path.basename(artifact.path),

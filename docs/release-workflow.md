@@ -12,6 +12,7 @@
 - tag を先に切らない
 - 既存 tag のまま binary だけ差し替えない
 - 配布する Windows artifact は `release/windows-host` 配下の version 一致成果物だけを使う
+- `release/windows-host` と、promote 対象になる full candidate の `release/windows-host-candidate` では `artifact-metadata.json` を保持し、artifact file 名と `win-unpacked/resources/app.asar` の存在を version と一緒に検証する
 - Windows packaging の candidate 生成、local deploy、canonical release artifact 更新は別操作として扱う
 
 ## Public Release Checklist
@@ -21,16 +22,17 @@
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
 3. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
-4. 必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置して検証する
-5. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
-6. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
-7. version bump と artifact と release notes を同じ release commit として commit する
-8. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
-9. `secdat exec git push origin main` で `main` へ push する
-10. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
-11. `secdat exec git push origin vX.Y.Z` を実行する
-12. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
-13. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
+4. `npm run release:check:candidate` で candidate artifact の version metadata と必須成果物を確認する
+5. 必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置して検証する
+6. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
+7. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
+8. version bump と artifact と release notes を同じ release commit として commit する
+9. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
+10. `secdat exec git push origin main` で `main` へ push する
+11. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
+12. `secdat exec git push origin vX.Y.Z` を実行する
+13. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
+14. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
 
 ## Internal Packaging Refresh
 
@@ -49,6 +51,12 @@ release candidate check:
 
 ```bash
 npm run release:check
+```
+
+candidate artifact check (promote 対象の full candidate 用):
+
+```bash
+npm run release:check:candidate
 ```
 
 candidate artifact generate:

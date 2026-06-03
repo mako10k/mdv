@@ -331,6 +331,36 @@ function Read-PackageVersion {
   return [string]$packageJson.version
 }
 
+function Write-ArtifactMetadata {
+  param(
+    [string]$ArtifactRoot,
+    [ValidateSet('release', 'candidate')]
+    [string]$ArtifactSource
+  )
+
+  $version = Read-PackageVersion
+  $versionedExeName = "MarkDownViewer-$version-win.exe"
+  $metadataPath = Join-Path $ArtifactRoot 'artifact-metadata.json'
+  $metadata = [ordered]@{
+    productName = 'MarkDownViewer'
+    version = $version
+    releaseTag = "v$version"
+    artifactSource = $ArtifactSource
+    generatedAt = [DateTimeOffset]::UtcNow.ToString('o')
+    artifacts = [ordered]@{
+      portableExe = "portable/$versionedExeName"
+      installerExe = "installer/$versionedExeName"
+      installerBlockmap = "installer/$versionedExeName.blockmap"
+      winUnpackedExe = 'win-unpacked/MarkDownViewer.exe'
+      appArchive = 'win-unpacked/resources/app.asar'
+    }
+  }
+
+  $metadataJson = ($metadata | ConvertTo-Json -Depth 4) + "`n"
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($metadataPath, $metadataJson, $utf8NoBom)
+}
+
 function Assert-PromotableCandidateArtifacts {
   $version = Read-PackageVersion
   $versionedExeName = "MarkDownViewer-$version-win.exe"
@@ -338,7 +368,9 @@ function Assert-PromotableCandidateArtifacts {
     (Join-Path $candidateArtifactDest "portable\$versionedExeName"),
     (Join-Path $candidateArtifactDest "installer\$versionedExeName"),
     (Join-Path $candidateArtifactDest "installer\$versionedExeName.blockmap"),
-    (Join-Path $candidateArtifactDest 'win-unpacked\MarkDownViewer.exe')
+    (Join-Path $candidateArtifactDest 'win-unpacked\MarkDownViewer.exe'),
+    (Join-Path $candidateArtifactDest 'win-unpacked\resources\app.asar'),
+    (Join-Path $candidateArtifactDest 'artifact-metadata.json')
   )
 
   $missingPaths = @($requiredPaths | Where-Object { -not (Test-Path $_) })
@@ -392,6 +424,7 @@ function Promote-CandidateArtifacts {
   }
 
   Sync-Directory -SourcePath $candidateArtifactDest -DestinationPath $artifactStageDest -ErrorLabel 'artifact staging'
+  Write-ArtifactMetadata -ArtifactRoot $artifactStageDest -ArtifactSource 'release'
 
   $artifactSwap = $null
   try {
@@ -611,6 +644,10 @@ foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
 
 $candidateOutputPath = Prepare-ArtifactDestination -PreferredPath $candidateArtifactDest
 Sync-Directory -SourcePath (Join-Path $workRoot 'release') -DestinationPath $candidateOutputPath -Mode '/E' -ErrorLabel 'candidate artifact copy'
+
+if ($PackageTargets -ne 'none') {
+  Write-ArtifactMetadata -ArtifactRoot $candidateOutputPath -ArtifactSource 'candidate'
+}
 
 Write-Host "Candidate artifacts copied to $candidateOutputPath"
 Write-Host 'Use deploy to refresh the local runnable copy or promote to replace canonical release artifacts.'
