@@ -18,6 +18,8 @@ npm install
 
 `npm install` はあわせて TypeScript source から `electron/lib` の CommonJS runtime を再生成します。`src/electron/**/*.cts` を直接編集した場合は `npm run electron:build` を再実行してください。
 
+`npm run electron:build` と `npm run electron:watch` は `tsc -b --force` を使います。`electron/lib` の生成物を消した直後や build info が残っている状態でも、CommonJS runtime を確実に再生成するためです。
+
 submodule だけ後から入れた場合:
 
 ```bash
@@ -55,7 +57,7 @@ npm run lint
 npm run build
 ```
 
-`codex:map` は Codex / agent が作業開始時に読む入口、変更中の area、関連 docs、検証候補、review gate を 1 回で表示します。`codex:validate` は現在の diff に対する最小の検証候補と、commit 前に必要な custom agent review を表示します。
+`codex:map` は Codex / agent が作業開始時に読む入口、変更中の area、関連 docs、検証候補、review gate を 1 回で表示します。`codex:validate` は staged diff があればその subset、無ければ full worktree を基準に、最小の検証候補と commit 前 review gate を表示します。partial commit を切るときは、意図した subset を stage してから `npm run codex:validate` を実行してください。
 
 GitHub へアクセスする `git` / `gh` は `secdat` 経由で token を注入します。Codex sandbox で unlock session が見えない場合は `ptyterm` 経由で実行します。詳細と `secdat` / `ptyterm` の導入方法は [docs/codex-secure-github-access.md](docs/codex-secure-github-access.md) を参照してください。
 

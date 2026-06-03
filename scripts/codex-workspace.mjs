@@ -78,9 +78,10 @@ const areaRules = [
   },
   {
     name: 'Agent and workflow guidance',
-    docs: ['AGENTS.md', '.github/agents/consistency-review.agent.md', '.github/prompts/write-adr.prompt.md'],
-    patterns: [/^AGENTS\.md$/, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
+    docs: ['AGENTS.md', 'docs/agent-judgment-hardening.md', '.github/agents/consistency-review.agent.md', '.github/agents/plain-eye-review.agent.md', '.github/prompts/write-adr.prompt.md'],
+    patterns: [/^AGENTS\.md$/, /^docs\/agent-judgment-hardening\.md$/, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
     validations: ['npm run lint', 'npm run build'],
+    reviewAgents: ['plain-eye-review'],
   },
 ]
 
@@ -129,6 +130,43 @@ function getGitStatus() {
     })
 
   return { entries }
+}
+
+function getGitDiffEntries(args) {
+  const result = run('git', ['diff', '--name-status', ...args])
+
+  if (!result.ok) {
+    return { error: result.output, entries: [] }
+  }
+
+  const entries = result.output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [status = 'M', ...rest] = line.split('\t')
+      const file = rest.join(' -> ')
+      return {
+        status,
+        file,
+      }
+    })
+
+  return { entries }
+}
+
+function getValidationEntries() {
+  const staged = getGitDiffEntries(['--cached'])
+
+  if (staged.error) {
+    return { source: 'staged', ...staged }
+  }
+
+  if (staged.entries.length > 0) {
+    return { source: 'staged', entries: staged.entries }
+  }
+
+  const worktree = getGitStatus()
+  return { source: 'worktree', ...worktree }
 }
 
 function getSubmoduleStatus() {
@@ -258,6 +296,7 @@ function printWorkspaceMap() {
   console.log('Commit gate:')
   printList([
     'Run consistency-review on the exact diff before commit.',
+    'Run plain-eye-review too when the diff changes RCA guidance, architecture or workflow policy, agent instructions, major countermeasure comparisons, or important user-facing reasoning.',
     'Run packaging-review too when packaging, release artifacts, or Windows host scripts changed.',
     'Create or update an ADR for long-lived architecture, contract, packaging, or workflow decisions.',
   ])
@@ -274,8 +313,8 @@ function printWorkspaceMap() {
 }
 
 function printValidationPlan() {
-  const gitStatus = getGitStatus()
-  const touchedAreas = getTouchedAreas(gitStatus.entries)
+  const validationEntries = getValidationEntries()
+  const touchedAreas = getTouchedAreas(validationEntries.entries)
   const validations = unique(touchedAreas.flatMap((area) => area.validations))
   const reviewAgents = unique(['consistency-review', ...touchedAreas.flatMap((area) => area.reviewAgents ?? [])])
 
@@ -285,12 +324,17 @@ function printValidationPlan() {
   printList(validations.length > 0 ? validations : ['npm run build'])
 
   console.log('')
+  console.log(`Validation source: ${validationEntries.source === 'staged' ? 'staged diff' : 'full worktree'}`)
+
+  console.log('')
   console.log('Pre-commit review:')
   printList(reviewAgents)
 
   console.log('')
   console.log('Notes:')
   printList([
+    'Stage the intended commit subset first when you need exact-diff validation for a partial commit.',
+    'Review agents listed here are auto-routed from file patterns; AGENTS.md can still require additional review for high-judgment diffs outside those auto-triggers.',
     'Do not overstate checks beyond commands actually run.',
     'Prefer root-cause contract fixes over accepting mixed payload shapes.',
     'Keep preload APIs, renderer callers, and src/shims.d.ts in sync.',
