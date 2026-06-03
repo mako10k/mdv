@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const http = require('node:http')
 const fs = require('node:fs')
 const fsPromises = require('node:fs/promises')
@@ -49,6 +50,7 @@ const managedClientId = process.env.MDV_CLIENT_ID || null
 const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
 const appDisplayName = 'MarkDownViewer'
 const defaultOpenAiModel = process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini'
+const defaultUpdateFeedUrl = process.env.MDV_UPDATE_FEED_URL || 'https://github.com/mako10k/mdv/releases/latest/download'
 
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu')
@@ -441,6 +443,20 @@ const MAIN_I18N = {
       mergeFailedTitle: 'マージ保存に失敗しました',
       mergeFailedMessage: '競合を自動マージできなかったため、保存せず編集へ戻ります。',
     },
+    updater: {
+      availableTitle: 'アップデートがあります',
+      availableMessage: (version) => `Version ${version} を利用できます。ダウンロードしますか？`,
+      availableDetail: 'installer build のみ自動更新を利用できます。portable build は手動更新のままです。',
+      downloadNow: 'ダウンロード',
+      later: 'あとで',
+      downloadedTitle: 'アップデートをダウンロードしました',
+      downloadedMessage: (version) => `Version ${version} をインストールできます。今すぐ再起動しますか？`,
+      downloadedDetail: '再起動すると新しい version を適用します。',
+      restartNow: '再起動して更新',
+      checkFailedTitle: 'アップデート確認に失敗しました',
+      notAvailableTitle: 'アップデートはありません',
+      notAvailableMessage: '現在の version は最新です。',
+    },
   },
   en: {
     untitledTitle: 'Untitled.md',
@@ -523,6 +539,20 @@ const MAIN_I18N = {
       mergeFailedTitle: 'Merge save failed',
       mergeFailedMessage: 'The app could not merge the changes automatically. The document was not saved and editing will continue.',
     },
+    updater: {
+      availableTitle: 'Update available',
+      availableMessage: (version) => `Version ${version} is available. Download it now?`,
+      availableDetail: 'Auto-update is supported only for installer builds. Portable builds stay on manual updates.',
+      downloadNow: 'Download',
+      later: 'Later',
+      downloadedTitle: 'Update downloaded',
+      downloadedMessage: (version) => `Version ${version} is ready to install. Restart now?`,
+      downloadedDetail: 'Restarting will apply the downloaded update.',
+      restartNow: 'Restart and install',
+      checkFailedTitle: 'Update check failed',
+      notAvailableTitle: 'No update available',
+      notAvailableMessage: 'You already have the latest version.',
+    },
   },
 }
 
@@ -546,6 +576,24 @@ let settingsState = loadSettings()
 let secretsState = loadSecrets()
 let hasPersistedSettings = fs.existsSync(settingsPath)
 let hasReadableSettings = loadSettings.didLoadPersisted === true
+let updaterCheckInFlight = null
+let updaterDownloadInFlight = null
+let updaterConfiguredFeedUrl = null
+let updaterAvailabilityPromptOpen = false
+let updaterDownloadedPromptOpen = false
+const updaterState = {
+  supported: false,
+  enabled: false,
+  configured: false,
+  feedUrl: null,
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  availableVersion: null,
+  downloadedVersion: null,
+  checkedAt: null,
+  progressPercent: null,
+  error: null,
+}
 
 let semanticCacheDidLoad = false
 let semanticCacheDirty = false
@@ -3956,7 +4004,7 @@ async function confirmAiWriteAction(parentWindow, options) {
 
 function createDefaultSettings() {
   return {
-    version: 2,
+    version: 3,
     general: {
       locale: normalizeLocale(app.getLocale()),
       themeMode: 'system',
@@ -4003,6 +4051,11 @@ function createDefaultSettings() {
       confirmBeforeFullDocumentOverwrite: true,
       confirmBeforeNewDocumentFromAi: true,
       confirmBeforeExternalUrlOpen: true,
+    },
+    updates: {
+      enabled: true,
+      autoCheckOnLaunch: true,
+      feedUrl: normalizeUpdateFeedUrl(defaultUpdateFeedUrl),
     },
   }
 }
@@ -4078,6 +4131,24 @@ function normalizeSearchDepth(value) {
 
 function normalizeSecret(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function normalizeUpdateFeedUrl(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value.trim())
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return null
+  }
 }
 
 function clampDefaultMaxResults(value) {
@@ -4174,7 +4245,7 @@ function sanitizeSettings(candidate) {
     : true
 
   return {
-    version: 2,
+    version: 3,
     general: {
       locale: normalizeLocale(merged.general?.locale),
       themeMode: normalizeThemeMode(merged.general?.themeMode),
@@ -4223,6 +4294,11 @@ function sanitizeSettings(candidate) {
       confirmBeforeFullDocumentOverwrite: merged.safety?.confirmBeforeFullDocumentOverwrite !== false,
       confirmBeforeNewDocumentFromAi: merged.safety?.confirmBeforeNewDocumentFromAi !== false,
       confirmBeforeExternalUrlOpen: merged.safety?.confirmBeforeExternalUrlOpen !== false,
+    },
+    updates: {
+      enabled: merged.updates?.enabled !== false,
+      autoCheckOnLaunch: merged.updates?.autoCheckOnLaunch !== false,
+      feedUrl: normalizeUpdateFeedUrl(merged.updates?.feedUrl),
     },
   }
 }
@@ -4283,6 +4359,285 @@ function getProviderStatus() {
   return {
     openaiConfigured: getOpenAiApiKey() !== null,
     tavilyConfigured: getTavilyApiKey() !== null,
+  }
+}
+
+function isPortableRuntime() {
+  return Boolean(process.env.PORTABLE_EXECUTABLE_FILE || process.env.PORTABLE_EXECUTABLE_DIR)
+}
+
+function hasNsisInstallMarker() {
+  try {
+    const executableDir = path.dirname(process.execPath)
+    const fileNames = fs.readdirSync(executableDir)
+    return fileNames.some((fileName) => /^Uninstall .*\.exe$/i.test(fileName))
+  } catch {
+    return false
+  }
+}
+
+function isAutoUpdateSupported() {
+  return process.platform === 'win32' && app.isPackaged && !isPortableRuntime() && hasNsisInstallMarker()
+}
+
+function getUpdaterDialogParentWindow() {
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    return aboutWindow
+  }
+
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    return settingsWindow
+  }
+
+  return getDefaultEditorWindow()
+}
+
+function getUpdaterStateSnapshot() {
+  return {
+    ...updaterState,
+    supported: isAutoUpdateSupported(),
+    enabled: settingsState.updates?.enabled !== false,
+    configured: typeof settingsState.updates?.feedUrl === 'string' && settingsState.updates.feedUrl.length > 0,
+    feedUrl: settingsState.updates?.feedUrl ?? null,
+    currentVersion: app.getVersion(),
+  }
+}
+
+function broadcastUpdaterStateChanged() {
+  const snapshot = getUpdaterStateSnapshot()
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue
+    }
+
+    window.webContents.send('mdv:updater-state-changed', snapshot)
+  }
+}
+
+function setUpdaterState(patch) {
+  Object.assign(updaterState, patch)
+  broadcastUpdaterStateChanged()
+}
+
+function configureAutoUpdaterFeed() {
+  if (!isAutoUpdateSupported()) {
+    setUpdaterState({
+      status: 'unsupported',
+      availableVersion: null,
+      downloadedVersion: null,
+      progressPercent: null,
+      error: null,
+    })
+    return false
+  }
+
+  if (settingsState.updates?.enabled === false) {
+    setUpdaterState({
+      status: 'disabled',
+      availableVersion: null,
+      downloadedVersion: null,
+      progressPercent: null,
+      error: null,
+    })
+    return false
+  }
+
+  const feedUrl = settingsState.updates?.feedUrl ?? null
+
+  if (!feedUrl) {
+    setUpdaterState({
+      status: 'unconfigured',
+      availableVersion: null,
+      downloadedVersion: null,
+      progressPercent: null,
+      error: null,
+    })
+    return false
+  }
+
+  if (updaterConfiguredFeedUrl !== feedUrl) {
+    autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
+    updaterConfiguredFeedUrl = feedUrl
+  }
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+  setUpdaterState({ error: null })
+  return true
+}
+
+async function promptToDownloadUpdate(version) {
+  if (updaterAvailabilityPromptOpen) {
+    return
+  }
+
+  updaterAvailabilityPromptOpen = true
+
+  try {
+    const messages = getMainI18n()
+    const response = await showMessageBox(getUpdaterDialogParentWindow(), {
+      type: 'info',
+      title: messages.updater.availableTitle,
+      message: messages.updater.availableMessage(version),
+      detail: messages.updater.availableDetail,
+      buttons: [messages.updater.downloadNow, messages.updater.later],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+
+    if (response.response === 0) {
+      await downloadAvailableUpdate()
+    }
+  } finally {
+    updaterAvailabilityPromptOpen = false
+  }
+}
+
+async function promptToInstallDownloadedUpdate(version) {
+  if (updaterDownloadedPromptOpen) {
+    return
+  }
+
+  updaterDownloadedPromptOpen = true
+
+  try {
+    const messages = getMainI18n()
+    const response = await showMessageBox(getUpdaterDialogParentWindow(), {
+      type: 'info',
+      title: messages.updater.downloadedTitle,
+      message: messages.updater.downloadedMessage(version),
+      detail: messages.updater.downloadedDetail,
+      buttons: [messages.updater.restartNow, messages.updater.later],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+
+    if (response.response === 0) {
+      installDownloadedUpdate()
+    }
+  } finally {
+    updaterDownloadedPromptOpen = false
+  }
+}
+
+async function checkForAppUpdates(options = {}) {
+  if (!configureAutoUpdaterFeed()) {
+    return getUpdaterStateSnapshot()
+  }
+
+  if (updaterCheckInFlight) {
+    return updaterCheckInFlight
+  }
+
+  setUpdaterState({
+    status: 'checking',
+    checkedAt: new Date().toISOString(),
+    progressPercent: null,
+    error: null,
+  })
+
+  updaterCheckInFlight = autoUpdater.checkForUpdates()
+    .then(() => getUpdaterStateSnapshot())
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdaterState({ status: 'error', error: message, progressPercent: null })
+
+      if (options.silent !== true) {
+        const messages = getMainI18n()
+        void showMessageBox(getUpdaterDialogParentWindow(), {
+          type: 'error',
+          title: messages.updater.checkFailedTitle,
+          message,
+          buttons: [messages.buttons.close],
+          defaultId: 0,
+          noLink: true,
+        })
+      }
+
+      return getUpdaterStateSnapshot()
+    })
+    .finally(() => {
+      updaterCheckInFlight = null
+    })
+
+  return updaterCheckInFlight
+}
+
+async function downloadAvailableUpdate() {
+  if (!configureAutoUpdaterFeed()) {
+    return getUpdaterStateSnapshot()
+  }
+
+  if (updaterDownloadInFlight) {
+    return updaterDownloadInFlight
+  }
+
+  setUpdaterState({ status: 'downloading', progressPercent: 0, error: null })
+  updaterDownloadInFlight = autoUpdater.downloadUpdate()
+    .then(() => getUpdaterStateSnapshot())
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      setUpdaterState({ status: 'error', error: message, progressPercent: null })
+      return getUpdaterStateSnapshot()
+    })
+    .finally(() => {
+      updaterDownloadInFlight = null
+    })
+
+  return updaterDownloadInFlight
+}
+
+function installDownloadedUpdate() {
+  if (updaterState.status !== 'downloaded') {
+    return false
+  }
+
+  writeLog('INFO', 'updater', 'Installing downloaded update')
+  autoUpdater.quitAndInstall(false, true)
+  return true
+}
+
+function initializeAutoUpdater() {
+  autoUpdater.on('checking-for-update', () => {
+    setUpdaterState({ status: 'checking', checkedAt: new Date().toISOString(), error: null })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    const version = typeof info?.version === 'string' && info.version.length > 0 ? info.version : null
+    setUpdaterState({ status: 'update-available', availableVersion: version, downloadedVersion: null, progressPercent: null, error: null })
+    writeLog('INFO', 'updater', 'Update available', { version, feedUrl: settingsState.updates?.feedUrl ?? null })
+    void promptToDownloadUpdate(version ?? 'unknown')
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    setUpdaterState({ status: 'up-to-date', availableVersion: null, downloadedVersion: null, progressPercent: null, error: null, checkedAt: new Date().toISOString() })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Number.isFinite(progress?.percent) ? Math.max(0, Math.min(100, progress.percent)) : null
+    setUpdaterState({ status: 'downloading', progressPercent: percent, error: null })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    const version = typeof info?.version === 'string' && info.version.length > 0 ? info.version : null
+    setUpdaterState({ status: 'downloaded', downloadedVersion: version, progressPercent: 100, error: null })
+    writeLog('INFO', 'updater', 'Update downloaded', { version })
+    void promptToInstallDownloadedUpdate(version ?? 'unknown')
+  })
+
+  autoUpdater.on('error', (error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    writeLog('WARN', 'updater', 'Auto-update error', message)
+    setUpdaterState({ status: 'error', error: message, progressPercent: null })
+  })
+
+  if (configureAutoUpdaterFeed() && settingsState.updates?.autoCheckOnLaunch !== false) {
+    void checkForAppUpdates({ silent: true })
+  } else {
+    broadcastUpdaterStateChanged()
   }
 }
 
@@ -6825,6 +7180,7 @@ function emitAiChatStreamEvent(targetWindow, payload) {
 
 function broadcastSettingsChanged() {
   createApplicationMenu()
+  configureAutoUpdaterFeed()
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) {
@@ -6833,6 +7189,8 @@ function broadcastSettingsChanged() {
 
     window.webContents.send('mdv:settings-changed', settingsState)
   }
+
+  broadcastUpdaterStateChanged()
 }
 
 function loadRendererWindow(window, htmlFileName) {
@@ -8586,6 +8944,14 @@ ipcMain.on('mdv:settings-bootstrap', (event) => {
 
 ipcMain.handle('mdv:settings-get', async () => settingsState)
 
+ipcMain.handle('mdv:updater-get-state', async () => getUpdaterStateSnapshot())
+
+ipcMain.handle('mdv:updater-check', async () => checkForAppUpdates({ silent: false }))
+
+ipcMain.handle('mdv:updater-download', async () => downloadAvailableUpdate())
+
+ipcMain.handle('mdv:updater-install', async () => ({ started: installDownloadedUpdate() }))
+
 ipcMain.handle('mdv:settings-migrate-legacy-theme', async (_event, themeMode) => {
   if (hasPersistedSettings || settingsState.general.themeMode !== 'system') {
     return settingsState
@@ -8990,6 +9356,7 @@ app.whenReady().then(() => {
     forceStaticRenderer,
     platform: process.platform,
   })
+  initializeAutoUpdater()
   createApplicationMenu()
   const initialLaunchRequest = pendingLaunchRequest
   pendingLaunchRequest = null

@@ -18,6 +18,12 @@ type TavilyDraft = {
   defaultMaxResults: number
 }
 
+type UpdateDraft = {
+  enabled: boolean
+  autoCheckOnLaunch: boolean
+  feedUrl: string
+}
+
 function updateSettingsWithStatus(
   patch: MdvSettingsPatch,
   statusMessage: string,
@@ -60,9 +66,17 @@ function SettingsApp() {
   const [isSavingOpenAiApiKey, setIsSavingOpenAiApiKey] = useState(false)
   const [isSavingTavily, setIsSavingTavily] = useState(false)
   const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false)
+  const [isSavingUpdates, setIsSavingUpdates] = useState(false)
   const [appMetadata, setAppMetadata] = useState<MdvAppMetadata | null>(null)
+  const [updaterState, setUpdaterState] = useState<MdvUpdaterState | null>(null)
+  const [updateDraft, setUpdateDraft] = useState<UpdateDraft>({
+    enabled: true,
+    autoCheckOnLaunch: true,
+    feedUrl: '',
+  })
   const [logPath, setLogPath] = useState<string>(t.settings.loadingLogPath)
   const [statusText, setStatusText] = useState<string>(t.settings.loadingSettings)
+  const isUpdaterConfigEditable = updaterState?.supported === true
 
   useEffect(() => {
     i18nRef.current = t
@@ -71,6 +85,41 @@ function SettingsApp() {
   useEffect(() => {
     document.title = `MDV ${t.settings.title}`
   }, [t])
+
+  const getUpdaterStatusLabel = (state: MdvUpdaterState | null) => {
+    if (!state) {
+      return t.about.updaterIdle
+    }
+
+    if (!state.supported) {
+      return t.about.updaterUnsupported
+    }
+
+    if (!state.enabled) {
+      return t.about.updaterDisabled
+    }
+
+    if (!state.configured) {
+      return t.about.updaterUnconfigured
+    }
+
+    switch (state.status) {
+      case 'checking':
+        return t.about.updaterChecking
+      case 'update-available':
+        return t.about.updaterAvailable
+      case 'downloading':
+        return t.about.updaterDownloading
+      case 'downloaded':
+        return t.about.updaterDownloaded
+      case 'up-to-date':
+        return t.about.updaterUpToDate
+      case 'error':
+        return state.error ? `${t.about.updaterError}: ${state.error}` : t.about.updaterError
+      default:
+        return t.about.updaterIdle
+    }
+  }
 
   const syncOpenAiDraft = (nextSettings: MdvSettings) => {
     setOpenAiDraft({
@@ -88,23 +137,36 @@ function SettingsApp() {
     })
   }
 
+  const syncUpdateDraft = (nextSettings: MdvSettings) => {
+    setUpdateDraft({
+      enabled: nextSettings.updates.enabled,
+      autoCheckOnLaunch: nextSettings.updates.autoCheckOnLaunch,
+      feedUrl: nextSettings.updates.feedUrl ?? '',
+    })
+  }
+
   useEffect(() => {
     let active = true
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
       setSettings(nextSettings)
       syncOpenAiDraft(nextSettings)
       syncTavilyDraft(nextSettings)
+      syncUpdateDraft(nextSettings)
       const nextTranslations = getTranslations(nextSettings.general.locale)
       setStatusText(nextTranslations.settings.settingsUpdated)
+    })
+    const unsubscribeUpdater = window.mdvDesktop?.updater.onStateChanged((nextUpdaterState) => {
+      setUpdaterState(nextUpdaterState)
     })
 
     void Promise.all([
       window.mdvDesktop?.settings.getSettings(),
       window.mdvDesktop?.settings.getProviderStatus(),
       window.mdvDesktop?.getAppMetadata(),
+      window.mdvDesktop?.updater.getState(),
       window.mdvDesktop?.getLogPath(),
     ])
-      .then(([nextSettings, nextProviderStatus, nextAppMetadata, nextLogPath]) => {
+      .then(([nextSettings, nextProviderStatus, nextAppMetadata, nextUpdaterState, nextLogPath]) => {
         if (!active) {
           return
         }
@@ -113,9 +175,11 @@ function SettingsApp() {
         if (nextSettings) {
           syncOpenAiDraft(nextSettings)
           syncTavilyDraft(nextSettings)
+          syncUpdateDraft(nextSettings)
         }
         setProviderStatus(nextProviderStatus ?? null)
         setAppMetadata(nextAppMetadata ?? null)
+        setUpdaterState(nextUpdaterState ?? null)
         setLogPath(nextLogPath ?? i18nRef.current.common.unavailable)
         setStatusText(i18nRef.current.settings.settingsReady)
       })
@@ -130,6 +194,7 @@ function SettingsApp() {
     return () => {
       active = false
       unsubscribe?.()
+      unsubscribeUpdater?.()
     }
   }, [])
 
@@ -316,6 +381,30 @@ function SettingsApp() {
         [key]: value,
       },
     }, t.settings.status.savingSafetySetting, t.settings.settingsSaved, setStatusText, setSettings)
+  }
+
+  const handleUpdateSettingsSave = () => {
+    setIsSavingUpdates(true)
+    setStatusText(t.settings.status.savingUpdateSettings)
+
+    void window.mdvDesktop?.settings.updateSettings({
+      updates: {
+        enabled: updateDraft.enabled,
+        autoCheckOnLaunch: updateDraft.autoCheckOnLaunch,
+        feedUrl: updateDraft.feedUrl,
+      },
+    })
+      .then((updatedSettings) => {
+        setSettings(updatedSettings)
+        syncUpdateDraft(updatedSettings)
+        setStatusText(t.settings.status.updateSettingsSaved)
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        setIsSavingUpdates(false)
+      })
   }
 
   const handleOpenFetchPermissionsWindow = () => {
@@ -678,6 +767,77 @@ function SettingsApp() {
                   <dd className="settings-break">{logPath}</dd>
                 </div>
               </dl>
+              <div className="settings-subsection">
+                <h3>{t.settings.advancedSection.updatesTitle}</h3>
+                {!isUpdaterConfigEditable ? <p className="settings-note">{t.settings.advancedSection.updatesReadOnly}</p> : null}
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={updateDraft.enabled}
+                    disabled={!isUpdaterConfigEditable}
+                    onChange={(event) => {
+                      setUpdateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        enabled: event.target.checked,
+                      }))
+                    }}
+                  />
+                  <span>{t.settings.advancedSection.updateEnabled}</span>
+                </label>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={updateDraft.autoCheckOnLaunch}
+                    disabled={!isUpdaterConfigEditable}
+                    onChange={(event) => {
+                      setUpdateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        autoCheckOnLaunch: event.target.checked,
+                      }))
+                    }}
+                  />
+                  <span>{t.settings.advancedSection.autoCheckOnLaunch}</span>
+                </label>
+                <label className="settings-field settings-field-wide">
+                  <span>{t.settings.advancedSection.feedUrl}</span>
+                  <input
+                    type="url"
+                    value={updateDraft.feedUrl}
+                    placeholder="https://github.com/owner/repo/releases/latest/download"
+                    disabled={!isUpdaterConfigEditable}
+                    onChange={(event) => {
+                      setUpdateDraft((currentDraft) => ({
+                        ...currentDraft,
+                        feedUrl: event.target.value,
+                      }))
+                    }}
+                  />
+                </label>
+                <div className="settings-actions">
+                  <button type="button" className="settings-primary-button" onClick={handleUpdateSettingsSave} disabled={isSavingUpdates || !isUpdaterConfigEditable}>
+                    {isSavingUpdates ? t.common.saving : t.settings.advancedSection.saveUpdateSettings}
+                  </button>
+                </div>
+                <p className="settings-note">{t.settings.advancedSection.updatesNote}</p>
+                <dl className="settings-facts">
+                  <div>
+                    <dt>{t.settings.advancedSection.updaterStatus}</dt>
+                    <dd>{getUpdaterStatusLabel(updaterState)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.advancedSection.availableVersion}</dt>
+                    <dd>{updaterState?.availableVersion ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.advancedSection.downloadedVersion}</dt>
+                    <dd>{updaterState?.downloadedVersion ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.advancedSection.progress}</dt>
+                    <dd>{typeof updaterState?.progressPercent === 'number' ? `${Math.round(updaterState.progressPercent)}%` : t.common.unavailable}</dd>
+                  </div>
+                </dl>
+              </div>
               <p className="settings-note">{t.settings.advancedSection.note}</p>
             </section>
           ) : null}

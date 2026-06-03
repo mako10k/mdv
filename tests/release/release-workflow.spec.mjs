@@ -4,6 +4,13 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+
+import YAML from 'yaml'
+
+function sha512Base64(text) {
+  return createHash('sha512').update(text).digest('base64')
+}
 
 import { runReleaseCheck } from '../../scripts/check-release-candidate.mjs'
 import { runGithubReleasePreparation } from '../../scripts/prepare-github-release.mjs'
@@ -31,6 +38,24 @@ async function makeTempRepo(version, options = {}) {
     await fs.writeFile(path.join(artifactRoot, 'installer', `MarkDownViewer-${version}-win.exe.blockmap`), 'blockmap')
   }
 
+  if (options.includeLatestManifest !== false) {
+    const installerSha512 = sha512Base64('installer')
+    await fs.writeFile(path.join(artifactRoot, 'installer', 'latest.yml'), YAML.stringify({
+      version,
+      files: [
+        {
+          url: `MarkDownViewer-${version}-win.exe`,
+          sha512: installerSha512,
+          size: 'installer'.length,
+          blockMapSize: 'blockmap'.length,
+        },
+      ],
+      path: `MarkDownViewer-${version}-win.exe`,
+      sha512: installerSha512,
+      releaseDate: '2026-06-03T00:00:00.000Z',
+    }))
+  }
+
   if (options.includeUnpacked !== false) {
     await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'MarkDownViewer.exe'), 'unpacked')
   }
@@ -52,6 +77,7 @@ async function makeTempRepo(version, options = {}) {
         portableExe: path.posix.join('portable', versionedExeName),
         installerExe: path.posix.join('installer', versionedExeName),
         installerBlockmap: path.posix.join('installer', `${versionedExeName}.blockmap`),
+        updaterManifest: path.posix.join('installer', 'latest.yml'),
         winUnpackedExe: path.posix.join('win-unpacked', 'MarkDownViewer.exe'),
         appArchive: path.posix.join('win-unpacked', 'resources', 'app.asar'),
       },
@@ -139,6 +165,14 @@ test('release check fails when a required artifact is missing', async () => {
   assert.match(result.stderr, /Missing portable executable/)
 })
 
+test('release check fails when updater manifest is missing', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { includeLatestManifest: false })
+  const result = await runReleaseCheckCli(['--root', rootDir])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Missing installer update manifest/)
+})
+
 test('release check fails when artifact metadata version drifts from package version', async () => {
   const rootDir = await makeTempRepo('1.2.3', { metadataVersion: '1.2.4' })
   const result = await runReleaseCheckCli(['--root', rootDir])
@@ -172,19 +206,22 @@ test('github release helper prints the exact gh command for the tagged artifacts
   assert.equal(result.status, 0)
   assert.match(result.stdout, /secdat exec gh release create v1\.2\.3/)
   assert.match(result.stdout, /MarkDownViewer-1\.2\.3-portable-win\.exe/)
-  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe/)
-  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-installer-win\.exe\.blockmap/)
+  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-win\.exe/)
+  assert.match(result.stdout, /MarkDownViewer-1\.2\.3-win\.exe\.blockmap/)
+  assert.match(result.stdout, /latest\.yml/)
   assert.match(result.stdout, /--verify-tag/)
   assert.match(result.stdout, /--notes-file/)
 
   const uploadDir = path.join(rootDir, 'release', '.github-upload')
   assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-portable-win.exe')), true)
-  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe')), true)
-  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-installer-win.exe.blockmap')), true)
+  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-win.exe')), true)
+  assert.equal(await pathExists(path.join(uploadDir, 'MarkDownViewer-1.2.3-win.exe.blockmap')), true)
+  assert.equal(await pathExists(path.join(uploadDir, 'latest.yml')), true)
   assert.deepEqual(await readDirNames(uploadDir), [
-    'MarkDownViewer-1.2.3-installer-win.exe',
-    'MarkDownViewer-1.2.3-installer-win.exe.blockmap',
     'MarkDownViewer-1.2.3-portable-win.exe',
+    'MarkDownViewer-1.2.3-win.exe',
+    'MarkDownViewer-1.2.3-win.exe.blockmap',
+    'latest.yml',
   ])
 })
 

@@ -343,6 +343,11 @@ type MdvSettings = {
     confirmBeforeNewDocumentFromAi: boolean
     confirmBeforeExternalUrlOpen: boolean
   }
+  updates: {
+    enabled: boolean
+    autoCheckOnLaunch: boolean
+    feedUrl: string | null
+  }
 }
 
 type MdvSettingsPatch = {
@@ -356,6 +361,21 @@ type MdvSettingsPatch = {
     fetch?: Partial<MdvSettings['ai']['fetch']>
   }
   safety?: Partial<MdvSettings['safety']>
+  updates?: Partial<MdvSettings['updates']>
+}
+
+type MdvUpdaterState = {
+  supported: boolean
+  enabled: boolean
+  configured: boolean
+  feedUrl: string | null
+  status: 'idle' | 'unsupported' | 'disabled' | 'unconfigured' | 'checking' | 'update-available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
+  currentVersion: string
+  availableVersion: string | null
+  downloadedVersion: string | null
+  checkedAt: string | null
+  progressPercent: number | null
+  error: string | null
 }
 
 type MdvProviderStatus = {
@@ -525,6 +545,13 @@ interface Window {
       startupRecoveryDelayMs?: number
     }
     getAppMetadata: () => Promise<MdvAppMetadata>
+    updater: {
+      getState: () => Promise<MdvUpdaterState>
+      checkForUpdates: () => Promise<MdvUpdaterState>
+      downloadUpdate: () => Promise<MdvUpdaterState>
+      installUpdate: () => Promise<{ started: boolean }>
+      onStateChanged: (callback: (state: MdvUpdaterState) => void) => () => void
+    }
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     getMdastCapabilities: () => Promise<MdvJsonValue>

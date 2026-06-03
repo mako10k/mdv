@@ -351,6 +351,7 @@ function Write-ArtifactMetadata {
       portableExe = "portable/$versionedExeName"
       installerExe = "installer/$versionedExeName"
       installerBlockmap = "installer/$versionedExeName.blockmap"
+      updaterManifest = 'installer/latest.yml'
       winUnpackedExe = 'win-unpacked/MarkDownViewer.exe'
       appArchive = 'win-unpacked/resources/app.asar'
     }
@@ -361,6 +362,19 @@ function Write-ArtifactMetadata {
   [System.IO.File]::WriteAllText($metadataPath, $metadataJson, $utf8NoBom)
 }
 
+function Write-UpdateManifest {
+  param(
+    [ValidateSet('release', 'candidate')]
+    [string]$ArtifactSource
+  )
+
+  $scriptPath = Join-Path $workRoot 'scripts\write-windows-update-manifest.mjs'
+  & "$nodeRoot\node.exe" $scriptPath --root $SourceRoot --artifact-source $ArtifactSource
+  if (Test-ExternalCommandFailed) {
+    throw "write-windows-update-manifest failed with code $LASTEXITCODE"
+  }
+}
+
 function Assert-PromotableCandidateArtifacts {
   $version = Read-PackageVersion
   $versionedExeName = "MarkDownViewer-$version-win.exe"
@@ -368,6 +382,7 @@ function Assert-PromotableCandidateArtifacts {
     (Join-Path $candidateArtifactDest "portable\$versionedExeName"),
     (Join-Path $candidateArtifactDest "installer\$versionedExeName"),
     (Join-Path $candidateArtifactDest "installer\$versionedExeName.blockmap"),
+    (Join-Path $candidateArtifactDest 'installer\latest.yml'),
     (Join-Path $candidateArtifactDest 'win-unpacked\MarkDownViewer.exe'),
     (Join-Path $candidateArtifactDest 'win-unpacked\resources\app.asar'),
     (Join-Path $candidateArtifactDest 'artifact-metadata.json')
@@ -645,7 +660,8 @@ foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
 $candidateOutputPath = Prepare-ArtifactDestination -PreferredPath $candidateArtifactDest
 Sync-Directory -SourcePath (Join-Path $workRoot 'release') -DestinationPath $candidateOutputPath -Mode '/E' -ErrorLabel 'candidate artifact copy'
 
-if ($PackageTargets -ne 'none') {
+if ($PackageTargets -eq 'all') {
+  Write-UpdateManifest -ArtifactSource 'candidate'
   Write-ArtifactMetadata -ArtifactRoot $candidateOutputPath -ArtifactSource 'candidate'
 }
 

@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+
+import YAML from 'yaml'
 
 const PRODUCT_NAME = 'MarkDownViewer'
 
@@ -53,12 +56,17 @@ export function getReleaseArtifactManifest(rootDir, version, artifactSource = 'r
     {
       label: 'installer executable',
       path: path.join(windowsHostDir, 'installer', versionedExeName),
-      githubAssetName: `${PRODUCT_NAME}-${version}-installer-win.exe`,
+      githubAssetName: versionedExeName,
     },
     {
       label: 'installer blockmap',
       path: path.join(windowsHostDir, 'installer', `${versionedExeName}.blockmap`),
-      githubAssetName: `${PRODUCT_NAME}-${version}-installer-win.exe.blockmap`,
+      githubAssetName: `${versionedExeName}.blockmap`,
+    },
+    {
+      label: 'installer update manifest',
+      path: path.join(windowsHostDir, 'installer', 'latest.yml'),
+      githubAssetName: 'latest.yml',
     },
     {
       label: 'win-unpacked executable',
@@ -87,6 +95,7 @@ function getExpectedArtifactMetadata(version, expectedTag, artifactSource) {
       portableExe: path.posix.join('portable', versionedExeName),
       installerExe: path.posix.join('installer', versionedExeName),
       installerBlockmap: path.posix.join('installer', `${versionedExeName}.blockmap`),
+      updaterManifest: path.posix.join('installer', 'latest.yml'),
       winUnpackedExe: path.posix.join('win-unpacked', `${PRODUCT_NAME}.exe`),
       appArchive: path.posix.join('win-unpacked', 'resources', 'app.asar'),
     },
@@ -108,6 +117,69 @@ async function pathExists(targetPath) {
     return true
   } catch {
     return false
+  }
+}
+
+async function hashFileSha512Base64(filePath) {
+  const buffer = await fs.readFile(filePath)
+  return createHash('sha512').update(buffer).digest('base64')
+}
+
+async function validateLatestYml(rootDir, artifactSource, version, expectedTag, errors) {
+  const artifactRoot = resolveArtifactRoot(rootDir, artifactSource)
+  const versionedExeName = `${PRODUCT_NAME}-${version}-win.exe`
+  const latestYmlPath = path.join(artifactRoot, 'installer', 'latest.yml')
+  const installerExePath = path.join(artifactRoot, 'installer', versionedExeName)
+  const blockmapPath = path.join(artifactRoot, 'installer', `${versionedExeName}.blockmap`)
+  const [installerText, installerStat, blockmapStat, installerSha512] = await Promise.all([
+    fs.readFile(latestYmlPath, 'utf8'),
+    fs.stat(installerExePath),
+    fs.stat(blockmapPath),
+    hashFileSha512Base64(installerExePath),
+  ])
+  const latestManifest = YAML.parse(installerText)
+
+  if (latestManifest?.version !== version) {
+    errors.push(`latest.yml version mismatch in ${latestYmlPath}: expected ${version}, got ${latestManifest?.version ?? 'undefined'}`)
+  }
+
+  if (latestManifest?.path !== versionedExeName) {
+    errors.push(`latest.yml path mismatch in ${latestYmlPath}: expected ${versionedExeName}, got ${latestManifest?.path ?? 'undefined'}`)
+  }
+
+  if (!Array.isArray(latestManifest?.files) || latestManifest.files.length === 0) {
+    errors.push(`latest.yml files entry is missing in ${latestYmlPath}`)
+    return
+  }
+
+  const firstFile = latestManifest.files[0]
+
+  if (firstFile?.url !== versionedExeName) {
+    errors.push(`latest.yml files[0].url mismatch in ${latestYmlPath}: expected ${versionedExeName}, got ${firstFile?.url ?? 'undefined'}`)
+  }
+
+  if (Number(firstFile?.size) !== installerStat.size) {
+    errors.push(`latest.yml files[0].size mismatch in ${latestYmlPath}: expected ${installerStat.size}, got ${firstFile?.size ?? 'undefined'}`)
+  }
+
+  if (Number(firstFile?.blockMapSize) !== blockmapStat.size) {
+    errors.push(`latest.yml files[0].blockMapSize mismatch in ${latestYmlPath}: expected ${blockmapStat.size}, got ${firstFile?.blockMapSize ?? 'undefined'}`)
+  }
+
+  if (firstFile?.sha512 !== installerSha512) {
+    errors.push(`latest.yml files[0].sha512 mismatch in ${latestYmlPath}`)
+  }
+
+  if (latestManifest?.sha512 !== installerSha512) {
+    errors.push(`latest.yml sha512 mismatch in ${latestYmlPath}`)
+  }
+
+  if (latestManifest?.releaseDate && Number.isNaN(Date.parse(latestManifest.releaseDate))) {
+    errors.push(`latest.yml releaseDate is invalid in ${latestYmlPath}: ${latestManifest.releaseDate}`)
+  }
+
+  if (expectedTag !== `v${version}`) {
+    errors.push(`latest.yml validation requires tag ${`v${version}`} but expected ${expectedTag}`)
   }
 }
 
@@ -200,6 +272,12 @@ export async function validateReleaseWorkspace(options = {}) {
     }
   } catch (error) {
     errors.push(`Missing or invalid artifact metadata: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  try {
+    await validateLatestYml(rootDir, artifactSource, version, expectedTag, errors)
+  } catch (error) {
+    errors.push(`Missing or invalid updater manifest: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   let gitStatus = []

@@ -126,7 +126,7 @@ Windows host workflow は後方互換なしで次の 3 段階に分離してい�
 - `deploy`: 指定した artifact source の `win-unpacked` を `%LOCALAPPDATA%\MarkDownViewer\latest` へ配置する。既存 canonical artifact をそのまま配る用途を含む。
 - `promote`: candidate artifact を `release/windows-host` へ昇格する。canonical release artifact を更新できるのはこの操作だけ。
 
-canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json` を保持し、`npm run release:check:candidate` と `npm run release:check` が file 名と version metadata の一致、および `win-unpacked/resources/app.asar` の存在を確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
+canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json` と `installer/latest.yml` を保持し、`npm run release:check:candidate` と `npm run release:check` が file 名、version metadata、updater manifest、および `win-unpacked/resources/app.asar` の存在を確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
 
 `\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
 
@@ -269,7 +269,7 @@ npm run dist:win:dir
 1. `package.json` の `version` を bump する。
 2. `npm run lint && npm run build` を通す。
 3. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
-4. `npm run release:check:candidate` で candidate の file 名、metadata、app.asar の存在を確認する。
+4. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app.asar の存在を確認する。
 5. 必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
 6. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
 7. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
@@ -280,6 +280,8 @@ npm run dist:win:dir
 12. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
 13. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
 14. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+
+installer auto-update を GitHub Release asset で使う場合の feed URL は、通常 `https://github.com/<owner>/<repo>/releases/latest/download` を設定します。
 
 通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` と `docs/release-workflow.md` を参照してください。
 

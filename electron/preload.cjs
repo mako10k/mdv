@@ -7,6 +7,7 @@ const aiChatStreamListeners = new Set()
 const windowCloseApprovedListeners = new Set()
 const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
+const updaterStateChangedListeners = new Set()
 const settingsBootstrap = ipcRenderer.sendSync('mdv:settings-bootstrap')
 
 ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
@@ -38,6 +39,12 @@ ipcRenderer.on('mdv:settings-changed', (_event, settings) => {
   }
 })
 
+ipcRenderer.on('mdv:updater-state-changed', (_event, state) => {
+  for (const listener of updaterStateChangedListeners) {
+    listener(state)
+  }
+})
+
 ipcRenderer.on('mdv:window-close-approved', () => {
   for (const listener of windowCloseApprovedListeners) {
     listener()
@@ -61,6 +68,19 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
     startupRecoveryDelayMs: Number.parseInt(process.env.MDV_E2E_STARTUP_RECOVERY_DELAY_MS ?? '0', 10) || 0,
   },
   getAppMetadata: () => ipcRenderer.invoke('mdv:get-app-metadata'),
+  updater: {
+    getState: () => ipcRenderer.invoke('mdv:updater-get-state'),
+    checkForUpdates: () => ipcRenderer.invoke('mdv:updater-check'),
+    downloadUpdate: () => ipcRenderer.invoke('mdv:updater-download'),
+    installUpdate: () => ipcRenderer.invoke('mdv:updater-install'),
+    onStateChanged: (callback) => {
+      updaterStateChangedListeners.add(callback)
+
+      return () => {
+        updaterStateChangedListeners.delete(callback)
+      }
+    },
+  },
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   getMdastCapabilities: () => ipcRenderer.invoke('mdv:mdast-get-capabilities'),
