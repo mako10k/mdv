@@ -1,7 +1,7 @@
 {
   "name": "mdv",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Markdown workspace for Windows with editing, preview, assistant dock, and export tools.",
   "author": "GitHub Copilot",
   "type": "module",
@@ -57,6 +57,12 @@
     "appId": "local.markdownviewer",
     "productName": "MarkDownViewer",
     "asar": true,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/mako10k/mdv/releases/latest/download"
+      }
+    ],
     "directories": {
       "output": "release"
     },

@@ -76,7 +76,7 @@ function SettingsApp() {
   })
   const [logPath, setLogPath] = useState<string>(t.settings.loadingLogPath)
   const [statusText, setStatusText] = useState<string>(t.settings.loadingSettings)
-  const isUpdaterConfigEditable = updaterState?.supported === true
+  const isUpdaterConfigEditable = updaterState?.supported === true && updaterState?.status !== 'error'
 
   useEffect(() => {
     i18nRef.current = t
@@ -89,6 +89,10 @@ function SettingsApp() {
   const getUpdaterStatusLabel = (state: MdvUpdaterState | null) => {
     if (!state) {
       return t.about.updaterIdle
+    }
+
+    if (state.status === 'error') {
+      return state.error ? `${t.about.updaterError}: ${state.error}` : t.about.updaterError
     }
 
     if (!state.supported) {
@@ -114,8 +118,6 @@ function SettingsApp() {
         return t.about.updaterDownloaded
       case 'up-to-date':
         return t.about.updaterUpToDate
-      case 'error':
-        return state.error ? `${t.about.updaterError}: ${state.error}` : t.about.updaterError
       default:
         return t.about.updaterIdle
     }

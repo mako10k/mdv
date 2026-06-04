@@ -13,6 +13,10 @@ function AboutApp() {
       return t.about.updaterIdle
     }
 
+    if (state.status === 'error') {
+      return state.error ? `${t.about.updaterError}: ${state.error}` : t.about.updaterError
+    }
+
     if (!state.supported) {
       return t.about.updaterUnsupported
     }
@@ -36,8 +40,6 @@ function AboutApp() {
         return t.about.updaterDownloaded
       case 'up-to-date':
         return t.about.updaterUpToDate
-      case 'error':
-        return state.error ? `${t.about.updaterError}: ${state.error}` : t.about.updaterError
       default:
         return t.about.updaterIdle
     }
@@ -164,13 +166,13 @@ function AboutApp() {
           </div>
         </dl>
 
-        {updaterState && !updaterState.supported ? <p className="settings-note">{t.about.disabledActionsNote}</p> : null}
+        {updaterState && (!updaterState.supported || updaterState.status === 'error') ? <p className="settings-note">{t.about.disabledActionsNote}</p> : null}
         {updaterState && updaterState.supported && (!updaterState.enabled || !updaterState.configured) ? (
           <p className="settings-note">{getUpdaterStatusLabel(updaterState)}</p>
         ) : null}
 
         <div className="settings-actions">
-          <button type="button" className="settings-primary-button" onClick={handleCheckForUpdates} disabled={!updaterState?.supported || !updaterState?.enabled || !updaterState?.configured}>
+          <button type="button" className="settings-primary-button" onClick={handleCheckForUpdates} disabled={!updaterState?.supported || updaterState?.status === 'error' || !updaterState?.enabled || !updaterState?.configured}>
             {t.about.checkForUpdates}
           </button>
           <button type="button" className="settings-secondary-button" onClick={handleDownloadUpdate} disabled={updaterState?.status !== 'update-available'}>

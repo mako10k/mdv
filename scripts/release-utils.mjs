@@ -7,6 +7,17 @@ import YAML from 'yaml'
 
 const PRODUCT_NAME = 'MarkDownViewer'
 
+function sanitizeUpdaterCacheBase(name) {
+  return name
+    .trim()
+    .replace(/^@/, '')
+    .replace(/[\\/]/g, '-')
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+}
+
 function resolveArtifactRoot(rootDir, artifactSource = 'release') {
   if (artifactSource === 'candidate') {
     return path.join(rootDir, 'release', 'windows-host-candidate')
@@ -43,6 +54,11 @@ export async function readPackageVersion(rootDir) {
   return packageJson.version
 }
 
+async function readPackageJson(rootDir) {
+  const packageJsonPath = path.join(rootDir, 'package.json')
+  return JSON.parse(await fs.readFile(packageJsonPath, 'utf8'))
+}
+
 export function getReleaseArtifactManifest(rootDir, version, artifactSource = 'release') {
   const windowsHostDir = resolveArtifactRoot(rootDir, artifactSource)
   const versionedExeName = `${PRODUCT_NAME}-${version}-win.exe`
@@ -76,6 +92,10 @@ export function getReleaseArtifactManifest(rootDir, version, artifactSource = 'r
       label: 'win-unpacked app archive',
       path: path.join(windowsHostDir, 'win-unpacked', 'resources', 'app.asar'),
     },
+    {
+      label: 'win-unpacked updater config',
+      path: path.join(windowsHostDir, 'win-unpacked', 'resources', 'app-update.yml'),
+    },
   ]
 }
 
@@ -98,6 +118,7 @@ function getExpectedArtifactMetadata(version, expectedTag, artifactSource) {
       updaterManifest: path.posix.join('installer', 'latest.yml'),
       winUnpackedExe: path.posix.join('win-unpacked', `${PRODUCT_NAME}.exe`),
       appArchive: path.posix.join('win-unpacked', 'resources', 'app.asar'),
+      updaterConfig: path.posix.join('win-unpacked', 'resources', 'app-update.yml'),
     },
   }
 }
@@ -180,6 +201,42 @@ async function validateLatestYml(rootDir, artifactSource, version, expectedTag, 
 
   if (expectedTag !== `v${version}`) {
     errors.push(`latest.yml validation requires tag ${`v${version}`} but expected ${expectedTag}`)
+  }
+}
+
+async function validateAppUpdateYml(rootDir, artifactSource, errors) {
+  const artifactRoot = resolveArtifactRoot(rootDir, artifactSource)
+  const appUpdateYmlPath = path.join(artifactRoot, 'win-unpacked', 'resources', 'app-update.yml')
+  const [packageJson, appUpdateText] = await Promise.all([
+    readPackageJson(rootDir),
+    fs.readFile(appUpdateYmlPath, 'utf8'),
+  ])
+
+  const publishConfig = Array.isArray(packageJson?.build?.publish)
+    ? packageJson.build.publish[0] ?? null
+    : packageJson?.build?.publish ?? null
+
+  if (!publishConfig || typeof publishConfig !== 'object') {
+    errors.push(`package.json does not contain a build.publish object required to validate ${appUpdateYmlPath}`)
+    return
+  }
+
+  const expectedUrl = publishConfig.url
+  const expectedProvider = publishConfig.provider
+  const expectedUpdaterCacheDirName = publishConfig.updaterCacheDirName
+    ?? `${sanitizeUpdaterCacheBase(typeof packageJson.name === 'string' && packageJson.name.length > 0 ? packageJson.name : 'mdv')}-updater`
+  const appUpdateConfig = YAML.parse(appUpdateText)
+
+  if (appUpdateConfig?.provider !== expectedProvider) {
+    errors.push(`app-update.yml provider mismatch in ${appUpdateYmlPath}: expected ${expectedProvider}, got ${appUpdateConfig?.provider ?? 'undefined'}`)
+  }
+
+  if (appUpdateConfig?.url !== expectedUrl) {
+    errors.push(`app-update.yml url mismatch in ${appUpdateYmlPath}: expected ${expectedUrl}, got ${appUpdateConfig?.url ?? 'undefined'}`)
+  }
+
+  if (appUpdateConfig?.updaterCacheDirName !== expectedUpdaterCacheDirName) {
+    errors.push(`app-update.yml updaterCacheDirName mismatch in ${appUpdateYmlPath}: expected ${expectedUpdaterCacheDirName}, got ${appUpdateConfig?.updaterCacheDirName ?? 'undefined'}`)
   }
 }
 
@@ -278,6 +335,12 @@ export async function validateReleaseWorkspace(options = {}) {
     await validateLatestYml(rootDir, artifactSource, version, expectedTag, errors)
   } catch (error) {
     errors.push(`Missing or invalid updater manifest: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  try {
+    await validateAppUpdateYml(rootDir, artifactSource, errors)
+  } catch (error) {
+    errors.push(`Missing or invalid app updater config: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   let gitStatus = []

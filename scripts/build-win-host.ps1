@@ -302,6 +302,64 @@ function Sync-Directory {
   }
 }
 
+function Copy-DirectoryContents {
+  param(
+    [string]$SourcePath,
+    [string]$DestinationPath,
+    [string]$ErrorLabel
+  )
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "$ErrorLabel failed: source path does not exist: $SourcePath"
+  }
+
+  Ensure-Directory -TargetPath $DestinationPath
+
+  try {
+    Get-ChildItem -Path $SourcePath -Force | ForEach-Object {
+      Copy-Item -Path $_.FullName -Destination $DestinationPath -Recurse -Force
+    }
+  } catch {
+    throw "$ErrorLabel failed: $($_.Exception.Message)"
+  }
+}
+
+function Copy-UpdaterConfigFile {
+  param(
+    [string]$SourceArtifactRoot,
+    [string]$DestinationArtifactRoot,
+    [string]$ErrorLabel
+  )
+
+  $sourceUpdaterConfig = Join-Path $SourceArtifactRoot 'win-unpacked\resources\app-update.yml'
+  if (-not (Test-Path $sourceUpdaterConfig)) {
+    throw "Source updater config is missing at $sourceUpdaterConfig"
+  }
+
+  $destinationResources = Join-Path $DestinationArtifactRoot 'win-unpacked\resources'
+  Ensure-Directory -TargetPath $destinationResources
+  $destinationUpdaterConfig = Join-Path $destinationResources 'app-update.yml'
+  Copy-Item -Path $sourceUpdaterConfig -Destination $destinationUpdaterConfig -Force
+
+  if (-not (Test-Path $destinationUpdaterConfig)) {
+    throw "$ErrorLabel failed: $destinationUpdaterConfig"
+  }
+}
+
+function Clear-PortableArchiveCache {
+  param(
+    [string]$OutputRoot
+  )
+
+  if (-not (Test-Path $OutputRoot)) {
+    return
+  }
+
+  Get-ChildItem -Path $OutputRoot -Filter '*.nsis.7z' -File -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Get-ArtifactDirectory {
   param(
     [string]$Kind
@@ -354,6 +412,7 @@ function Write-ArtifactMetadata {
       updaterManifest = 'installer/latest.yml'
       winUnpackedExe = 'win-unpacked/MarkDownViewer.exe'
       appArchive = 'win-unpacked/resources/app.asar'
+      updaterConfig = 'win-unpacked/resources/app-update.yml'
     }
   }
 
@@ -385,6 +444,7 @@ function Assert-PromotableCandidateArtifacts {
     (Join-Path $candidateArtifactDest 'installer\latest.yml'),
     (Join-Path $candidateArtifactDest 'win-unpacked\MarkDownViewer.exe'),
     (Join-Path $candidateArtifactDest 'win-unpacked\resources\app.asar'),
+    (Join-Path $candidateArtifactDest 'win-unpacked\resources\app-update.yml'),
     (Join-Path $candidateArtifactDest 'artifact-metadata.json')
   )
 
@@ -410,6 +470,7 @@ function Update-LocalRunnableCopy {
   }
 
   Sync-Directory -SourcePath $unpackedSource -DestinationPath $localRunStageDest -ErrorLabel 'local runnable staging'
+  Copy-Item -Path (Join-Path $unpackedSource 'resources\app-update.yml') -Destination (Join-Path $localRunStageDest 'resources\app-update.yml') -Force
 
   Stop-MarkDownViewerProcess
 
@@ -439,6 +500,7 @@ function Promote-CandidateArtifacts {
   }
 
   Sync-Directory -SourcePath $candidateArtifactDest -DestinationPath $artifactStageDest -ErrorLabel 'artifact staging'
+  Copy-UpdaterConfigFile -SourceArtifactRoot $candidateArtifactDest -DestinationArtifactRoot $artifactStageDest -ErrorLabel 'release updater config copy'
   Write-ArtifactMetadata -ArtifactRoot $artifactStageDest -ArtifactSource 'release'
 
   $artifactSwap = $null
@@ -624,6 +686,11 @@ if (Test-ExternalCommandFailed) {
   throw "electron-builder --win --dir failed with code $LASTEXITCODE"
 }
 
+& "$nodeRoot\node.exe" (Join-Path $workRoot 'scripts\write-app-update-config.mjs') --root $workRoot --app-out-dir (Join-Path $workRoot 'release\win-unpacked')
+if (Test-ExternalCommandFailed) {
+  throw "write-app-update-config failed with code $LASTEXITCODE"
+}
+
 $builtExe = Join-Path $workRoot 'release\win-unpacked\MarkDownViewer.exe'
 $iconPath = Join-Path $workRoot 'build\icon.ico'
 $rceditScriptPath = Join-Path $workRoot 'apply-rcedit.mjs'
@@ -651,6 +718,9 @@ if (Test-ExternalCommandFailed) {
 $prepackagedPath = Join-Path $workRoot 'release\win-unpacked'
 foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
   Write-Host "Building Windows $($plan.label)"
+  if ($plan.target -eq 'portable') {
+    Clear-PortableArchiveCache -OutputRoot (Join-Path $workRoot $plan.output)
+  }
   & "$nodeRoot\npm.cmd" exec electron-builder -- --prepackaged $prepackagedPath --win $plan.target "--config.directories.output=$($plan.output)" --config.win.signAndEditExecutable=false
   if (Test-ExternalCommandFailed) {
     throw "electron-builder --prepackaged --win $($plan.target) failed with code $LASTEXITCODE"
@@ -658,7 +728,8 @@ foreach ($plan in (Get-PackageBuildPlans -RequestedTargets $PackageTargets)) {
 }
 
 $candidateOutputPath = Prepare-ArtifactDestination -PreferredPath $candidateArtifactDest
-Sync-Directory -SourcePath (Join-Path $workRoot 'release') -DestinationPath $candidateOutputPath -Mode '/E' -ErrorLabel 'candidate artifact copy'
+Copy-DirectoryContents -SourcePath (Join-Path $workRoot 'release') -DestinationPath $candidateOutputPath -ErrorLabel 'candidate artifact copy'
+Copy-UpdaterConfigFile -SourceArtifactRoot (Join-Path $workRoot 'release') -DestinationArtifactRoot $candidateOutputPath -ErrorLabel 'candidate updater config copy'
 
 if ($PackageTargets -eq 'all') {
   Write-UpdateManifest -ArtifactSource 'candidate'

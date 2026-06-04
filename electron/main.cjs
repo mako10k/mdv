@@ -447,6 +447,7 @@ const MAIN_I18N = {
       availableTitle: 'アップデートがあります',
       availableMessage: (version) => `Version ${version} を利用できます。ダウンロードしますか？`,
       availableDetail: 'installer build のみ自動更新を利用できます。portable build は手動更新のままです。',
+      invalidInstallMessage: (targetPath) => `この installer インストールは壊れています。更新設定ファイル ${targetPath} が見つかりません。installer から再インストールしてください。`,
       downloadNow: 'ダウンロード',
       later: 'あとで',
       downloadedTitle: 'アップデートをダウンロードしました',
@@ -543,6 +544,7 @@ const MAIN_I18N = {
       availableTitle: 'Update available',
       availableMessage: (version) => `Version ${version} is available. Download it now?`,
       availableDetail: 'Auto-update is supported only for installer builds. Portable builds stay on manual updates.',
+      invalidInstallMessage: (targetPath) => `This installer-based installation is broken. The updater config file ${targetPath} is missing. Reinstall the app from the installer.`,
       downloadNow: 'Download',
       later: 'Later',
       downloadedTitle: 'Update downloaded',
@@ -4390,8 +4392,31 @@ function hasNsisInstallMarker() {
   }
 }
 
+function hasUpdaterConfigFile() {
+  try {
+    return fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))
+  } catch {
+    return false
+  }
+}
+
+function isInstalledWindowsReleaseRuntime() {
+  return process.platform === 'win32'
+    && app.isPackaged
+    && !isPortableRuntime()
+    && hasNsisInstallMarker()
+}
+
+function getAutoUpdaterSetupError() {
+  if (!isInstalledWindowsReleaseRuntime() || hasUpdaterConfigFile()) {
+    return null
+  }
+
+  return getMainI18n().updater.invalidInstallMessage(path.join(process.resourcesPath, 'app-update.yml'))
+}
+
 function isAutoUpdateSupported() {
-  return process.platform === 'win32' && app.isPackaged && !isPortableRuntime() && hasNsisInstallMarker()
+  return isInstalledWindowsReleaseRuntime()
 }
 
 function getUpdaterDialogParentWindow() {
@@ -4442,6 +4467,20 @@ function configureAutoUpdaterFeed() {
       downloadedVersion: null,
       progressPercent: null,
       error: null,
+    })
+    return false
+  }
+
+  const setupError = getAutoUpdaterSetupError()
+
+  if (setupError) {
+    writeLog('ERROR', 'updater', 'Broken installer auto-update setup', setupError)
+    setUpdaterState({
+      status: 'error',
+      availableVersion: null,
+      downloadedVersion: null,
+      progressPercent: null,
+      error: setupError,
     })
     return false
   }
@@ -4539,7 +4578,21 @@ async function promptToInstallDownloadedUpdate(version) {
 
 async function checkForAppUpdates(options = {}) {
   if (!configureAutoUpdaterFeed()) {
-    return getUpdaterStateSnapshot()
+    const snapshot = getUpdaterStateSnapshot()
+
+    if (options.silent !== true && snapshot.status === 'error' && snapshot.error) {
+      const messages = getMainI18n()
+      void showMessageBox(getUpdaterDialogParentWindow(), {
+        type: 'error',
+        title: messages.updater.checkFailedTitle,
+        message: snapshot.error,
+        buttons: [messages.buttons.close],
+        defaultId: 0,
+        noLink: true,
+      })
+    }
+
+    return snapshot
   }
 
   if (updaterCheckInFlight) {

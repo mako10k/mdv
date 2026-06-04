@@ -12,7 +12,7 @@
 - tag を先に切らない
 - 既存 tag のまま binary だけ差し替えない
 - 配布する Windows artifact は `release/windows-host` 配下の version 一致成果物だけを使う
-- `release/windows-host` と、promote 対象になる full candidate の `release/windows-host-candidate` では `artifact-metadata.json` と `installer/latest.yml` を保持し、artifact file 名、updater manifest、`win-unpacked/resources/app.asar` の存在を version と一緒に検証する
+- `release/windows-host` と、promote 対象になる full candidate の `release/windows-host-candidate` では `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持し、artifact file 名、updater manifest、updater config、`win-unpacked/resources/app.asar` の存在と整合を version と一緒に検証する
 - Windows packaging の candidate 生成、local deploy、canonical release artifact 更新は別操作として扱う
 
 ## Public Release Checklist
@@ -22,7 +22,7 @@
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
 3. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
-4. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、必須成果物を確認する
+4. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
 5. 必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置して検証する
 6. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
 7. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する

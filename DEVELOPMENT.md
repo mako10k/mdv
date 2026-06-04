@@ -126,7 +126,7 @@ Windows host workflow は後方互換なしで次の 3 段階に分離してい�
 - `deploy`: 指定した artifact source の `win-unpacked` を `%LOCALAPPDATA%\MarkDownViewer\latest` へ配置する。既存 canonical artifact をそのまま配る用途を含む。
 - `promote`: candidate artifact を `release/windows-host` へ昇格する。canonical release artifact を更新できるのはこの操作だけ。
 
-canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json` と `installer/latest.yml` を保持し、`npm run release:check:candidate` と `npm run release:check` が file 名、version metadata、updater manifest、および `win-unpacked/resources/app.asar` の存在を確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
+canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持し、`npm run release:check:candidate` と `npm run release:check` が file 名、version metadata、updater manifest、updater config、`win-unpacked/resources/app.asar` の存在と整合を確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
 
 `\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
 
@@ -269,7 +269,7 @@ npm run dist:win:dir
 1. `package.json` の `version` を bump する。
 2. `npm run lint && npm run build` を通す。
 3. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
-4. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app.asar の存在を確認する。
+4. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
 5. 必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
 6. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
 7. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。

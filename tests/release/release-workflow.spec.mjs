@@ -12,6 +12,10 @@ function sha512Base64(text) {
   return createHash('sha512').update(text).digest('base64')
 }
 
+async function readWorkspacePackageJson() {
+  return JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8'))
+}
+
 import { runReleaseCheck } from '../../scripts/check-release-candidate.mjs'
 import { runGithubReleasePreparation } from '../../scripts/prepare-github-release.mjs'
 
@@ -24,7 +28,19 @@ async function makeTempRepo(version, options = {}) {
   await fs.mkdir(path.join(artifactRoot, 'win-unpacked', 'resources'), { recursive: true })
   await fs.mkdir(path.join(rootDir, 'docs', 'release-notes'), { recursive: true })
 
-  await fs.writeFile(path.join(rootDir, 'package.json'), JSON.stringify({ name: 'fixture', version }, null, 2))
+  await fs.writeFile(path.join(rootDir, 'package.json'), JSON.stringify({
+    name: 'fixture',
+    version,
+    build: {
+      publish: [
+        {
+          provider: 'generic',
+          url: 'https://github.com/mako10k/mdv/releases/latest/download',
+          updaterCacheDirName: 'fixture-updater',
+        },
+      ],
+    },
+  }, null, 2))
 
   if (options.includePortable !== false) {
     await fs.writeFile(path.join(artifactRoot, 'portable', `MarkDownViewer-${version}-win.exe`), 'portable')
@@ -64,6 +80,18 @@ async function makeTempRepo(version, options = {}) {
     await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'resources', 'app.asar'), 'asar')
   }
 
+  if (options.includeUpdaterConfig !== false) {
+    const updaterConfig = {
+      provider: 'generic',
+      url: 'https://github.com/mako10k/mdv/releases/latest/download',
+      updaterCacheDirName: 'fixture-updater',
+      ...(options.updaterConfigOverrides ?? {}),
+    }
+    await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'resources', 'app-update.yml'), YAML.stringify({
+      ...updaterConfig,
+    }))
+  }
+
   if (options.includeMetadata !== false) {
     const metadataVersion = options.metadataVersion ?? version
     const metadataArtifactSource = options.metadataArtifactSource ?? artifactSource
@@ -80,6 +108,7 @@ async function makeTempRepo(version, options = {}) {
         updaterManifest: path.posix.join('installer', 'latest.yml'),
         winUnpackedExe: path.posix.join('win-unpacked', 'MarkDownViewer.exe'),
         appArchive: path.posix.join('win-unpacked', 'resources', 'app.asar'),
+        updaterConfig: path.posix.join('win-unpacked', 'resources', 'app-update.yml'),
       },
     }, null, 2))
   }
@@ -173,6 +202,26 @@ test('release check fails when updater manifest is missing', async () => {
   assert.match(result.stderr, /Missing installer update manifest/)
 })
 
+test('release check fails when win-unpacked updater config is missing', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { includeUpdaterConfig: false })
+  const result = await runReleaseCheckCli(['--root', rootDir])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Missing win-unpacked updater config/)
+})
+
+test('release check fails when win-unpacked updater config content drifts from package config', async () => {
+  const rootDir = await makeTempRepo('1.2.3', {
+    updaterConfigOverrides: {
+      url: 'https://example.com/wrong-feed',
+    },
+  })
+  const result = await runReleaseCheckCli(['--root', rootDir])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /app-update\.yml url mismatch/)
+})
+
 test('release check fails when artifact metadata version drifts from package version', async () => {
   const rootDir = await makeTempRepo('1.2.3', { metadataVersion: '1.2.4' })
   const result = await runReleaseCheckCli(['--root', rootDir])
@@ -235,4 +284,15 @@ test('github release helper fails when the release tag does not point to HEAD', 
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /points to .* but HEAD is .*/)
+})
+
+test('workspace package config includes Windows updater publish metadata', async () => {
+  const packageJson = await readWorkspacePackageJson()
+
+  assert.deepEqual(packageJson.build.publish, [
+    {
+      provider: 'generic',
+      url: 'https://github.com/mako10k/mdv/releases/latest/download',
+    },
+  ])
 })
