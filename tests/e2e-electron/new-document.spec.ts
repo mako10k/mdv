@@ -54,6 +54,14 @@ async function replaceMarkdownDocument(page: import('@playwright/test').Page, ma
   await page.keyboard.insertText(markdown)
 }
 
+async function switchToastEditorMode(page: import('@playwright/test').Page, mode: 'markdown' | 'wysiwyg') {
+  const modeIndex = mode === 'markdown' ? 0 : 1
+  const modeTab = page.locator('.toastui-editor-mode-switch .tab-item').nth(modeIndex)
+
+  await modeTab.click()
+  await expect(modeTab).toHaveClass(/active/)
+}
+
 async function triggerPrimaryShortcut(page: import('@playwright/test').Page, key: string) {
   await page.evaluate(({ shortcutKey, isMac }) => {
     const event = new KeyboardEvent('keydown', {
@@ -72,7 +80,7 @@ async function expectFreshUntitledDocument(page: import('@playwright/test').Page
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
   await expect.poll(async () => page.title()).toMatch(/(無題\.md|Untitled\.md) - MDV/i)
   await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('text to replace')
-  await expect(page.locator('.ProseMirror .placeholder').first()).toContainText('MarkDownViewer')
+  await expect(page.locator('.editor-sample-placeholder').first()).toContainText('MarkDownViewer')
   await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(1)
   await expect.poll(async () => page.locator('.outline-item[disabled]').count()).toBeGreaterThan(0)
 }
@@ -161,12 +169,50 @@ test('typing into a fresh untitled document clears placeholder-only outline stat
     await editor.click()
     await page.keyboard.insertText('# Real heading\n')
 
-    await expect.poll(async () => page.locator('.ProseMirror .placeholder').count()).toBe(0)
+    await expect.poll(async () => page.locator('.editor-sample-placeholder').count()).toBe(0)
     await expect(editor).toContainText('Real heading')
     await expect.poll(async () => page.title()).toMatch(/(無題\.md\*|Untitled\.md\*) - MDV/i)
     await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(0)
     await expect.poll(async () => page.locator('.outline-item[disabled]').count()).toBe(0)
     await expect.poll(async () => page.locator('.outline-item').count()).toBeGreaterThan(0)
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('typing into a fresh untitled document in WYSIWYG mode does not crash the renderer', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-new-document-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+
+  const app = await launchElectronApp({
+    userDataDir,
+  })
+
+  try {
+    const page = await app.firstWindow()
+    const pageErrors: string[] = []
+
+    page.on('pageerror', (error) => {
+      pageErrors.push(error.message)
+    })
+
+    await openWritePanel(page)
+    await expectFreshUntitledDocument(page)
+    await switchToastEditorMode(page, 'wysiwyg')
+
+    const wysiwygEditor = page.locator('.toastui-editor-ww-container .ProseMirror').first()
+    await wysiwygEditor.click()
+    await page.keyboard.insertText('fresh wysiwyg text')
+
+    await expect.poll(() => pageErrors, {
+      message: 'renderer should not emit pageerror while editing a fresh untitled WYSIWYG document',
+    }).toEqual([])
+    await expect(wysiwygEditor).toContainText('fresh wysiwyg text')
+    await expect.poll(async () => page.title()).toMatch(/(無題\.md\*|Untitled\.md\*) - MDV/i)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

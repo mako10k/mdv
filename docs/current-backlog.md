@@ -31,7 +31,7 @@
 
 ### P0 Editor Core
 
-現時点で未着手の P0 はない。見出しアウトライン追従強化は完了し、次の優先は AI-P1 Response UX へ移る。
+現時点で未着手の P0 はない。MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled placeholder を Toast UI の内部 placeholder widget から app 側 overlay へ退避し、WYSIWYG 編集開始時の renderer crash を解消した。
 
 ### P1 Editor Comfort
 

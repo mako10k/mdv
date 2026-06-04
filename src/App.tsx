@@ -260,30 +260,43 @@ function normalizeSpanRef(markdown: string, span: MdvAiSpanRef): MdvAiSpanRef {
 }
 
 function normalizeSelectionToMarkdownSpan(editor: ToastUiEditor, markdown: string): MdvAiNormalizedSpan {
-  const selection = editor.getSelection()
-  let start: MdvAiMarkdownPos
-  let end: MdvAiMarkdownPos
+  try {
+    const selection = editor.getSelection()
+    let start: MdvAiMarkdownPos
+    let end: MdvAiMarkdownPos
 
-  if (isMarkdownSelectionRange(selection)) {
-    const [markdownStart, markdownEnd] = selection
-    start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
-    end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
-  } else {
-    const convertedSelection = editor.convertPosToMatchEditorMode(selection[0], selection[1], 'markdown')
+    if (isMarkdownSelectionRange(selection)) {
+      const [markdownStart, markdownEnd] = selection
+      start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
+      end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
+    } else {
+      const convertedSelection = editor.convertPosToMatchEditorMode(selection[0], selection[1], 'markdown')
 
-    if (!isMarkdownSelectionRange(convertedSelection)) {
-      throw new Error('Toast UI Editor returned an unexpected selection shape')
+      if (!isMarkdownSelectionRange(convertedSelection)) {
+        throw new Error('Toast UI Editor returned an unexpected selection shape')
+      }
+
+      const [markdownStart, markdownEnd] = convertedSelection
+      start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
+      end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
     }
 
-    const [markdownStart, markdownEnd] = convertedSelection
-    start = clampMarkdownPos(markdown, toMarkdownPos(markdownStart))
-    end = clampMarkdownPos(markdown, toMarkdownPos(markdownEnd))
+    const startOffset = markdownPosToOffset(markdown, start)
+    const endOffset = markdownPosToOffset(markdown, end)
+
+    return normalizeOffsetsToSpan(markdown, startOffset, endOffset)
+  } catch (error) {
+    // Toast UI can report a transient out-of-range WYSIWYG position while a fresh
+    // paragraph is being initialized. Keep the renderer alive and treat it as a
+    // collapsed caret at the current document end until the editor state settles.
+    const errorMessage = error instanceof Error ? error.message : ''
+
+    if (error instanceof RangeError || /out of range/i.test(errorMessage)) {
+      return normalizeOffsetsToSpan(markdown, markdown.length, markdown.length)
+    }
+
+    throw error
   }
-
-  const startOffset = markdownPosToOffset(markdown, start)
-  const endOffset = markdownPosToOffset(markdown, end)
-
-  return normalizeOffsetsToSpan(markdown, startOffset, endOffset)
 }
 
 function normalizeOffsetsToSpan(markdown: string, startOffset: number, endOffset: number): MdvAiNormalizedSpan {
@@ -432,7 +445,6 @@ function EditorSurface({
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
   const onSelectionChangeRef = useRef(onSelectionChange)
-  const placeholderRef = useRef(placeholder)
   const selectionFrameRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
@@ -452,10 +464,6 @@ function EditorSurface({
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
   }, [onSelectionChange])
-
-  useEffect(() => {
-    placeholderRef.current = placeholder
-  }, [placeholder])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -480,7 +488,6 @@ function EditorSurface({
       el: hostRef.current,
       height: '100%',
       initialValue: initialValueRef.current,
-      placeholder: placeholderRef.current ?? '',
       // Keep Toast UI itself single-surface; app-level preview owns rendered output.
       initialEditType: 'markdown',
       previewStyle: 'tab',
@@ -545,10 +552,19 @@ function EditorSurface({
       return
     }
 
-    instance.setPlaceholder(placeholder ?? '')
+    instance.setPlaceholder('')
   }, [placeholder])
 
-  return <div className="toast-editor-host" ref={hostRef} />
+  return (
+    <div className="toast-editor-shell">
+      <div className="toast-editor-host" ref={hostRef} />
+      {placeholder && value.length === 0 ? (
+        <div className="editor-sample-placeholder" aria-hidden="true">
+          {placeholder}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function MermaidBlock({ code, theme }: CodeBlockProps) {

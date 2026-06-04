@@ -708,18 +708,35 @@
   background: var(--selection);
 }
 
+.toast-editor-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
 .toast-editor-host {
   flex: 1;
   height: 100%;
   min-height: 0;
 }
 
-.editor-panel .toastui-editor-contents-placeholder::before {
+.editor-sample-placeholder {
+  position: absolute;
+  inset: 42px 0 0;
+  padding: 22px 24px;
   color: var(--text-muted);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: var(--editor-line-height);
   opacity: 0.82;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.editor-panel .ProseMirror .placeholder {
+  pointer-events: none;
+  user-select: none;
 }
 
 .preview-scroll {
