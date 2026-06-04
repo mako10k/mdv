@@ -78,6 +78,30 @@ async function selectEditorCharactersFromStart(page: Page, startOffset: number, 
   await page.keyboard.up('Shift')
 }
 
+async function openEditorSearchDialog(page: Page) {
+  await page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ }).click()
+  await expect(page.getByRole('dialog', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
+}
+
+async function openEditorReplaceDialog(page: Page) {
+  await page.evaluate((isMac) => {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'h',
+      code: 'KeyH',
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: !isMac,
+      metaKey: isMac,
+    }))
+  }, process.platform === 'darwin')
+  await expect(page.getByRole('dialog', { name: /(置換文字列|Replace text|エディタ内を置換|Replace in editor)/ })).toBeVisible()
+}
+
+async function closeEditorSearchDialog(page: Page) {
+  await page.getByRole('button', { name: /(閉じる|Close)/ }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+
 async function placeEditorCursorFromStart(page: Page, offset: number) {
   const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
 
@@ -160,12 +184,25 @@ test('editor mode uses denser outline and editor typography', async ({ page }) =
 test('editor mode groups topbar commands and hides the Toast UI toolbar', async ({ page }) => {
   await openWritePanel(page)
 
+  await expect(page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(ファイル操作|File actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(挿入操作|Insert actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(出力操作|Output actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(ワークスペース操作|Workspace actions)/ })).toBeVisible()
+  await expect(page.getByTitle(/(テーマ|Theme)/)).toHaveCount(0)
   await expect(page.getByRole('group', { name: /(ファイル操作|File actions)/ }).locator('.icon-button').nth(0)).toHaveAttribute('title', /(新規文書を作成する|Create new document)/)
   await expect(computedStyle(page, '.toastui-editor-toolbar', 'display')).resolves.toBe('none')
+})
+
+test('editor search button opens a dialog and save stays disabled until dirty', async ({ page }) => {
+  await openWritePanel(page)
+
+  await expect(page.getByRole('button', { name: /(保存|Save)/ })).toBeDisabled()
+  await page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ }).click()
+  await expect(page.getByRole('dialog', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
+
+  await replaceMarkdownDocument(page, 'alpha beta\n')
+  await expect(page.getByRole('button', { name: /(保存|Save)/ })).toBeEnabled()
 })
 
 test('new document button opens an untitled editor document', async ({ page }) => {
@@ -364,8 +401,10 @@ test.describe('find and replace', () => {
 
     await replaceMarkdownDocument(page, `# Jump Check\n\n${lines.join('\n')}\n`)
 
+  await openEditorSearchDialog(page)
     await page.getByPlaceholder(/(エディタ内を検索|Search in editor)/).fill('alpha')
     await page.getByRole('button', { name: /(検索を実行|Run search)/ }).click()
+  await closeEditorSearchDialog(page)
 
     const bottomTarget = page.locator('.toastui-editor-md-container').getByText('target alpha near bottom', { exact: true }).first()
     const editorPanel = page.locator('.editor-panel').first()
@@ -389,14 +428,16 @@ test.describe('find and replace', () => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Find Replace\n\nalpha beta alpha\n')
 
+    await openEditorReplaceDialog(page)
     await page.getByPlaceholder(/(エディタ内を検索|Search in editor)/).fill('alpha')
     await page.getByPlaceholder(/(置換文字列|Replace text)/).fill('omega')
     await page.getByRole('button', { name: /(検索を実行|Run search)/ }).click()
 
     await expect(page.locator('.editor-search-count')).toHaveText('1/2')
 
-    await page.getByRole('button', { name: /(すべての結果を置換|Replace all results)/ }).click()
+    await page.getByRole('button', { name: /(すべて.*置換|Replace all)/ }).click()
     await expect(page.locator('.editor-search-count')).toHaveText('0')
+    await closeEditorSearchDialog(page)
 
     await page.locator('.view-switch button').nth(1).click()
     await expect(page.locator('.preview-panel')).toContainText('omega beta omega')
@@ -406,6 +447,7 @@ test.describe('find and replace', () => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Match Case\n\nAlpha alpha ALPHA\n')
 
+    await openEditorReplaceDialog(page)
     await page.getByPlaceholder(/(エディタ内を検索|Search in editor)/).fill('Alpha')
     await page.getByPlaceholder(/(置換文字列|Replace text)/).fill('omega')
     await page.getByRole('button', { name: /(大文字小文字を区別|Match case)/ }).click()
@@ -413,7 +455,8 @@ test.describe('find and replace', () => {
 
     await expect(page.locator('.editor-search-count')).toHaveText('1/1')
 
-    await page.getByRole('button', { name: /(すべての結果を置換|Replace all results)/ }).click()
+    await page.getByRole('button', { name: /(すべて.*置換|Replace all)/ }).click()
+    await closeEditorSearchDialog(page)
     await page.locator('.view-switch button').nth(1).click()
 
     await expect(page.locator('.preview-panel')).toContainText('omega alpha ALPHA')
@@ -424,6 +467,7 @@ test.describe('find and replace', () => {
     await replaceMarkdownDocument(page, '# Selection Scope\n\nalpha inside one\nmid line\nalpha inside two\nmid line\nalpha outside\n')
     await selectEditorLinesFromStart(page, 5)
 
+    await openEditorReplaceDialog(page)
     await page.getByPlaceholder(/(エディタ内を検索|Search in editor)/).fill('alpha')
     await page.getByPlaceholder(/(置換文字列|Replace text)/).fill('omega')
     await page.getByRole('button', { name: /(選択範囲内だけを検索|Search only in current selection)/ }).click()
@@ -431,7 +475,8 @@ test.describe('find and replace', () => {
 
     await expect(page.locator('.editor-search-count')).toHaveText('1/2')
 
-    await page.getByRole('button', { name: /(すべての結果を置換|Replace all results)/ }).click()
+    await page.getByRole('button', { name: /(すべて.*置換|Replace all)/ }).click()
+    await closeEditorSearchDialog(page)
     await page.locator('.view-switch button').nth(1).click()
 
     await expect(page.locator('.preview-panel')).toContainText('omega inside one')
@@ -443,6 +488,7 @@ test.describe('find and replace', () => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Search State\n\nalpha beta alpha\n')
 
+    await openEditorSearchDialog(page)
     await page.getByPlaceholder(/(エディタ内を検索|Search in editor)/).fill('alpha')
     await page.getByRole('button', { name: /(検索を実行|Run search)/ }).click()
     await expect(page.locator('.editor-search-count')).toHaveText('1/2')

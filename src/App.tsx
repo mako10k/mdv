@@ -19,7 +19,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import mermaid from 'mermaid'
-import { clearLegacyThemeMode, isThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
+import { clearLegacyThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
 import ChatApp from './ai-chat/ChatApp'
 import '@toast-ui/editor/dist/toastui-editor.css'
@@ -770,6 +770,7 @@ function resolveExternalAnchor(target: EventTarget | null): HTMLAnchorElement | 
 type ToolbarButtonProps = {
   label: string
   active?: boolean
+  disabled?: boolean
   onClick: () => void | Promise<void>
   children: ReactElement
 }
@@ -780,6 +781,8 @@ type ToolbarGroupProps = {
 }
 
 type EditorSearchMode = 'exact' | 'semantic'
+
+type EditorSearchDialogMode = 'search' | 'replace'
 
 function isEditorSearchMode(value: string): value is EditorSearchMode {
   return value === 'exact' || value === 'semantic'
@@ -815,13 +818,14 @@ type MarkdownInsertResult = {
   selection: MdvAiNormalizedSpan | null
 }
 
-function ToolbarButton({ label, active = false, onClick, children }: ToolbarButtonProps) {
+function ToolbarButton({ label, active = false, disabled = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
       type="button"
       className={active ? 'active icon-button' : 'icon-button'}
       aria-label={label}
       title={label}
+      disabled={disabled}
       onClick={onClick}
     >
       {children}
@@ -1756,7 +1760,7 @@ function inferUntouchedUntitledBuffer(snapshot: Partial<MdvClientSnapshot> | nul
 }
 
 function App() {
-  const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
+  const { resolvedTheme } = useDesktopTheme()
   const { t } = useI18n()
   const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
   const [markdownText, setMarkdownText] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
@@ -1788,6 +1792,9 @@ function App() {
   const [editorSearchError, setEditorSearchError] = useState<string | null>(null)
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
+  const [isAiChatAvailable, setIsAiChatAvailable] = useState(false)
+  const [isEditorSearchDialogOpen, setIsEditorSearchDialogOpen] = useState(false)
+  const [editorSearchDialogMode, setEditorSearchDialogMode] = useState<EditorSearchDialogMode>('search')
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [headingOutlineMode, setHeadingOutlineMode] = useState<'document' | 'placeholder'>('document')
   const [isUntouchedUntitledBuffer, setIsUntouchedUntitledBuffer] = useState(true)
@@ -1814,6 +1821,7 @@ function App() {
   const handleSaveRef = useRef<(forceDialog?: boolean) => Promise<boolean>>(async () => false)
   const loadFilePayloadRef = useRef<(payload: MdvFilePayload | null) => void>(() => {})
   const focusEditorSearchRef = useRef<() => void>(() => {})
+  const openEditorReplaceDialogRef = useRef<() => void>(() => {})
   const i18nRef = useRef(t)
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
@@ -2085,7 +2093,9 @@ function App() {
       }
 
       const sliceSearchEnabled = resolvedSettings?.ai.toolPermissions.sliceSearch !== false
-      setIsSemanticSearchAvailable(Boolean(sliceSearchEnabled && resolvedSettings?.ai.openai.enabled && providerStatus?.openaiConfigured))
+      const isOpenAiReady = Boolean(resolvedSettings?.ai.openai.enabled && providerStatus?.openaiConfigured)
+      setIsSemanticSearchAvailable(Boolean(sliceSearchEnabled && isOpenAiReady))
+      setIsAiChatAvailable(isOpenAiReady)
     }
 
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
@@ -2095,6 +2105,7 @@ function App() {
     void refreshSemanticAvailability().catch(() => {
       if (active) {
         setIsSemanticSearchAvailable(false)
+        setIsAiChatAvailable(false)
       }
     })
 
@@ -2980,13 +2991,43 @@ function App() {
   }
 
   const focusEditorSearch = () => {
-    searchInputRef.current?.focus()
-    searchInputRef.current?.select()
+    setEditorSearchDialogMode('search')
+    setIsEditorSearchDialogOpen(true)
+    setActivePanel('write')
     setStatusText(t.app.status.focusedEditorSearch)
   }
 
+  const openEditorReplaceDialog = () => {
+    invalidateEditorSearch()
+    setEditorSearchMode('exact')
+    setEditorSearchDialogMode('replace')
+    setIsEditorSearchDialogOpen(true)
+    setActivePanel('write')
+    setStatusText(t.app.status.focusedEditorSearch)
+  }
+
+  const closeEditorSearchDialog = () => {
+    setIsEditorSearchDialogOpen(false)
+  }
+
+  useEffect(() => {
+    if (!isEditorSearchDialogOpen) {
+      return
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus()
+      searchInputRef.current?.select()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [isEditorSearchDialogOpen, editorSearchDialogMode])
+
   useEffect(() => {
     focusEditorSearchRef.current = focusEditorSearch
+    openEditorReplaceDialogRef.current = openEditorReplaceDialog
     i18nRef.current = t
   })
 
@@ -3010,6 +3051,7 @@ function App() {
 
   const resolvedEditorSearchMode = editorSearchMode === 'semantic' && !isSemanticSearchAvailable ? 'exact' : editorSearchMode
   const isResolvedEditorSearchAvailable = resolvedEditorSearchMode === 'exact' ? true : isSemanticSearchAvailable
+  const isReplaceDialog = editorSearchDialogMode === 'replace'
   const exactEditorSearchOptions: ExactEditorSearchOptions = {
     matchCase: isEditorSearchMatchCase,
     useRegexp: isEditorSearchRegexp,
@@ -3420,6 +3462,11 @@ function App() {
     }
 
     if (action === 'open-ai-chat') {
+      if (!isAiChatAvailable) {
+        setStatusText(t.app.semanticSearchRequiresOpenAi)
+        return
+      }
+
       openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
       return
     }
@@ -3468,6 +3515,12 @@ function App() {
       if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         focusEditorSearchRef.current()
+        return
+      }
+
+      if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'h') {
+        event.preventDefault()
+        openEditorReplaceDialogRef.current()
         return
       }
 
@@ -3730,210 +3783,13 @@ function App() {
               </div>
 
               <div className="action-strip">
-                <div className="editor-search-shell" role="search">
-              <select
-                className="editor-search-mode"
-                aria-label={t.app.searchMode}
-                value={resolvedEditorSearchMode}
-                onChange={(event) => {
-                  const nextMode = event.currentTarget.value
-
-                  if (!isEditorSearchMode(nextMode)) {
-                    setStatusText(t.common.invalidSearchMode)
-                    return
-                  }
-
-                  if (nextMode === 'semantic' && !isSemanticSearchAvailable) {
-                    setStatusText(t.app.semanticSearchRequiresOpenAi)
-                    setEditorSearchMode('exact')
-                    return
-                  }
-
-                  invalidateEditorSearch()
-                  setEditorSearchMode(nextMode)
-                }}
-              >
-                <option value="exact">{t.app.exact}</option>
-                <option value="semantic" disabled={!isSemanticSearchAvailable}>{t.app.semantic}</option>
-              </select>
-              <input
-                ref={searchInputRef}
-                className="editor-search-input"
-                type="search"
-                placeholder={t.app.searchInEditor}
-                value={editorSearchQuery}
-                onChange={(event) => {
-                  invalidateEditorSearch()
-                  setEditorSearchQuery(event.target.value)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-
-                    if (event.shiftKey) {
-                      moveEditorSearchSelection(-1)
-                      return
-                    }
-
-                    void handleRunEditorSearch()
-                  }
-
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    moveEditorSearchSelection(1)
-                  }
-
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    moveEditorSearchSelection(-1)
-                  }
-                }}
-              />
-              {resolvedEditorSearchMode === 'exact' ? (
-                <>
-                  <button
-                    type="button"
-                    className={isEditorSearchMatchCase ? 'editor-search-toggle active' : 'editor-search-toggle'}
-                    onClick={() => {
-                      invalidateEditorSearch()
-                      setIsEditorSearchMatchCase((value) => !value)
-                    }}
-                    aria-label={t.app.toggleSearchMatchCase}
-                    title={t.app.toggleSearchMatchCase}
-                  >
-                    Aa
-                  </button>
-                  <button
-                    type="button"
-                    className={isEditorSearchRegexp ? 'editor-search-toggle active' : 'editor-search-toggle'}
-                    onClick={() => {
-                      invalidateEditorSearch()
-                      setIsEditorSearchRegexp((value) => !value)
-                    }}
-                    aria-label={t.app.toggleSearchRegexp}
-                    title={t.app.toggleSearchRegexp}
-                  >
-                    .*
-                  </button>
-                  <button
-                    type="button"
-                    className={isEditorSearchInSelection ? 'editor-search-toggle active' : 'editor-search-toggle'}
-                    onClick={() => {
-                      invalidateEditorSearch()
-                      setIsEditorSearchInSelection((value) => !value)
-                    }}
-                    aria-label={t.app.toggleSearchInSelection}
-                    title={t.app.toggleSearchInSelection}
-                  >
-                    {t.app.toggleSearchInSelectionShort}
-                  </button>
-                  <input
-                    className="editor-search-replace-input"
-                    type="text"
-                    placeholder={t.app.replaceInEditor}
-                    value={editorSearchReplacement}
-                    onChange={(event) => setEditorSearchReplacement(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-
-                        if (event.shiftKey) {
-                          handleReplaceAllEditorSearchResults()
-                          return
-                        }
-
-                        handleReplaceCurrentEditorSearchResult()
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="editor-search-text-button"
-                    onClick={handleReplaceCurrentEditorSearchResult}
-                    disabled={isRunningEditorSearch}
-                    aria-label={t.app.replaceResult}
-                    title={t.app.replaceResult}
-                  >
-                    {t.app.replace}
-                  </button>
-                  <button
-                    type="button"
-                    className="editor-search-text-button"
-                    onClick={handleReplaceAllEditorSearchResults}
-                    disabled={isRunningEditorSearch}
-                    aria-label={t.app.replaceAllResults}
-                    title={t.app.replaceAllResults}
-                  >
-                    {t.app.replaceAll}
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                className="editor-search-icon-button"
-                onClick={() => void handleRunEditorSearch()}
-                disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}
-                aria-label={isRunningEditorSearch ? t.common.searching : t.app.runSearch}
-                title={isRunningEditorSearch ? t.common.searching : t.app.runSearch}
-              >
-                {isRunningEditorSearch ? '...' : <SearchIcon />}
-              </button>
-              <button
-                type="button"
-                className="editor-search-icon-button"
-                onClick={() => moveEditorSearchSelection(-1)}
-                disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
-                aria-label={t.app.previousResult}
-                title={t.app.previousResult}
-              >
-                <PrevIcon />
-              </button>
-              <button
-                type="button"
-                className="editor-search-icon-button"
-                onClick={() => moveEditorSearchSelection(1)}
-                disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
-                aria-label={t.app.nextResult}
-                title={t.app.nextResult}
-              >
-                <NextIcon />
-              </button>
-              <span className="editor-search-count">
-                {!isEditorSearchResultsVisible || editorSearchResults.length === 0 ? '0' : `${selectedSearchResultIndex + 1}/${editorSearchResults.length}`}
-              </span>
-              {(editorSearchError || editorSearchResults.length > 0) ? (
-                <button
-                  type="button"
-                  className="editor-search-icon-button"
-                  onClick={isEditorSearchResultsVisible ? hideEditorSearchResults : showEditorSearchResults}
-                  aria-label={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
-                  title={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
-                >
-                  {isEditorSearchResultsVisible ? <CloseIcon /> : <ResultsIcon />}
-                </button>
-              ) : null}
-                </div>
-                <label className="theme-select-shell" title={t.common.theme}>
-                  <span>{t.common.theme}</span>
-                  <select
-                    className="theme-select"
-                    value={themeMode}
-                    onChange={(event) => {
-                      const nextThemeMode = event.currentTarget.value
-
-                      if (!isThemeMode(nextThemeMode)) {
-                        setStatusText(t.common.invalidThemeMode)
-                        return
-                      }
-
-                      void setThemeMode(nextThemeMode)
-                    }}
-                  >
-                    <option value="system">{t.common.system}</option>
-                    <option value="light">{t.common.light}</option>
-                    <option value="dark">{t.common.dark}</option>
-                  </select>
-                </label>
+                {activePanel === 'write' ? (
+                  <div className="action-group" role="group" aria-label={t.app.searchInEditor}>
+                    <ToolbarButton label={`${t.app.searchInEditor} (Ctrl/Cmd+F)`} active={isEditorSearchDialogOpen} onClick={focusEditorSearch}>
+                      <SearchIcon />
+                    </ToolbarButton>
+                  </div>
+                ) : null}
                 <ToolbarGroup label={t.app.fileActions}>
                   <ToolbarButton label={`${t.app.createNewDocument} (Ctrl/Cmd+N)`} onClick={() => void handleCreateNewDocument()}>
                     <NewDocumentIcon />
@@ -3941,9 +3797,11 @@ function App() {
                   <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
                     <OpenIcon />
                   </ToolbarButton>
-                  <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} onClick={() => void handleSave(false)}>
-                    <SaveIcon />
-                  </ToolbarButton>
+                  {activePanel === 'write' ? (
+                    <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} disabled={!hasUnsavedChanges} onClick={() => void handleSave(false)}>
+                      <SaveIcon />
+                    </ToolbarButton>
+                  ) : null}
                   <ToolbarButton label={`${t.common.saveAs} (Ctrl/Cmd+Shift+S)`} onClick={() => void handleSave(true)}>
                     <SaveAsIcon />
                   </ToolbarButton>
@@ -3996,20 +3854,22 @@ function App() {
                   ) : null}
                 </ToolbarGroup>
                 <ToolbarGroup label={t.app.workspaceActions}>
-                  <ToolbarButton
-                    label={`${t.chat.title} (Ctrl/Cmd+I)`}
-                    active={isAssistantDockOpen}
-                    onClick={() => {
-                      if (isAssistantDockOpen) {
-                        closeAssistantDock()
-                        return
-                      }
+                  {isAiChatAvailable ? (
+                    <ToolbarButton
+                      label={`${t.chat.title} (Ctrl/Cmd+I)`}
+                      active={isAssistantDockOpen}
+                      onClick={() => {
+                        if (isAssistantDockOpen) {
+                          closeAssistantDock()
+                          return
+                        }
 
-                      openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
-                    }}
-                  >
-                    <span className="toolbar-text-icon" aria-hidden="true">AI</span>
-                  </ToolbarButton>
+                        openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
+                      }}
+                    >
+                      <span className="toolbar-text-icon" aria-hidden="true">AI</span>
+                    </ToolbarButton>
+                  ) : null}
                   <ToolbarButton label={`${t.common.settings} (Ctrl/Cmd+,)`} onClick={() => runDesktopAction('open-settings')}>
                     <SettingsIcon />
                   </ToolbarButton>
@@ -4174,6 +4034,226 @@ function App() {
         {activeToast ? (
           <div className="status-toast-layer">
             <div key={activeToast.id} className="status-toast" role="status">{activeToast.message}</div>
+          </div>
+        ) : null}
+
+        {isEditorSearchDialogOpen ? (
+          <div className="search-dialog-backdrop" onClick={closeEditorSearchDialog}>
+            <section
+              className="search-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-label={isReplaceDialog ? t.app.replaceInEditor : t.app.searchInEditor}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeEditorSearchDialog()
+                }
+              }}
+            >
+              <div className="search-dialog-header">
+                <strong>{isReplaceDialog ? t.app.replaceInEditor : t.app.searchInEditor}</strong>
+                <button
+                  type="button"
+                  className="editor-search-icon-button"
+                  onClick={closeEditorSearchDialog}
+                  aria-label={t.common.close}
+                  title={t.common.close}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+              <div className="search-dialog-body">
+                <label className="search-field">
+                  <span>{t.app.searchInEditor}</span>
+                  <input
+                    ref={searchInputRef}
+                    className="search-dialog-input"
+                    type="search"
+                    placeholder={t.app.searchInEditor}
+                    value={editorSearchQuery}
+                    onChange={(event) => {
+                      invalidateEditorSearch()
+                      setEditorSearchQuery(event.target.value)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+
+                        if (isReplaceDialog && resolvedEditorSearchMode === 'exact') {
+                          handleReplaceCurrentEditorSearchResult()
+                          return
+                        }
+
+                        void handleRunEditorSearch()
+                      }
+                    }}
+                  />
+                </label>
+                <div className="search-dialog-row search-dialog-row-compact">
+                  <label className="search-field search-field-mode">
+                    <span>{t.app.searchMode}</span>
+                    <select
+                      className="search-dialog-select"
+                      aria-label={t.app.searchMode}
+                      value={resolvedEditorSearchMode}
+                      onChange={(event) => {
+                        const nextMode = event.currentTarget.value
+
+                        if (!isEditorSearchMode(nextMode)) {
+                          setStatusText(t.common.invalidSearchMode)
+                          return
+                        }
+
+                        if (nextMode === 'semantic' && !isSemanticSearchAvailable) {
+                          setStatusText(t.app.semanticSearchRequiresOpenAi)
+                          setEditorSearchMode('exact')
+                          return
+                        }
+
+                        invalidateEditorSearch()
+                        setEditorSearchMode(nextMode)
+                      }}
+                    >
+                      <option value="exact">{t.app.exact}</option>
+                      <option value="semantic" disabled={!isSemanticSearchAvailable || isReplaceDialog}>{t.app.semantic}</option>
+                    </select>
+                  </label>
+                  {resolvedEditorSearchMode === 'exact' ? (
+                    <>
+                      <button
+                        type="button"
+                        className={isEditorSearchMatchCase ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                        onClick={() => {
+                          invalidateEditorSearch()
+                          setIsEditorSearchMatchCase((value) => !value)
+                        }}
+                        aria-label={t.app.toggleSearchMatchCase}
+                        title={t.app.toggleSearchMatchCase}
+                      >
+                        Aa
+                      </button>
+                      <button
+                        type="button"
+                        className={isEditorSearchRegexp ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                        onClick={() => {
+                          invalidateEditorSearch()
+                          setIsEditorSearchRegexp((value) => !value)
+                        }}
+                        aria-label={t.app.toggleSearchRegexp}
+                        title={t.app.toggleSearchRegexp}
+                      >
+                        .*
+                      </button>
+                      <button
+                        type="button"
+                        className={isEditorSearchInSelection ? 'editor-search-toggle active' : 'editor-search-toggle'}
+                        onClick={() => {
+                          invalidateEditorSearch()
+                          setIsEditorSearchInSelection((value) => !value)
+                        }}
+                        aria-label={t.app.toggleSearchInSelection}
+                        title={t.app.toggleSearchInSelection}
+                      >
+                        {t.app.toggleSearchInSelectionShort}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                {isReplaceDialog && resolvedEditorSearchMode === 'exact' ? (
+                  <label className="search-field">
+                    <span>{t.app.replaceInEditor}</span>
+                    <input
+                      className="search-dialog-input"
+                      type="text"
+                      placeholder={t.app.replaceInEditor}
+                      value={editorSearchReplacement}
+                      onChange={(event) => setEditorSearchReplacement(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+
+                          if (event.shiftKey) {
+                            handleReplaceAllEditorSearchResults()
+                            return
+                          }
+
+                          handleReplaceCurrentEditorSearchResult()
+                        }
+                      }}
+                    />
+                  </label>
+                ) : null}
+                <div className="search-dialog-actions">
+                  <button
+                    type="button"
+                    className="editor-search-text-button"
+                    onClick={() => void handleRunEditorSearch()}
+                    disabled={isRunningEditorSearch || !isResolvedEditorSearchAvailable}
+                  >
+                    {isRunningEditorSearch ? t.common.searching : t.app.runSearch}
+                  </button>
+                  {isReplaceDialog && resolvedEditorSearchMode === 'exact' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="editor-search-text-button"
+                        onClick={handleReplaceCurrentEditorSearchResult}
+                        disabled={isRunningEditorSearch}
+                      >
+                        {t.app.replace}
+                      </button>
+                      <button
+                        type="button"
+                        className="editor-search-text-button"
+                        onClick={handleReplaceAllEditorSearchResults}
+                        disabled={isRunningEditorSearch}
+                      >
+                        {t.app.replaceAll}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="editor-search-icon-button"
+                        onClick={() => moveEditorSearchSelection(-1)}
+                        disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
+                        aria-label={t.app.previousResult}
+                        title={t.app.previousResult}
+                      >
+                        <PrevIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="editor-search-icon-button"
+                        onClick={() => moveEditorSearchSelection(1)}
+                        disabled={!isEditorSearchResultsVisible || editorSearchResults.length === 0}
+                        aria-label={t.app.nextResult}
+                        title={t.app.nextResult}
+                      >
+                        <NextIcon />
+                      </button>
+                    </>
+                  )}
+                  <span className="editor-search-count">
+                    {!isEditorSearchResultsVisible || editorSearchResults.length === 0 ? '0' : `${selectedSearchResultIndex + 1}/${editorSearchResults.length}`}
+                  </span>
+                  {(editorSearchError || editorSearchResults.length > 0) ? (
+                    <button
+                      type="button"
+                      className="editor-search-icon-button"
+                      onClick={isEditorSearchResultsVisible ? hideEditorSearchResults : showEditorSearchResults}
+                      aria-label={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
+                      title={isEditorSearchResultsVisible ? t.app.hideSearchResults : t.app.showSearchResults}
+                    >
+                      {isEditorSearchResultsVisible ? <CloseIcon /> : <ResultsIcon />}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </section>
           </div>
         ) : null}
       </section>

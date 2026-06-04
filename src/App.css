@@ -133,6 +133,14 @@
   outline: none;
 }
 
+.topbar button:disabled,
+.editor-search-toggle:disabled,
+.editor-search-text-button:disabled,
+.editor-search-icon-button:disabled {
+  opacity: 0.46;
+  cursor: default;
+}
+
 .topbar button.active {
   background: var(--bg-active);
   color: var(--bg-active-text);
@@ -325,6 +333,93 @@
   color: #a13b2d;
 }
 
+.search-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 72px 16px 16px;
+  background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.search-dialog {
+  width: min(640px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-panel);
+  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.18);
+}
+
+.search-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-dialog-header strong {
+  font-size: 13px;
+}
+
+.search-dialog-body {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.search-dialog-row {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.search-dialog-row-compact {
+  align-items: center;
+}
+
+.search-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 240px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.search-field-mode {
+  flex-basis: 160px;
+}
+
+.search-dialog-input,
+.search-dialog-select {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font: inherit;
+  padding: 0 12px;
+}
+
+.search-dialog-input:focus,
+.search-dialog-select:focus {
+  outline: 1px solid var(--border-strong);
+  border-color: var(--border-strong);
+}
+
+.search-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .workspace-startup-shell {
   flex: 1;
   min-height: 0;
@@ -371,13 +466,12 @@
     border-left: none;
   }
 
-  .editor-search-shell {
-    flex: 1 1 100%;
+  .search-dialog-backdrop {
+    padding-top: 56px;
   }
 
-  .editor-search-input {
-    min-width: 0;
-    flex: 1;
+  .search-dialog-actions {
+    align-items: stretch;
   }
 
   .single-panel {

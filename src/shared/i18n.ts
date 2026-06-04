@@ -139,7 +139,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       recoveryRestorePrompt: (name: string) => `${name} の自動保存内容が見つかりました。復元しますか？`,
       exportRequiresSavedFileForRelativeImages: '相対画像を含む HTML 書き出しには、先に Markdown ファイルを保存してください',
       exportInlineImageFailed: (source: string) => `相対画像を inline 化できませんでした: ${source}`,
-      statusbarHelp: '任意の場所へ .md / .markdown / .txt ファイルをドロップして開けます。画像ファイルのドロップまたは貼り付けは assets/ へ取り込んで相対参照を挿入します。ショートカット: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      statusbarHelp: '任意の場所へ .md / .markdown / .txt ファイルをドロップして開けます。画像ファイルのドロップまたは貼り付けは assets/ へ取り込んで相対参照を挿入します。ショートカット: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
       status: {
         createdNewDocument: '新規文書を作成しました',
         newDocumentCancelled: '新規文書の作成をキャンセルしました',
@@ -539,7 +539,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       recoveryRestorePrompt: (name: string) => `An autosaved recovery for ${name} is available. Restore it?`,
       exportRequiresSavedFileForRelativeImages: 'Save the Markdown file before exporting HTML with relative images',
       exportInlineImageFailed: (source: string) => `Could not inline the relative image: ${source}`,
-      statusbarHelp: 'Drop a .md, .markdown, or .txt file anywhere to open it. Dropped or pasted image files are imported into assets/ and inserted as relative references. Shortcuts: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      statusbarHelp: 'Drop a .md, .markdown, or .txt file anywhere to open it. Dropped or pasted image files are imported into assets/ and inserted as relative references. Shortcuts: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
       status: {
         createdNewDocument: 'Created a new document',
         newDocumentCancelled: 'Cancelled new document creation',
