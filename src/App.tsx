@@ -413,17 +413,26 @@ type EditorSurfaceProps = {
   value: string
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
+  placeholder?: string
   onReady?: (editor: ToastUiEditor) => void
   onSelectionChange?: (editor: ToastUiEditor) => void
 }
 
-function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange }: EditorSurfaceProps) {
+function EditorSurface({
+  value,
+  onChange,
+  editorRef,
+  placeholder,
+  onReady,
+  onSelectionChange,
+}: EditorSurfaceProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const initialValueRef = useRef(value)
   const editorInstanceRef = useRef<ToastUiEditor | null>(null)
   const onChangeRef = useRef(onChange)
   const onReadyRef = useRef(onReady)
   const onSelectionChangeRef = useRef(onSelectionChange)
+  const placeholderRef = useRef(placeholder)
   const selectionFrameRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
@@ -443,6 +452,10 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
   }, [onSelectionChange])
+
+  useEffect(() => {
+    placeholderRef.current = placeholder
+  }, [placeholder])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -467,6 +480,7 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
       el: hostRef.current,
       height: '100%',
       initialValue: initialValueRef.current,
+      placeholder: placeholderRef.current ?? '',
       // Keep Toast UI itself single-surface; app-level preview owns rendered output.
       initialEditType: 'markdown',
       previewStyle: 'tab',
@@ -524,6 +538,15 @@ function EditorSurface({ value, onChange, editorRef, onReady, onSelectionChange 
       instance.setMarkdown(value)
     }
   }, [value])
+
+  useEffect(() => {
+    const instance = editorInstanceRef.current
+    if (!instance) {
+      return
+    }
+
+    instance.setPlaceholder(placeholder ?? '')
+  }, [placeholder])
 
   return <div className="toast-editor-host" ref={hostRef} />
 }
@@ -1721,6 +1744,17 @@ async function waitForDelay(delayMs: number) {
 
 const EMPTY_UNTITLED_DOCUMENT = ''
 
+function inferUntouchedUntitledBuffer(snapshot: Partial<MdvClientSnapshot> | null | undefined) {
+  if (snapshot?.isUntouchedUntitledBuffer === true) {
+    return true
+  }
+
+  return typeof snapshot?.isUntouchedUntitledBuffer !== 'boolean'
+    && (snapshot?.currentFilePath ?? null) === null
+    && (snapshot?.markdownText ?? EMPTY_UNTITLED_DOCUMENT) === EMPTY_UNTITLED_DOCUMENT
+    && (snapshot?.persistedMarkdown ?? EMPTY_UNTITLED_DOCUMENT) === EMPTY_UNTITLED_DOCUMENT
+}
+
 function App() {
   const { themeMode, resolvedTheme, setThemeMode } = useDesktopTheme()
   const { t } = useI18n()
@@ -1755,6 +1789,8 @@ function App() {
   const [isEditorSearchResultsVisible, setIsEditorSearchResultsVisible] = useState(false)
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
+  const [headingOutlineMode, setHeadingOutlineMode] = useState<'document' | 'placeholder'>('document')
+  const [isUntouchedUntitledBuffer, setIsUntouchedUntitledBuffer] = useState(true)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
@@ -1794,21 +1830,35 @@ function App() {
     pendingImportedAssets: [],
     displayTitle: t.app.untitledTitle,
     activePanel: bootstrap?.initialPanel === 'write' ? 'write' : 'preview',
+    isUntouchedUntitledBuffer: true,
     recoveryKey: recoveryKeyRef.current,
   }))
   const buildLiveClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => buildClientSnapshotRef.current())
   const applyClientSnapshotRef = useRef<(snapshot: MdvClientSnapshot) => void>(() => {})
   const respondToAiEditorRequestRef = useRef<(request: MdvAiEditorRequest) => void>(() => {})
   const rendererRegistry = useMemo(() => createRendererRegistry(), [])
-  const segments = useMemo(() => splitMarkdownSegments(markdownText), [markdownText])
-  const previewHeadingLines = useMemo(() => extractMarkdownHeadingLines(markdownText), [markdownText])
   const hasUnsavedChanges = markdownText !== persistedMarkdown
   const visibleDisplayTitle = hasUnsavedChanges ? `${displayTitle}*` : displayTitle
   const isStartupPending = !isInitialLaunchOpenSettled || !isStartupRecoveryResolved
   const isPlaceholderDocument = currentFilePath === null
-    && displayTitle === t.app.untitledTitle
+    && isUntouchedUntitledBuffer
     && markdownText === EMPTY_UNTITLED_DOCUMENT
     && persistedMarkdown === EMPTY_UNTITLED_DOCUMENT
+  const isLivePlaceholderDocument = useCallback((
+    liveMarkdown: string = editorRef.current?.getMarkdown() ?? markdownText,
+    livePersistedMarkdown: string = persistedMarkdownRef.current,
+  ) => currentFilePath === null
+    && isUntouchedUntitledBuffer
+    && liveMarkdown === EMPTY_UNTITLED_DOCUMENT
+    && livePersistedMarkdown === EMPTY_UNTITLED_DOCUMENT, [currentFilePath, isUntouchedUntitledBuffer, markdownText])
+  const isPlaceholderOutline = isPlaceholderDocument || headingOutlineMode === 'placeholder'
+  const visibleHeadingOutline = useMemo(
+    () => (isPlaceholderDocument || headingOutlineMode === 'document' ? headingOutline : []),
+    [headingOutline, headingOutlineMode, isPlaceholderDocument],
+  )
+  const outlineMarkdownText = isPlaceholderDocument ? t.app.initialDocument : markdownText
+  const displaySegments = useMemo(() => splitMarkdownSegments(outlineMarkdownText), [outlineMarkdownText])
+  const previewHeadingLines = useMemo(() => extractMarkdownHeadingLines(outlineMarkdownText), [outlineMarkdownText])
 
   const setStatusText = (message: string, options?: { toast?: boolean }) => {
     setStatusTextState(message)
@@ -1866,6 +1916,14 @@ function App() {
     setEditorSessionKey((currentKey) => currentKey + 1)
   }
 
+  const updateMarkdownText = (nextMarkdown: string) => {
+    if (isUntouchedUntitledBuffer && nextMarkdown !== EMPTY_UNTITLED_DOCUMENT) {
+      setIsUntouchedUntitledBuffer(false)
+    }
+
+    setMarkdownText(nextMarkdown)
+  }
+
   useEffect(() => () => {
     if (toastTimerRef.current !== null) {
       window.clearTimeout(toastTimerRef.current)
@@ -1880,9 +1938,8 @@ function App() {
 
       localeRef.current = nextSettings.general.locale
       const nextTranslations = getTranslations(nextSettings.general.locale)
-      const previousUntitledTitle = untitledTitleRef.current
 
-      if (currentFilePath === null && displayTitle === previousUntitledTitle) {
+      if (currentFilePath === null && isUntouchedUntitledBuffer) {
         setDisplayTitle(nextTranslations.app.untitledTitle)
       }
       untitledTitleRef.current = nextTranslations.app.untitledTitle
@@ -1892,18 +1949,20 @@ function App() {
     return () => {
       unsubscribe?.()
     }
-  }, [currentFilePath, displayTitle, markdownText, persistedMarkdown])
+  }, [currentFilePath, displayTitle, isUntouchedUntitledBuffer, markdownText, persistedMarkdown])
 
   useEffect(() => {
     canAbandonCurrentBufferRef.current = (nextActionLabel: string) => {
-      if (!hasUnsavedChanges || isPlaceholderDocument) {
+      const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+
+      if (liveMarkdown === persistedMarkdownRef.current || isLivePlaceholderDocument(liveMarkdown)) {
         return true
       }
 
       const currentT = i18nRef.current
       return window.confirm(currentT.common.beforeUnloadConfirm(nextActionLabel))
     }
-  }, [hasUnsavedChanges, isPlaceholderDocument])
+  }, [isLivePlaceholderDocument, markdownText])
 
   useEffect(() => {
     const bootstrap = window.mdvDesktop?.settings.getBootstrapSettings()
@@ -2075,19 +2134,22 @@ function App() {
     let active = true
     outlineRequestIdRef.current += 1
     const requestId = outlineRequestIdRef.current
+    const nextOutlineMode: 'document' | 'placeholder' = isPlaceholderDocument ? 'placeholder' : 'document'
 
     const refreshOutline = async () => {
       try {
-        const nextOutline = await window.mdvDesktop?.extractMdastHeadingOutline(markdownText)
+        const nextOutline = await window.mdvDesktop?.extractMdastHeadingOutline(outlineMarkdownText)
 
         if (!active || requestId !== outlineRequestIdRef.current) {
           return
         }
 
         setHeadingOutline(Array.isArray(nextOutline) ? nextOutline : [])
+        setHeadingOutlineMode(nextOutlineMode)
       } catch {
         if (active && requestId === outlineRequestIdRef.current) {
           setHeadingOutline([])
+          setHeadingOutlineMode(nextOutlineMode)
         }
       }
     }
@@ -2100,7 +2162,7 @@ function App() {
       active = false
       window.clearTimeout(refreshTimer)
     }
-  }, [markdownText])
+  }, [isPlaceholderDocument, outlineMarkdownText])
 
   const syncActiveOutlineLine = useCallback((editor: ToastUiEditor | null = editorRef.current) => {
     if (!editor) {
@@ -2131,14 +2193,14 @@ function App() {
   }, [activePanel, markdownText, syncActiveOutlineLine])
 
   const activeOutlineIndex = useMemo(() => {
-    if (headingOutline.length === 0 || activeOutlineLine === null) {
+    if (isPlaceholderOutline || visibleHeadingOutline.length === 0 || activeOutlineLine === null) {
       return -1
     }
 
     let nextIndex = -1
 
-    for (let index = 0; index < headingOutline.length; index += 1) {
-      if (headingOutline[index].position.line <= activeOutlineLine) {
+    for (let index = 0; index < visibleHeadingOutline.length; index += 1) {
+      if (visibleHeadingOutline[index].position.line <= activeOutlineLine) {
         nextIndex = index
         continue
       }
@@ -2147,11 +2209,15 @@ function App() {
     }
 
     return nextIndex
-  }, [activeOutlineLine, headingOutline])
+  }, [activeOutlineLine, isPlaceholderOutline, visibleHeadingOutline])
 
   const activePreviewHeadingIndex = useMemo(() => {
-    const headings = headingOutline.length > 0
-      ? headingOutline.map((item) => ({ line: item.position.line }))
+    if (isPlaceholderOutline) {
+      return -1
+    }
+
+    const headings = visibleHeadingOutline.length > 0
+      ? visibleHeadingOutline.map((item) => ({ line: item.position.line }))
       : previewHeadingLines
 
     if (headings.length === 0 || activeOutlineLine === null) {
@@ -2170,7 +2236,7 @@ function App() {
     }
 
     return nextIndex
-  }, [activeOutlineLine, headingOutline, previewHeadingLines])
+  }, [activeOutlineLine, isPlaceholderOutline, previewHeadingLines, visibleHeadingOutline])
 
   useEffect(() => {
     const container = outlineListRef.current
@@ -2208,7 +2274,7 @@ function App() {
     if (activePanel === 'preview') {
       scrollElementIntoContainer(previewRoot, activeHeading)
     }
-  }, [activePanel, activePreviewHeadingIndex, segments])
+  }, [activePanel, activePreviewHeadingIndex, displaySegments])
 
   const buildClientSnapshot = (): MdvClientSnapshot => ({
     markdownText,
@@ -2219,6 +2285,7 @@ function App() {
     pendingImportedAssets,
     displayTitle,
     activePanel,
+    isUntouchedUntitledBuffer,
     recoveryKey: ensureRecoveryKey(),
   })
 
@@ -2273,12 +2340,17 @@ function App() {
       recoveryKeyRef.current = snapshot.recoveryKey
     }
     replaceLoadedDocument(snapshot.markdownText)
+    setIsUntouchedUntitledBuffer(false)
     setCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
     setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
     setPendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
+    const nextIsUntouchedUntitledBuffer = inferUntouchedUntitledBuffer(snapshot)
+    setIsUntouchedUntitledBuffer(nextIsUntouchedUntitledBuffer)
+    setHeadingOutline([])
+    setHeadingOutlineMode(nextIsUntouchedUntitledBuffer ? 'placeholder' : 'document')
     const nextPersistedMarkdown = typeof snapshot.persistedMarkdown === 'string'
       ? snapshot.persistedMarkdown
       : snapshot.markdownText
@@ -2299,10 +2371,13 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     recoveryKeyRef.current = ''
     replaceLoadedDocument(payload.content)
+    setIsUntouchedUntitledBuffer(false)
     setCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
     setCurrentDraftWorkspace(null)
     setPendingImportedAssets([])
+    setHeadingOutline([])
+    setHeadingOutlineMode('document')
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
@@ -2322,10 +2397,13 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     recoveryKeyRef.current = ''
     replaceLoadedDocument(content)
+    setIsUntouchedUntitledBuffer(false)
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
     setPendingImportedAssets([])
+    setHeadingOutline([])
+    setHeadingOutlineMode('document')
     setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = content
     setPersistedMarkdown(content)
@@ -2343,6 +2421,12 @@ function App() {
 
   const handleCopyRendered = async () => {
     try {
+      if (isPlaceholderDocument) {
+        await copyTextToClipboard(markdownText)
+        setStatusText(t.app.status.copiedRendered)
+        return
+      }
+
       await waitForRenderedPreviewReady(previewRootRef.current)
       const previewText = previewRootRef.current?.innerText?.trim() ?? ''
       await copyTextToClipboard(previewText || markdownText)
@@ -2354,7 +2438,10 @@ function App() {
 
   const handlePrintRendered = async () => {
     try {
-      await waitForRenderedPreviewReady(previewRootRef.current)
+      if (!isPlaceholderDocument) {
+        await waitForRenderedPreviewReady(previewRootRef.current)
+      }
+
       setStatusText(t.app.status.openedPrintDialog)
       window.print()
     } catch (error) {
@@ -2364,12 +2451,16 @@ function App() {
 
   const handleExportHtml = async () => {
     try {
-      await waitForRenderedPreviewReady(previewRootRef.current)
-      const previewHtml = await inlineRelativeImagesForExport(previewRootRef.current, {
-        currentFilePath,
-        requireSavedFileMessage: t.app.exportRequiresSavedFileForRelativeImages,
-        inlineFailedMessage: t.app.exportInlineImageFailed,
-      })
+      const previewHtml = isPlaceholderDocument
+        ? ''
+        : await (async () => {
+          await waitForRenderedPreviewReady(previewRootRef.current)
+          return inlineRelativeImagesForExport(previewRootRef.current, {
+            currentFilePath,
+            requireSavedFileMessage: t.app.exportRequiresSavedFileForRelativeImages,
+            inlineFailedMessage: t.app.exportInlineImageFailed,
+          })
+        })()
       const result = await window.mdvDesktop?.exportHtml({
         content: buildExportHtmlDocument(displayTitle, previewHtml),
         defaultFileName: buildHtmlExportFileName(currentFilePath, displayTitle, t.app.untitledTitle),
@@ -2397,6 +2488,7 @@ function App() {
       pendingImportedAssets,
       displayTitle,
       activePanel,
+      isUntouchedUntitledBuffer,
       recoveryKey: ensureRecoveryKey(),
     }
   }
@@ -2447,7 +2539,9 @@ function App() {
   }
 
   const confirmUnsavedChangesBeforeProceed = async (proceedLabel: string) => {
-    if (!hasUnsavedChanges || isPlaceholderDocument) {
+    const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+
+    if (liveMarkdown === persistedMarkdownRef.current || isLivePlaceholderDocument(liveMarkdown)) {
       return true
     }
 
@@ -2514,10 +2608,13 @@ function App() {
     shouldCanonicalizeLoadedBaselineRef.current = true
     recoveryKeyRef.current = ''
     replaceLoadedDocument(EMPTY_UNTITLED_DOCUMENT)
+    setIsUntouchedUntitledBuffer(true)
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
     setPendingImportedAssets([])
+    setHeadingOutline([])
+    setHeadingOutlineMode('placeholder')
     setDisplayTitle(i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = EMPTY_UNTITLED_DOCUMENT
     setPersistedMarkdown(EMPTY_UNTITLED_DOCUMENT)
@@ -2592,9 +2689,10 @@ function App() {
       }
 
       setPendingImportedAssets([])
+      setIsUntouchedUntitledBuffer(false)
       setDisplayTitle(basename(result.path))
       if (result.content !== liveMarkdown) {
-        setMarkdownText(result.content)
+        updateMarkdownText(result.content)
         editorRef.current?.setMarkdown(result.content)
       }
       persistedMarkdownRef.current = result.content
@@ -2784,7 +2882,7 @@ function App() {
 
   const applyMarkdownContent = (nextMarkdown: string, statusMessage: string) => {
     invalidateEditorSearch()
-    setMarkdownText(nextMarkdown)
+    updateMarkdownText(nextMarkdown)
     editorRef.current?.setMarkdown(nextMarkdown)
     setStatusText(statusMessage)
   }
@@ -2801,7 +2899,7 @@ function App() {
     const result = runMarkdownInsertCommand(command, liveMarkdown, selection)
 
     invalidateEditorSearch()
-    setMarkdownText(result.nextMarkdown)
+    updateMarkdownText(result.nextMarkdown)
     editor.setMarkdown(result.nextMarkdown)
     setPendingSearchJump(result.selection)
     setActivePanel('write')
@@ -2869,7 +2967,7 @@ function App() {
       const imageResult = insertImageMarkdown(liveMarkdown, selection, result.relativePath, payload.file?.name || 'image')
 
       invalidateEditorSearch()
-      setMarkdownText(imageResult.nextMarkdown)
+      updateMarkdownText(imageResult.nextMarkdown)
       editor.setMarkdown(imageResult.nextMarkdown)
       setPendingSearchJump(imageResult.selection)
       setActivePanel('write')
@@ -3054,7 +3152,7 @@ function App() {
       const nextSearch = runLocalExactEditorSearch(nextMarkdown, nextScope)
       const nextIndex = nextSearch.results.length === 0 ? -1 : Math.min(targetIndex, nextSearch.results.length - 1)
 
-      setMarkdownText(nextMarkdown)
+      updateMarkdownText(nextMarkdown)
       editorRef.current?.setMarkdown(nextMarkdown)
       setExactEditorSearchScope(nextScope)
       applyEditorSearchState(nextSearch.results, nextIndex, {
@@ -3105,7 +3203,7 @@ function App() {
         }
       }
 
-      setMarkdownText(nextMarkdown)
+      updateMarkdownText(nextMarkdown)
       editorRef.current?.setMarkdown(nextMarkdown)
       applyEditorSearchState([], -1, { visible: false })
       setStatusText(t.app.status.replacedAllSearchResults(execution.results.length))
@@ -3177,7 +3275,7 @@ function App() {
           ok: true,
           payload: {
             snapshot,
-            isDirty: snapshot.markdownText !== snapshot.persistedMarkdown && !isPlaceholderDocument,
+            isDirty: snapshot.markdownText !== snapshot.persistedMarkdown && !isLivePlaceholderDocument(snapshot.markdownText, snapshot.persistedMarkdown),
           },
         })
         return
@@ -3952,11 +4050,11 @@ function App() {
                 {activePanel === 'write' ? (
                   <aside className="panel outline-panel" aria-label={t.app.outline}>
                     <div className="outline-panel-header">{t.app.outline}</div>
-                    {headingOutline.length === 0 ? (
+                    {visibleHeadingOutline.length === 0 ? (
                       <div className="outline-empty">{t.app.outlineEmpty}</div>
                     ) : (
                       <div ref={outlineListRef} className="outline-list">
-                        {headingOutline.map((item, index) => {
+                        {visibleHeadingOutline.map((item, index) => {
                           const isActiveOutlineItem = index === activeOutlineIndex
                           const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
 
@@ -3964,11 +4062,13 @@ function App() {
                             <button
                               key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
                               type="button"
-                              className={isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
+                              className={isPlaceholderOutline ? 'outline-item outline-item-disabled' : isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
                               style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
                               onClick={() => jumpToOutlineHeading(item)}
                               title={headingLabel}
-                              aria-current={isActiveOutlineItem ? 'location' : undefined}
+                              aria-current={!isPlaceholderOutline && isActiveOutlineItem ? 'location' : undefined}
+                              aria-disabled={isPlaceholderOutline ? 'true' : undefined}
+                              disabled={isPlaceholderOutline}
                               ref={isActiveOutlineItem ? activeOutlineItemRef : null}
                             >
                               <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
@@ -3985,9 +4085,10 @@ function App() {
                     <EditorSurface
                       key={editorSessionKey}
                       value={markdownText}
+                      placeholder={isPlaceholderDocument ? t.app.initialDocument : undefined}
                       onChange={(nextMarkdown) => {
                         invalidateEditorSearch()
-                        setMarkdownText(nextMarkdown)
+                        updateMarkdownText(nextMarkdown)
                       }}
                       editorRef={editorRef}
                       onReady={(editor) => {
@@ -3996,7 +4097,7 @@ function App() {
                           shouldCanonicalizeLoadedBaselineRef.current = false
                           persistedMarkdownRef.current = canonicalMarkdown
                           setPersistedMarkdown(canonicalMarkdown)
-                          setMarkdownText(canonicalMarkdown)
+                          updateMarkdownText(canonicalMarkdown)
                         }
 
                         syncActiveOutlineLine(editor)
@@ -4012,8 +4113,11 @@ function App() {
                     />
                   </div>
                   <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
-                    <div ref={previewRootRef} className="preview-scroll compact-preview">
-                      {segments.map((segment, index) => {
+                    <div
+                      ref={previewRootRef}
+                      className={isPlaceholderDocument ? 'preview-scroll compact-preview preview-scroll-placeholder' : 'preview-scroll compact-preview'}
+                    >
+                      {displaySegments.map((segment, index) => {
                         if (segment.type === 'markdown') {
                           return (
                             <section

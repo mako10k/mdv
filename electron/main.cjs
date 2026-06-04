@@ -734,6 +734,7 @@ function loadAutosaveRecoveryStore() {
             : [],
           displayTitle: snapshot.displayTitle,
           activePanel: snapshot.activePanel === 'write' ? 'write' : 'preview',
+          isUntouchedUntitledBuffer: inferUntouchedUntitledBuffer(snapshot),
           recoveryKey: normalizedRecoveryKey,
         },
       })
@@ -741,6 +742,17 @@ function loadAutosaveRecoveryStore() {
   } catch (error) {
     writeLog('WARN', 'main', 'Failed to load autosave recovery store', error instanceof Error ? error.message : String(error))
   }
+}
+
+function inferUntouchedUntitledBuffer(snapshot) {
+  if (snapshot?.isUntouchedUntitledBuffer === true) {
+    return true
+  }
+
+  return typeof snapshot?.isUntouchedUntitledBuffer !== 'boolean'
+    && normalizeRecoveryFilePath(snapshot?.currentFilePath) === null
+    && (typeof snapshot?.markdownText === 'string' ? snapshot.markdownText : '') === ''
+    && (typeof snapshot?.persistedMarkdown === 'string' ? snapshot.persistedMarkdown : '') === ''
 }
 
 function upsertAutosaveRecovery(snapshot) {
@@ -757,6 +769,7 @@ function upsertAutosaveRecovery(snapshot) {
       : [],
     displayTitle: typeof snapshot?.displayTitle === 'string' && snapshot.displayTitle.trim().length > 0 ? snapshot.displayTitle.trim() : getMainI18n().untitledTitle,
     activePanel: snapshot?.activePanel === 'write' ? 'write' : 'preview',
+    isUntouchedUntitledBuffer: inferUntouchedUntitledBuffer(snapshot),
     recoveryKey: typeof snapshot?.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0 ? snapshot.recoveryKey.trim() : recoveryKey.replace(/^draft:/, ''),
   }
 
@@ -796,6 +809,7 @@ function clearAutosaveRecovery(payload = {}) {
 function getLatestAutosaveRecovery() {
   const entries = Array.from(autosaveRecoveryByKey.values())
     .filter((entry) => !normalizeRecoveryFilePath(entry?.snapshot?.currentFilePath))
+    .filter((entry) => entry?.snapshot?.isUntouchedUntitledBuffer !== true)
   entries.sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
   return entries[0] || null
 }
@@ -8222,6 +8236,7 @@ async function confirmEditorWindowClose(window) {
     pendingImportedAssets: [],
     displayTitle: messages.untitledTitle,
     activePanel: 'write',
+    isUntouchedUntitledBuffer: true,
   }
   const response = await showUnsavedChangesDialog(window, {
     currentFilePath: snapshot.currentFilePath,

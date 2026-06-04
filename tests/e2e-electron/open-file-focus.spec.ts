@@ -64,7 +64,15 @@ test('opening the same file in a second instance focuses the existing editor win
     await expect.poll(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
     await expect.poll(async () => page.title()).toMatch(/focus-target\.md - MDV/i)
 
-    const duplicateOpenResult = await page.evaluate(() => window.mdvDesktop?.openFile())
+    const duplicateOpenResult = await page.evaluate(() => {
+      const desktopWindow = window as Window & {
+        mdvDesktop?: {
+          openFile?: () => Promise<unknown>
+        }
+      }
+
+      return desktopWindow.mdvDesktop?.openFile?.() ?? null
+    })
 
     expect(duplicateOpenResult).toBeNull()
     await expect.poll(async () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)

@@ -172,8 +172,9 @@ test('new document button opens an untitled editor document', async ({ page }) =
   await page.getByRole('group', { name: /(ファイル操作|File actions)/ }).locator('.icon-button').nth(0).click()
 
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
-  await expect.poll(async () => page.title()).toMatch(/(無題\.md\*?|Untitled\.md\*?) - MDV/i)
-  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toHaveText('')
+  await expect.poll(async () => page.title()).toMatch(/(無題\.md|Untitled\.md) - MDV/i)
+  await expect(page.locator('.ProseMirror .placeholder').first()).toContainText('MarkDownViewer')
+  await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(1)
 })
 
 test('preview mode with AI dock does not overlap the rendered surface', async ({ page }) => {

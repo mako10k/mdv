@@ -70,9 +70,11 @@ async function triggerPrimaryShortcut(page: import('@playwright/test').Page, key
 
 async function expectFreshUntitledDocument(page: import('@playwright/test').Page) {
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
-  await expect.poll(async () => page.title()).toMatch(/(無題\.md\*?|Untitled\.md\*?) - MDV/i)
+  await expect.poll(async () => page.title()).toMatch(/(無題\.md|Untitled\.md) - MDV/i)
   await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('text to replace')
-  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toHaveText('')
+  await expect(page.locator('.ProseMirror .placeholder').first()).toContainText('MarkDownViewer')
+  await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(1)
+  await expect.poll(async () => page.locator('.outline-item[disabled]').count()).toBeGreaterThan(0)
 }
 
 test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {
@@ -132,6 +134,39 @@ test('File menu click opens a fresh untitled editor document', async () => {
     })
 
     await expectFreshUntitledDocument(page)
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('typing into a fresh untitled document clears placeholder-only outline state immediately', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-new-document-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+
+  const app = await launchElectronApp({
+    userDataDir,
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    await openWritePanel(page)
+    await expectFreshUntitledDocument(page)
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+    await page.keyboard.insertText('# Real heading\n')
+
+    await expect.poll(async () => page.locator('.ProseMirror .placeholder').count()).toBe(0)
+    await expect(editor).toContainText('Real heading')
+    await expect.poll(async () => page.title()).toMatch(/(無題\.md\*|Untitled\.md\*) - MDV/i)
+    await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(0)
+    await expect.poll(async () => page.locator('.outline-item[disabled]').count()).toBe(0)
+    await expect.poll(async () => page.locator('.outline-item').count()).toBeGreaterThan(0)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

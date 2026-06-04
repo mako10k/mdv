@@ -620,6 +620,14 @@
   min-height: 0;
 }
 
+.editor-panel .toastui-editor-contents-placeholder::before {
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: var(--editor-line-height);
+  opacity: 0.82;
+}
+
 .preview-scroll {
   overflow: auto;
   padding: 28px clamp(18px, 4vw, 40px) 40px;
@@ -635,6 +643,27 @@
 
 .compact-preview {
   font-size: var(--editor-font-size);
+}
+
+.preview-scroll-placeholder {
+  color: var(--text-muted);
+}
+
+.preview-scroll-placeholder .markdown-fragment,
+.preview-scroll-placeholder .code-block-shell,
+.preview-scroll-placeholder .mermaid-block {
+  opacity: 0.82;
+}
+
+.outline-item-disabled {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+.outline-item-disabled:hover,
+.outline-item-disabled:focus-visible {
+  border-color: transparent;
+  background: transparent;
 }
 
 .editor-panel .toastui-editor-contents p,
@@ -980,6 +1009,10 @@
     overflow: visible !important;
     padding: 0 !important;
     gap: 14px;
+  }
+
+  .preview-scroll-placeholder > * {
+    display: none !important;
   }
 
   .preview-scroll > * {

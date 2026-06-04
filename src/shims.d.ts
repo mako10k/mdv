@@ -15,6 +15,7 @@ declare module '@toast-ui/editor' {
     minHeight?: string
     height?: string
     initialValue?: string
+    placeholder?: string
     previewStyle?: 'tab' | 'vertical'
     initialEditType?: 'markdown' | 'wysiwyg'
     usageStatistics?: boolean
@@ -33,6 +34,7 @@ declare module '@toast-ui/editor' {
     setMarkdown(markdown: string, cursorToEnd?: boolean): void
     getSelection(): SelectionPos
     setSelection(start: EditorPos, end?: EditorPos): void
+    setPlaceholder(placeholder: string): void
     getSelectedText(start?: EditorPos, end?: EditorPos): string
     replaceSelection(text: string, start?: EditorPos, end?: EditorPos): void
     deleteSelection(start?: EditorPos, end?: EditorPos): void
@@ -169,6 +171,7 @@ type MdvClientSnapshot = {
   pendingImportedAssets?: MdvPendingImportedAsset[]
   displayTitle: string
   activePanel: 'write' | 'preview'
+  isUntouchedUntitledBuffer?: boolean
   recoveryKey: string
 }
 
