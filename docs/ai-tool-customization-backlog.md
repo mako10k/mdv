@@ -5,7 +5,7 @@
 この文書は [docs/current-backlog.md](docs/current-backlog.md) の AI-P2 に追加した次の項目について、受け入れ条件と実装順の前提を詳細化する。
 
 - AI-TL-001 GH Issue の閲覧 / 発行 tool surface
-- AI-CFG-001 Custom Prompt 編集 / 切替
+- AI-CFG-001 Prompt File 編集 / 切替
 - AI-CFG-002 SKILL 登録 / 有効化 / 切替
 - AI-CFG-003 model registry ベースの model picker
 
@@ -17,9 +17,11 @@
 
 着手順の前提は次の通り。
 
-1. AI-UX-003 で instruction / custom prompt / skill / hook の責務境界を先に整理する
-2. AI-CFG-001 と AI-CFG-002 はその境界整理を前提に実装する
+1. accepted した AI-UX-003 layering policy の rollout / propagation を前提にする
+2. AI-CFG-001 と AI-CFG-002 は accepted した AI-UX-003 layering policy を前提に実装する
 3. AI-CFG-003 の release completeness は REL-BL-001 と [docs/release-workflow.md](docs/release-workflow.md) で扱い、本項目は product surface に集中する
+
+AI-UX-003 の explainer は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md)、決定記録は [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を参照する。
 
 ## AI-TL-001 GH Issue Tool Surface
 
@@ -55,20 +57,20 @@ assistant から GitHub Issue を安全に閲覧し、最小限の作成操作�
 
 - assistant からの実運用で「既存 Issue を見て状況把握する」「新しい Issue を 1 件起票する」が追加の手作業なしで成立する
 
-## AI-CFG-001 Custom Prompt Editing
+## AI-CFG-001 Prompt File Editing
 
 ### Goal
 
-custom prompt を UI から編集し、どの prompt がどの会話へ効いているかを user が追跡できるようにする。
+prompt file を UI から編集し、どの task entrypoint がどの workflow を実行するかを user が追跡できるようにする。
 
 ### First Slice Scope
 
-- Custom Prompt 一覧
+- Prompt file 一覧
 - 1 件の編集
 - 有効 / 無効切替
 - rollback または前回保存版への復帰
 
-first slice では app-global な custom prompt 管理を対象にし、per-thread 専用 prompt profile は扱わない。
+first slice では manual invocation される prompt file 管理を対象にし、always-on instructions や per-thread prompt profile は扱わない。
 
 ### Out Of Scope For First Slice
 
@@ -78,18 +80,19 @@ first slice では app-global な custom prompt 管理を対象にし、per-thre
 
 ### Acceptance Criteria
 
-- custom prompt は main process 正本で管理し、renderer ごとに状態がズレない
-- user は prompt 名、適用先、最終更新時刻を一覧で確認できる
+- prompt file は workspace または user customization として管理され、renderer ごとに一覧と enabled 状態がズレない
+- user は prompt 名、説明、保存場所、最終更新時刻を一覧で確認できる
 - user は prompt 文面を編集する前に現行内容を確認できる
 - 保存前に差分または変更要約を確認できる
-- 保存後、変更は次の user turn から有効になり、進行中 turn や過去 turn を再構成しないことを UI で明示する
-- 有効 / 無効の切替結果が assistant 実行時の prompt reconstruction に反映される
+- 保存後、変更は次回の prompt invocation から有効になり、進行中 turn や過去 turn を再構成しないことを UI で明示する
+- 有効 / 無効の切替結果が slash command と prompt recommendation surface に反映される
+- assistant 実行時に、どの prompt file が invocation されたかを turn または thread diagnostics で確認できる
 - rollback 操作で少なくとも直前の保存版に戻せる
-- syntax エラーや適用対象不正は保存時に診断される
+- frontmatter や参照不正など prompt file の syntax / validation error は保存時に診断される
 
 ### Done Signal
 
-- user がファイル手編集なしに custom prompt を変更し、次の会話へ反映できる
+- user がファイル手編集なしに prompt file を変更し、次回 invocation から反映できる
 
 ## AI-CFG-002 SKILL Runtime Surface
 
@@ -119,7 +122,7 @@ first slice では app-global な enabled 状態と、turn 単位の注入診断
 - assistant 実行時に、どの SKILL が注入されたかを turn 単位の transcript または diagnostics surface で確認できる
 - 注入されなかった場合は、条件不一致、disabled、load failure など理由を区別して示せる
 - SKILL の実体参照と UI 上の表示名が一貫し、設定だけ残って壊れた参照にならない
-- AI-UX-003 で整理した instruction / custom prompt / skill / hook の優先順位に従って適用順が決まる
+- AI-UX-003 で整理した ownership boundary に従い、SKILL は instruction / prompt / agent / hook と責務衝突しない形で適用結果と理由を示せる
 
 ### Done Signal
 

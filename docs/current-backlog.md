@@ -149,8 +149,8 @@
 4. slice 加工系 `nl` / `cut` / `sort` を追加する
 5. AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
 6. AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
-7. AI-UX-003 INSTRUCTION / SKILL / HOOK の責務境界と優先順位を整理する
-8. AI-CFG-001 Custom Prompt を編集・切替できる customization surface を追加する
+7. AI-UX-003 accepted layering policy を各 AI backlog と diagnostics surface へ適用する
+8. AI-CFG-001 Prompt File を編集・切替できる customization surface を追加する
 9. AI-CFG-002 SKILL を登録・有効化・切替できる runtime surface を追加する
 10. AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
 11. suggest mode と audit trail を追加する
@@ -160,14 +160,15 @@
 
 asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) の workspace / asset foundation を前提にするため、MD-BL-005 とその後続 implementation phase に従属させ、AI-P2 の一部として foundation 完了後に扱う。
 
-AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](docs/ai-tool-customization-backlog.md) を参照する。release 前チェックは [docs/release-workflow.md](docs/release-workflow.md) で扱う。
+AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](docs/ai-tool-customization-backlog.md) を参照する。AI-UX-003 の explainer は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md)、決定記録は [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を正とする。release 前チェックは [docs/release-workflow.md](docs/release-workflow.md) で扱う。
 
 注記:
 
 - AI-TL-001 は issue 一覧、個票取得、新規 Issue 作成を first slice とし、追加 mutation は後続で評価する
-- AI-CFG-001 と AI-CFG-002 は user-facing 機能として別 backlog にするが、先に AI-UX-003 で instruction / custom prompt / skill / hook の責務境界を整理してから実装する
-- AI-CFG-001 は prompt 文面編集だけでなく、適用範囲、差分確認、rollback、どの会話から有効になるかの policy を含める
-- AI-CFG-002 は SKILL の自動注入条件、優先順位、可視化、失敗時診断を含め、単なる prompt 断片管理にしない
+- AI-CFG-001 と AI-CFG-002 は user-facing 機能として別 backlog にするが、accepted した AI-UX-003 layering policy を前提に実装する
+- AI-UX-003 の quick mental model は「AGENTS.md など always-on instructions は repo baseline、`*.instructions.md` は path-specific refinement、prompt は task entrypoint、agent は role mode、skill は capability package、hook は deterministic enforcement」である
+- AI-CFG-001 は prompt file 編集面として扱い、適用範囲、差分確認、rollback、次回 invocation からの反映 policy を含める
+- AI-CFG-002 は SKILL の自動注入条件、ownership boundary、可視化、失敗時診断を含め、単なる prompt 断片管理にしない
 - AI-CFG-003 は固定 model 選択を置き換える product backlog とし、model ID、provider、context window、価格、deprecation 状態、default 推奨を registry 正本で管理する
 - AI-CFG-003 の release completeness は REL-BL-001 と release workflow 側で管理し、ここでは user-facing picker と metadata surface の整備を主対象にする
 
@@ -186,10 +187,12 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 ### AI-CM Context Lifecycle
 
 1. AI-CM-001 thread 一覧、resume、active context 切替 surface を定義する
-2. AI-CM-002 context 継続の永続化と復元 policy を定義する
+2. AI-CM-002 context 継続の永続化と復元 policy を定義し、customization provenance summary を保持する
 3. AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
 
 詳細は [docs/ai-context-lifecycle-design.md](docs/ai-context-lifecycle-design.md) を参照する。
+
+AI-CM では durable / resumed thread に selected agent、invoked prompt、loaded skills、hook decision、instruction provenance を説明できる状態を残す。
 
 これらは [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) の Phase 1 範囲外であり、Phase 1 完了後の context lifecycle 拡張として扱う。
 

@@ -25,12 +25,18 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 
 セットアップ、起動、ビルド、E2E 回帰確認、AI runtime 前提、Windows packaging の正本と、release の運用入口は [DEVELOPMENT.md](DEVELOPMENT.md) にまとめています。release 実務の詳細 runbook は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。
 
-初回セットアップ後に参照することが多い設計・補足資料は、この README の後半から辿れます。
+初回セットアップ後に参照することが多い設計・補足資料は、この README の後半から辿れます。AI customization は、まず [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) で使い分けを見てください。境界を固定した理由が必要なときだけ [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を見れば足ります。
+
+正式な 6 層モデルと置き場所の判断は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) を参照してください。実装状況や今後の追加予定は [docs/current-backlog.md](docs/current-backlog.md) を参照してください。
+
+現時点で MDV 本体トップレベルにある主な入口は 3 つです。repo-wide rule は [AGENTS.md](AGENTS.md)、prompt file は [.github/prompts](.github/prompts)、custom agent は [.github/agents](.github/agents) です。MDV 本体トップレベルの file-scoped instructions はまだ未配置で、skills と hooks もまだ未実装です。
 
 ## もっと知る
 
 - [DEVELOPMENT.md](DEVELOPMENT.md): セットアップ、起動、ビルド、E2E、Windows packaging、release の運用入口
 - [docs/ai-chat-design.md](docs/ai-chat-design.md): assistant dock、tool bridge、OpenAI 連携の設計
+- [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md): どの customization をどこに置くかを説明する explainer
+- [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md): customization layer 境界の決定記録
 - [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計

@@ -33,6 +33,7 @@ Draft
 - archive と delete は別 state とし、soft delete 後に GC できるようにする
 - retention は size、age、pin、resume frequency を見て決める
 - main process が正本となり、renderer は projection を表示する
+- durable / resumed thread でも、直近 turn で効いた customization provenance を user が追跡できるようにする
 
 ## Core Concepts
 
@@ -63,6 +64,23 @@ type ActiveContextBinding = {
   editorId: string | null
   windowId: number | null
   targetMode: 'current-editor' | 'fixed-editor' | 'unbound'
+}
+```
+
+### Customization Provenance
+
+```ts
+type ContextCustomizationProvenance = {
+  alwaysOnInstructionSources: string[]
+  matchedFileScopedInstructionSources: string[]
+  selectedAgentId: string | null
+  invokedPromptId: string | null
+  loadedSkillIds: string[]
+  hookDecisions: Array<{
+    hookId: string
+    outcome: 'executed' | 'blocked'
+    reason: string | null
+  }>
 }
 ```
 
@@ -107,6 +125,7 @@ type ContextLifecyclePolicy = {
 - `session` は app runtime 中だけ保持し、再起動では復元しない
 - `durable` は metadata、summary、artifact refs を保存し、必要に応じて transcript の一部を再構築する
 - durable 保存時も protected context / pinned refs を優先し、全文 transcript を正本にしない
+- durable thread は必要に応じて customization provenance summary も保持し、resume 後に selected agent / prompt / skills / hooks の由来と blocked hook reason を説明できるようにする
 
 ## Archive / Delete / GC Rules
 
@@ -119,6 +138,7 @@ type ContextLifecyclePolicy = {
 
 - thread list surface が必要
 - active thread header に target editor、persistence class、pin 状態を表示する
+- active thread header または diagnostics で always-on instructions、matched file-scoped instructions、selected agent、invoked prompt、loaded skills、executed hooks と blocked hook reason を確認できるようにする
 - archived / deleted thread を別フィルタで扱う
 - context resume 時に current editor と bound editor が違う場合は明示確認を出す
 
@@ -126,7 +146,7 @@ type ContextLifecyclePolicy = {
 
 - AI-UX-001 default target editor 明示
 - AI-UX-002 multi-editor context binding policy
-- AI-UX-003 INSTRUCTION / SKILL / HOOK 整理
+- AI-UX-003 instruction / prompt / agent / skill / hook layering policy
 - AI-CM-001 thread list / resume / active context switch
 - AI-CM-002 persistence / restore
 - AI-CM-003 archive / delete / retention / GC

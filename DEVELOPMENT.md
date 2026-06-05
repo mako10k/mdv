@@ -1,6 +1,10 @@
 # Development
 
-セットアップ、ビルド、テスト、packaging の正本と、release の運用入口です。release 実務の詳細 runbook は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。手順に密接な contributor 向け拡張ポイントもこのページに集約します。
+セットアップ、ビルド、テスト、packaging の正本と、release の運用入口です。release 実務の詳細 runbook は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。手順に密接な contributor 向け拡張ポイントもこのページに集約します。AI customization は、まず [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) で使い分けを見てください。境界を固定した理由が必要なときだけ [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を参照してください。
+
+正式な 6 層モデルと置き場所の判断は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) を参照してください。実装状況や今後の追加予定は [docs/current-backlog.md](docs/current-backlog.md) を参照してください。
+
+現時点で MDV 本体トップレベルにある主な入口は 3 つです。repo-wide rule は [AGENTS.md](AGENTS.md)、prompt file は [.github/prompts](.github/prompts)、custom agent は [.github/agents](.github/agents) です。MDV 本体トップレベルの file-scoped instructions はまだ未配置で、skills と hooks もまだ未実装です。
 
 ## 前提
 
