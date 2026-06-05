@@ -248,7 +248,7 @@ test('preview highlights and scrolls the heading nearest the editor cursor', asy
   expect(previewScrollTop).toBeGreaterThanOrEqual(0)
 })
 
-test('preview H3 and H4 headings reset inline-code chrome', async ({ page }) => {
+test('preview H3 and H4 headings keep reset chrome while the active heading is highlighted', async ({ page }) => {
   await openWritePanel(page)
   await replaceMarkdownDocument(
     page,
@@ -274,6 +274,7 @@ test('preview H3 and H4 headings reset inline-code chrome', async ({ page }) => 
       const styles = getComputedStyle(element)
 
       return {
+        active: element.getAttribute('data-mdv-preview-active'),
         backgroundColor: styles.backgroundColor,
         borderTopStyle: styles.borderTopStyle,
         borderTopWidth: styles.borderTopWidth,
@@ -289,6 +290,94 @@ test('preview H3 and H4 headings reset inline-code chrome', async ({ page }) => 
       h4: pick('.preview-panel .markdown-fragment h4'),
       h3Code: pick('.preview-panel .markdown-fragment h3 code'),
       h4Code: pick('.preview-panel .markdown-fragment h4 code'),
+    }
+  })
+
+  expect(headingStyles.h3).not.toBeNull()
+  expect(headingStyles.h4).not.toBeNull()
+  expect(headingStyles.h3Code).not.toBeNull()
+  expect(headingStyles.h4Code).not.toBeNull()
+  expect(headingStyles.h3?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h4?.active).toBe('true')
+  expect(headingStyles.h4?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h3?.borderTopStyle).toBe('none')
+  expect(headingStyles.h4?.borderTopStyle).toBe('none')
+  expect(headingStyles.h3?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h4?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h3?.paddingTop).toBe('0px')
+  expect(headingStyles.h3?.paddingRight).toBe('0px')
+  expect(headingStyles.h3?.paddingBottom).toBe('0px')
+  expect(headingStyles.h3?.paddingLeft).toBe('0px')
+  expect(headingStyles.h4?.paddingTop).toBe('0px')
+  expect(headingStyles.h4?.paddingRight).toBe('0px')
+  expect(headingStyles.h4?.paddingBottom).toBe('0px')
+  expect(headingStyles.h4?.paddingLeft).toBe('0px')
+  expect(headingStyles.h3Code?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h4Code?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(headingStyles.h3Code?.borderTopStyle).toBe('none')
+  expect(headingStyles.h4Code?.borderTopStyle).toBe('none')
+  expect(headingStyles.h3Code?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h4Code?.borderTopWidth).toBe('0px')
+  expect(headingStyles.h3Code?.paddingTop).toBe('0px')
+  expect(headingStyles.h3Code?.paddingRight).toBe('0px')
+  expect(headingStyles.h3Code?.paddingBottom).toBe('0px')
+  expect(headingStyles.h3Code?.paddingLeft).toBe('0px')
+  expect(headingStyles.h4Code?.paddingTop).toBe('0px')
+  expect(headingStyles.h4Code?.paddingRight).toBe('0px')
+  expect(headingStyles.h4Code?.paddingBottom).toBe('0px')
+  expect(headingStyles.h4Code?.paddingLeft).toBe('0px')
+})
+
+test('wysiwyg-focused H3 and H4 headings keep heading and inline-code reset chrome', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    '### Third `Heading`\n\nbody\n\n#### Fourth `Heading`\n\nmore\n',
+  )
+
+  await switchToastEditorMode(page, 'wysiwyg')
+
+  const h3 = page.locator('.toastui-editor-ww-container .ProseMirror h3').first()
+  const h4 = page.locator('.toastui-editor-ww-container .ProseMirror h4').first()
+  const h3Code = page.locator('.toastui-editor-ww-container .ProseMirror h3 code').first()
+  const h4Code = page.locator('.toastui-editor-ww-container .ProseMirror h4 code').first()
+
+  await expect(h3).toBeVisible()
+  await expect(h4).toBeVisible()
+  await expect(h3Code).toBeVisible()
+  await expect(h4Code).toBeVisible()
+
+  await h3.click()
+
+  const headingStyles = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+
+      if (!element) {
+        return null
+      }
+
+      const styles = getComputedStyle(element)
+
+      return {
+        className: element.className,
+        backgroundColor: styles.backgroundColor,
+        borderTopStyle: styles.borderTopStyle,
+        borderTopWidth: styles.borderTopWidth,
+        paddingTop: styles.paddingTop,
+        paddingRight: styles.paddingRight,
+        paddingBottom: styles.paddingBottom,
+        paddingLeft: styles.paddingLeft,
+        outlineStyle: styles.outlineStyle,
+        outlineWidth: styles.outlineWidth,
+      }
+    }
+
+    return {
+      h3: pick('.toastui-editor-ww-container .ProseMirror h3'),
+      h4: pick('.toastui-editor-ww-container .ProseMirror h4'),
+      h3Code: pick('.toastui-editor-ww-container .ProseMirror h3 code'),
+      h4Code: pick('.toastui-editor-ww-container .ProseMirror h4 code'),
     }
   })
 
@@ -324,6 +413,177 @@ test('preview H3 and H4 headings reset inline-code chrome', async ({ page }) => 
   expect(headingStyles.h4Code?.paddingRight).toBe('0px')
   expect(headingStyles.h4Code?.paddingBottom).toBe('0px')
   expect(headingStyles.h4Code?.paddingLeft).toBe('0px')
+})
+
+test('wysiwyg heading DOM stays stable across focus and caret movement', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    '### Third `Heading`\n\nbody\n\n#### Fourth `Heading`\n\nmore\n',
+  )
+
+  await switchToastEditorMode(page, 'wysiwyg')
+
+  const h3 = page.locator('.toastui-editor-ww-container .ProseMirror h3').first()
+  const h4 = page.locator('.toastui-editor-ww-container .ProseMirror h4').first()
+
+  await expect(h3).toBeVisible()
+  await expect(h4).toBeVisible()
+
+  const beforeSnapshot = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+
+      if (!element) {
+        return null
+      }
+
+      return {
+        tagName: element.tagName,
+        className: element.className,
+        innerHTML: element.innerHTML,
+        outerHTML: element.outerHTML,
+      }
+    }
+
+    return {
+      rootClassName: document.querySelector('.toastui-editor-ww-container .ProseMirror')?.className ?? null,
+      h3: pick('.toastui-editor-ww-container .ProseMirror h3'),
+      h4: pick('.toastui-editor-ww-container .ProseMirror h4'),
+      h3Code: pick('.toastui-editor-ww-container .ProseMirror h3 code'),
+      h4Code: pick('.toastui-editor-ww-container .ProseMirror h4 code'),
+      selectedNodeCount: document.querySelectorAll('.toastui-editor-ww-container .ProseMirror .ProseMirror-selectednode').length,
+    }
+  })
+
+  await h3.click()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowLeft')
+
+  const afterSnapshot = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+
+      if (!element) {
+        return null
+      }
+
+      return {
+        tagName: element.tagName,
+        className: element.className,
+        innerHTML: element.innerHTML,
+        outerHTML: element.outerHTML,
+      }
+    }
+
+    return {
+      rootClassName: document.querySelector('.toastui-editor-ww-container .ProseMirror')?.className ?? null,
+      h3: pick('.toastui-editor-ww-container .ProseMirror h3'),
+      h4: pick('.toastui-editor-ww-container .ProseMirror h4'),
+      h3Code: pick('.toastui-editor-ww-container .ProseMirror h3 code'),
+      h4Code: pick('.toastui-editor-ww-container .ProseMirror h4 code'),
+      selectedNodeCount: document.querySelectorAll('.toastui-editor-ww-container .ProseMirror .ProseMirror-selectednode').length,
+    }
+  })
+
+  expect(beforeSnapshot.h3).not.toBeNull()
+  expect(beforeSnapshot.h4).not.toBeNull()
+  expect(beforeSnapshot.h3Code).not.toBeNull()
+  expect(beforeSnapshot.h4Code).not.toBeNull()
+  expect(afterSnapshot.h3).toEqual(beforeSnapshot.h3)
+  expect(afterSnapshot.h4).toEqual(beforeSnapshot.h4)
+  expect(afterSnapshot.h3Code).toEqual(beforeSnapshot.h3Code)
+  expect(afterSnapshot.h4Code).toEqual(beforeSnapshot.h4Code)
+  expect(afterSnapshot.selectedNodeCount).toBe(0)
+})
+
+test('wysiwyg inline-code selection inside heading keeps reset chrome and avoids selectednode classes', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    '### Third `Heading`\n\nbody\n\n#### Fourth `Heading`\n\nmore\n',
+  )
+
+  await switchToastEditorMode(page, 'wysiwyg')
+  await expect(page.locator('.toastui-editor-ww-container .ProseMirror h3 code').first()).toBeVisible()
+
+  await page.evaluate(() => {
+    const editor = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror')
+    const code = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror h3 code')
+
+    if (!editor || !code || !code.firstChild) {
+      throw new Error('Missing WYSIWYG heading code node')
+    }
+
+    editor.focus()
+
+    const selection = window.getSelection()
+
+    if (!selection) {
+      throw new Error('Missing selection object')
+    }
+
+    const range = document.createRange()
+    range.setStart(code.firstChild, 0)
+    range.setEnd(code.firstChild, code.textContent?.length ?? 0)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  })
+
+  const selectionSnapshot = await page.evaluate(() => {
+    const pick = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+
+      if (!element) {
+        return null
+      }
+
+      const styles = getComputedStyle(element)
+
+      return {
+        className: element.className,
+        backgroundColor: styles.backgroundColor,
+        borderTopStyle: styles.borderTopStyle,
+        borderTopWidth: styles.borderTopWidth,
+        paddingTop: styles.paddingTop,
+        paddingRight: styles.paddingRight,
+        paddingBottom: styles.paddingBottom,
+        paddingLeft: styles.paddingLeft,
+        outlineStyle: styles.outlineStyle,
+        outlineWidth: styles.outlineWidth,
+      }
+    }
+
+    return {
+      h3: pick('.toastui-editor-ww-container .ProseMirror h3'),
+      h3Code: pick('.toastui-editor-ww-container .ProseMirror h3 code'),
+      selectedNodes: Array.from(document.querySelectorAll('.toastui-editor-ww-container .ProseMirror .ProseMirror-selectednode')).map((node) => ({
+        tagName: node.tagName,
+        className: (node as HTMLElement).className,
+      })),
+      selectionText: window.getSelection()?.toString() ?? '',
+    }
+  })
+
+  expect(selectionSnapshot.selectionText).toBe('Heading')
+  expect(selectionSnapshot.selectedNodes).toEqual([])
+  expect(selectionSnapshot.h3).not.toBeNull()
+  expect(selectionSnapshot.h3Code).not.toBeNull()
+  expect(selectionSnapshot.h3?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(selectionSnapshot.h3?.borderTopStyle).toBe('none')
+  expect(selectionSnapshot.h3?.borderTopWidth).toBe('0px')
+  expect(selectionSnapshot.h3?.paddingTop).toBe('0px')
+  expect(selectionSnapshot.h3?.paddingRight).toBe('0px')
+  expect(selectionSnapshot.h3?.paddingBottom).toBe('0px')
+  expect(selectionSnapshot.h3?.paddingLeft).toBe('0px')
+  expect(selectionSnapshot.h3Code?.backgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(selectionSnapshot.h3Code?.borderTopStyle).toBe('none')
+  expect(selectionSnapshot.h3Code?.borderTopWidth).toBe('0px')
+  expect(selectionSnapshot.h3Code?.paddingTop).toBe('0px')
+  expect(selectionSnapshot.h3Code?.paddingRight).toBe('0px')
+  expect(selectionSnapshot.h3Code?.paddingBottom).toBe('0px')
+  expect(selectionSnapshot.h3Code?.paddingLeft).toBe('0px')
 })
 
 test('editor mode with AI dock keeps editor and dock separated', async ({ page }) => {
@@ -516,68 +776,78 @@ test.describe('AI chat streaming', () => {
         messages: TestChatMessage[]
       }
 
-      type TestSettings = {
-        general: {
-          locale: 'ja' | 'en'
-          themeMode: 'system' | 'light' | 'dark'
-        }
-        ai: {
-          openai: {
-            enabled: boolean
-          }
-          tavily: {
-            enabled: boolean
-          }
-          fetch: {
-            enabled: boolean
-          }
-        }
-      }
-
       type TestStreamEvent =
         | { requestId: string; type: 'text-delta'; delta: string }
         | { requestId: string; type: 'tool-event'; phase: 'call' | 'result'; title: string; content: string }
         | { requestId: string; type: 'completed'; reply: string; model: string; responseId: string | null }
 
-      type TestDesktopApi = {
-        platform?: string
-        settings?: {
-          getBootstrapSettings: () => {
-            hasPersistedSettings: boolean
-            hasReadableSettings: boolean
-            hasInitialLaunchRequest: boolean
-            initialPanel: 'write' | 'preview'
-            settings: TestSettings
-          }
-          getSettings: () => Promise<TestSettings>
-          onSettingsChanged: (callback: (settings: TestSettings) => void) => () => void
-          updateSettings: (patch: Partial<TestSettings>) => Promise<TestSettings>
-          migrateLegacyTheme: () => Promise<void>
-          getProviderStatus: () => Promise<{ openaiConfigured: boolean; tavilyConfigured: boolean }>
-        }
-        sendAiChatMessage: (payload: TestDispatchPayload) => Promise<{ status: 'started'; requestId: string }>
-        onAiChatStreamEvent: (callback: (event: TestStreamEvent) => void) => () => void
-      }
-
-      const baseSettings: TestSettings = {
+      const baseSettings: MdvSettings = {
+        version: 3,
         general: {
           locale: 'ja',
           themeMode: 'system',
+          defaultStartPanel: 'preview',
+          openLinksBehavior: 'confirm-if-untrusted',
+        },
+        editor: {
+          initialEditType: 'markdown',
+          showModeSwitch: true,
+          previewStyle: 'vertical',
+          fontSizePx: 15,
         },
         ai: {
-          openai: { enabled: true },
-          tavily: { enabled: false },
-          fetch: { enabled: false },
+          defaultWriteMode: 'direct',
+          chatFontSizePx: 14,
+          toolPermissions: {
+            readActiveDocument: true,
+            readActiveSelection: true,
+            writeActiveDocument: true,
+            writeActiveSelection: true,
+            writeNewDocument: true,
+            sliceSearch: true,
+            workspaceGrep: true,
+            tavilyWebSearch: false,
+            fetchUrl: false,
+          },
+          openai: {
+            enabled: true,
+            baseUrl: null,
+            model: 'gpt-5.4',
+          },
+          tavily: {
+            enabled: false,
+            defaultSearchDepth: 'basic',
+            defaultMaxResults: 5,
+          },
+          fetch: {
+            aclText: '',
+            requestTimeoutMs: 15_000,
+            idleTimeoutMs: 5_000,
+            autoDisposeAfterMs: 60_000,
+            maxResponseBytes: 1_000_000,
+          },
+        },
+        safety: {
+          confirmBeforeFullDocumentOverwrite: true,
+          confirmBeforeNewDocumentFromAi: true,
+          confirmBeforeExternalUrlOpen: true,
+        },
+        updates: {
+          enabled: false,
+          autoCheckOnLaunch: false,
+          feedUrl: null,
         },
       }
 
-      const testWindow = window as Window & { mdvDesktop?: Partial<TestDesktopApi> }
-      const existingDesktop = testWindow.mdvDesktop ?? {}
+      type DesktopApi = NonNullable<Window['mdvDesktop']>
+
+      const testWindow = window as Window
+      const existingDesktop = testWindow.mdvDesktop as Partial<DesktopApi> | undefined
       let streamCallback: ((event: TestStreamEvent) => void) | null = null
 
-      testWindow.mdvDesktop = {
+      const nextDesktop = {
         ...existingDesktop,
-        platform: existingDesktop.platform ?? 'test',
+        platform: existingDesktop?.platform ?? 'test',
         settings: {
           getBootstrapSettings: () => ({
             hasPersistedSettings: false,
@@ -588,8 +858,36 @@ test.describe('AI chat streaming', () => {
           }),
           getSettings: async () => baseSettings,
           onSettingsChanged: () => () => {},
-          updateSettings: async () => baseSettings,
-          migrateLegacyTheme: async () => {},
+          updateSettings: async (patch) => {
+            void patch
+            return baseSettings
+          },
+          migrateLegacyTheme: async (themeMode) => {
+            void themeMode
+            return baseSettings
+          },
+          saveOpenAiApiKey: async (apiKey) => {
+            void apiKey
+            return {
+            openaiConfigured: true,
+            tavilyConfigured: false,
+            }
+          },
+          clearOpenAiApiKey: async () => ({
+            openaiConfigured: true,
+            tavilyConfigured: false,
+          }),
+          saveTavilyApiKey: async (apiKey) => {
+            void apiKey
+            return {
+            openaiConfigured: true,
+            tavilyConfigured: false,
+            }
+          },
+          clearTavilyApiKey: async () => ({
+            openaiConfigured: true,
+            tavilyConfigured: false,
+          }),
           getProviderStatus: async () => ({
             openaiConfigured: true,
             tavilyConfigured: false,
@@ -639,7 +937,9 @@ test.describe('AI chat streaming', () => {
             }
           }
         },
-      }
+      } satisfies Partial<DesktopApi>
+
+      testWindow.mdvDesktop = nextDesktop as DesktopApi
     })
     await aiPage.goto('/')
 
