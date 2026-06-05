@@ -22,6 +22,13 @@ import mermaid from 'mermaid'
 import { clearLegacyThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
 import ChatApp from './ai-chat/ChatApp'
+import {
+  applyTypographyToRoot,
+  clampChatFontSizePx,
+  clampEditorFontSizePx,
+  DEFAULT_CHAT_FONT_SIZE_PX,
+  DEFAULT_EDITOR_FONT_SIZE_PX,
+} from './shared/desktopTypography'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
 import './App.css'
@@ -750,6 +757,51 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
 
   if (key === '2') {
     return 'show-preview'
+  }
+
+  return null
+}
+
+type TypographyShortcutAction = 'increase' | 'decrease' | 'reset'
+type TypographyShortcutTarget = 'editor' | 'chat'
+
+function getTypographyShortcutAction(event: KeyboardEvent): TypographyShortcutAction | null {
+  if (event.defaultPrevented || event.isComposing || !isPrimaryModifierPressed(event) || event.altKey) {
+    return null
+  }
+
+  if (event.code === 'NumpadAdd' || event.key === '+' || event.key === '=') {
+    return 'increase'
+  }
+
+  if (event.code === 'NumpadSubtract' || event.key === '-') {
+    return 'decrease'
+  }
+
+  if (event.code === 'Digit0' || event.code === 'Numpad0' || event.key === '0') {
+    return 'reset'
+  }
+
+  return null
+}
+
+function getFocusedTypographyTarget(target: EventTarget | null): TypographyShortcutTarget | null {
+  const targetElement = target instanceof Element
+    ? target
+    : target instanceof Node
+      ? target.parentElement
+      : null
+
+  if (!targetElement) {
+    return null
+  }
+
+  if (targetElement.closest('.ai-chat-composer')) {
+    return 'chat'
+  }
+
+  if (targetElement.closest('.cm-scroller, .CodeMirror-scroll, .toastui-editor-md-container .toastui-editor, .toastui-editor-ww-container .ProseMirror')) {
+    return 'editor'
   }
 
   return null
@@ -1841,6 +1893,10 @@ function App() {
   const i18nRef = useRef(t)
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
+  const typographySettingsRef = useRef({
+    editorFontSizePx: clampEditorFontSizePx(bootstrap?.settings.editor.fontSizePx ?? DEFAULT_EDITOR_FONT_SIZE_PX),
+    chatFontSizePx: clampChatFontSizePx(bootstrap?.settings.ai.chatFontSizePx ?? DEFAULT_CHAT_FONT_SIZE_PX),
+  })
   const outlineRequestIdRef = useRef(0)
   const outlineListRef = useRef<HTMLDivElement | null>(null)
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
@@ -1956,6 +2012,12 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
+      typographySettingsRef.current = {
+        editorFontSizePx: clampEditorFontSizePx(nextSettings.editor.fontSizePx),
+        chatFontSizePx: clampChatFontSizePx(nextSettings.ai.chatFontSizePx),
+      }
+      applyTypographyToRoot(nextSettings)
+
       if (!isLocale(nextSettings.general.locale) || nextSettings.general.locale === localeRef.current) {
         return
       }
@@ -2191,14 +2253,14 @@ function App() {
     }
   }, [isPlaceholderDocument, outlineMarkdownText])
 
-  const syncActiveOutlineLine = useCallback((editor: ToastUiEditor | null = editorRef.current) => {
+  const syncActiveOutlineLine = (editor: ToastUiEditor | null = editorRef.current) => {
     if (!editor) {
       setActiveOutlineLine(null)
       return
     }
 
     setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
-  }, [editorRef, markdownText])
+  }
 
   useEffect(() => {
     const editor = editorRef.current
@@ -2216,8 +2278,15 @@ function App() {
       return
     }
 
-    syncActiveOutlineLine(editorRef.current)
-  }, [activePanel, markdownText, syncActiveOutlineLine])
+    const editor = editorRef.current
+
+    if (!editor) {
+      setActiveOutlineLine(null)
+      return
+    }
+
+    setActiveOutlineLine(getEditorSelectionStartLine(editor, markdownText))
+  }, [activePanel, markdownText])
 
   const activeOutlineIndex = useMemo(() => {
     if (isPlaceholderOutline || visibleHeadingOutline.length === 0 || activeOutlineLine === null) {
@@ -3529,6 +3598,57 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const typographyAction = getTypographyShortcutAction(event)
+
+      if (typographyAction) {
+        const target = getFocusedTypographyTarget(event.target)
+
+        if (!target) {
+          return
+        }
+
+        event.preventDefault()
+        const currentTypography = typographySettingsRef.current
+        const nextValue = target === 'chat'
+          ? typographyAction === 'reset'
+            ? DEFAULT_CHAT_FONT_SIZE_PX
+            : clampChatFontSizePx(currentTypography.chatFontSizePx + (typographyAction === 'increase' ? 1 : -1))
+          : typographyAction === 'reset'
+            ? DEFAULT_EDITOR_FONT_SIZE_PX
+            : clampEditorFontSizePx(currentTypography.editorFontSizePx + (typographyAction === 'increase' ? 1 : -1))
+
+        const patch = target === 'chat'
+          ? { ai: { chatFontSizePx: nextValue } }
+          : { editor: { fontSizePx: nextValue } }
+
+        typographySettingsRef.current = target === 'chat'
+          ? { ...currentTypography, chatFontSizePx: nextValue }
+          : { ...currentTypography, editorFontSizePx: nextValue }
+
+        void window.mdvDesktop?.settings.updateSettings(patch)
+          .then((updatedSettings) => {
+            typographySettingsRef.current = {
+              editorFontSizePx: clampEditorFontSizePx(updatedSettings.editor.fontSizePx),
+              chatFontSizePx: clampChatFontSizePx(updatedSettings.ai.chatFontSizePx),
+            }
+
+            setStatusText(
+              target === 'chat'
+                ? typographyAction === 'reset'
+                  ? i18nRef.current.app.status.chatFontSizeReset(updatedSettings.ai.chatFontSizePx)
+                  : i18nRef.current.app.status.chatFontSizeChanged(updatedSettings.ai.chatFontSizePx)
+                : typographyAction === 'reset'
+                  ? i18nRef.current.app.status.editorFontSizeReset(updatedSettings.editor.fontSizePx)
+                  : i18nRef.current.app.status.editorFontSizeChanged(updatedSettings.editor.fontSizePx),
+            )
+          })
+          .catch((error: unknown) => {
+            typographySettingsRef.current = currentTypography
+            setStatusText(error instanceof Error ? error.message : String(error))
+          })
+        return
+      }
+
       if (!event.defaultPrevented && !event.isComposing && isPrimaryModifierPressed(event) && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         focusEditorSearchRef.current()
@@ -3556,7 +3676,7 @@ function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [])
+  }, [t.app.status])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onServerCommand((command) => {

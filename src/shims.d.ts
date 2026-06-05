@@ -298,7 +298,7 @@ type MdvEditorCloseStatePayload = {
 }
 
 type MdvSettings = {
-  version: 2
+  version: 3
   general: {
     locale: MdvLocale
     themeMode: 'system' | 'light' | 'dark'
@@ -309,9 +309,11 @@ type MdvSettings = {
     initialEditType: 'markdown' | 'wysiwyg'
     showModeSwitch: boolean
     previewStyle: 'tab' | 'vertical'
+    fontSizePx: number
   }
   ai: {
     defaultWriteMode: 'direct' | 'suggest'
+    chatFontSizePx: number
     toolPermissions: {
       readActiveDocument: boolean
       readActiveSelection: boolean
@@ -358,6 +360,7 @@ type MdvSettingsPatch = {
   editor?: Partial<MdvSettings['editor']>
   ai?: {
     defaultWriteMode?: MdvSettings['ai']['defaultWriteMode']
+    chatFontSizePx?: MdvSettings['ai']['chatFontSizePx']
     toolPermissions?: Partial<MdvSettings['ai']['toolPermissions']>
     openai?: Partial<MdvSettings['ai']['openai']>
     tavily?: Partial<MdvSettings['ai']['tavily']>

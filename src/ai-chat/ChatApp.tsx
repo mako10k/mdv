@@ -552,7 +552,9 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
       return
     }
 
-    void refreshHeaderContext()
+    const refreshTimer = window.setTimeout(() => {
+      void refreshHeaderContext()
+    }, 0)
 
     const handleFocus = () => {
       void refreshHeaderContext()
@@ -572,6 +574,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
+      window.clearTimeout(refreshTimer)
       unsubscribe?.()
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)

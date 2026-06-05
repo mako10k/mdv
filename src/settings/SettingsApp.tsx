@@ -1,4 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  DEFAULT_CHAT_FONT_SIZE_PX,
+  DEFAULT_EDITOR_FONT_SIZE_PX,
+  MAX_CHAT_FONT_SIZE_PX,
+  MAX_EDITOR_FONT_SIZE_PX,
+  MIN_CHAT_FONT_SIZE_PX,
+  MIN_EDITOR_FONT_SIZE_PX,
+} from '../shared/desktopTypography'
 import { isThemeMode, useDesktopTheme, type ThemeMode } from '../shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from '../shared/i18n'
 
@@ -23,6 +31,9 @@ type UpdateDraft = {
   autoCheckOnLaunch: boolean
   feedUrl: string
 }
+
+const editorFontSizeOptions = Array.from({ length: MAX_EDITOR_FONT_SIZE_PX - MIN_EDITOR_FONT_SIZE_PX + 1 }, (_, index) => MIN_EDITOR_FONT_SIZE_PX + index)
+const chatFontSizeOptions = Array.from({ length: MAX_CHAT_FONT_SIZE_PX - MIN_CHAT_FONT_SIZE_PX + 1 }, (_, index) => MIN_CHAT_FONT_SIZE_PX + index)
 
 function updateSettingsWithStatus(
   patch: MdvSettingsPatch,
@@ -210,6 +221,22 @@ function SettingsApp() {
       .catch((error: unknown) => {
         setStatusText(error instanceof Error ? error.message : String(error))
       })
+  }
+
+  const handleEditorFontSizeChange = (nextFontSizePx: number) => {
+    updateSettingsWithStatus({
+      editor: {
+        fontSizePx: nextFontSizePx,
+      },
+    }, t.settings.status.savingTypographySettings, t.settings.status.typographySettingsSaved, setStatusText, setSettings)
+  }
+
+  const handleChatFontSizeChange = (nextFontSizePx: number) => {
+    updateSettingsWithStatus({
+      ai: {
+        chatFontSizePx: nextFontSizePx,
+      },
+    }, t.settings.status.savingTypographySettings, t.settings.status.typographySettingsSaved, setStatusText, setSettings)
   }
 
   const handleLocaleChange = (nextLocale: MdvLocale) => {
@@ -456,44 +483,78 @@ function SettingsApp() {
           {activeSection === 'General' ? (
             <section className="settings-card">
               <h2>{t.settings.sections.general}</h2>
-              <label className="settings-field">
-                <span>{t.settings.general.language}</span>
-                <select
-                  value={settings?.general.locale ?? 'en'}
-                  onChange={(event) => {
-                    const nextLocale = event.currentTarget.value
+              <div className="settings-field-row">
+                <label className="settings-field">
+                  <span>{t.settings.general.language}</span>
+                  <select
+                    value={settings?.general.locale ?? 'en'}
+                    onChange={(event) => {
+                      const nextLocale = event.currentTarget.value
 
-                    if (!isLocale(nextLocale)) {
-                      return
-                    }
+                      if (!isLocale(nextLocale)) {
+                        return
+                      }
 
-                    handleLocaleChange(nextLocale)
-                  }}
-                >
-                  <option value="ja">{t.common.japanese}</option>
-                  <option value="en">{t.common.english}</option>
-                </select>
-              </label>
-              <label className="settings-field">
-                <span>{t.settings.general.themeMode}</span>
-                <select
-                  value={themeMode}
-                  onChange={(event) => {
-                    const nextThemeMode = event.currentTarget.value
+                      handleLocaleChange(nextLocale)
+                    }}
+                  >
+                    <option value="ja">{t.common.japanese}</option>
+                    <option value="en">{t.common.english}</option>
+                  </select>
+                </label>
+                <label className="settings-field">
+                  <span>{t.settings.general.themeMode}</span>
+                  <select
+                    value={themeMode}
+                    onChange={(event) => {
+                      const nextThemeMode = event.currentTarget.value
 
-                    if (!isThemeMode(nextThemeMode)) {
-                      setStatusText(t.common.invalidThemeMode)
-                      return
-                    }
+                      if (!isThemeMode(nextThemeMode)) {
+                        setStatusText(t.common.invalidThemeMode)
+                        return
+                      }
 
-                    handleThemeChange(nextThemeMode)
-                  }}
-                >
-                  <option value="system">{t.common.system}</option>
-                  <option value="light">{t.common.light}</option>
-                  <option value="dark">{t.common.dark}</option>
-                </select>
-              </label>
+                      handleThemeChange(nextThemeMode)
+                    }}
+                  >
+                    <option value="system">{t.common.system}</option>
+                    <option value="light">{t.common.light}</option>
+                    <option value="dark">{t.common.dark}</option>
+                  </select>
+                </label>
+              </div>
+              <div className="settings-subsection">
+                <h3>{t.settings.general.typography}</h3>
+                <div className="settings-field-row">
+                  <label className="settings-field">
+                    <span>{t.settings.general.editorFontSize}</span>
+                    <select
+                      value={settings?.editor.fontSizePx ?? DEFAULT_EDITOR_FONT_SIZE_PX}
+                      onChange={(event) => {
+                        handleEditorFontSizeChange(Number(event.currentTarget.value))
+                      }}
+                    >
+                      {editorFontSizeOptions.map((fontSizePx) => (
+                        <option key={fontSizePx} value={fontSizePx}>{t.settings.general.pixelSize(fontSizePx)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="settings-field">
+                    <span>{t.settings.general.aiChatFontSize}</span>
+                    <select
+                      value={settings?.ai.chatFontSizePx ?? DEFAULT_CHAT_FONT_SIZE_PX}
+                      onChange={(event) => {
+                        handleChatFontSizeChange(Number(event.currentTarget.value))
+                      }}
+                    >
+                      {chatFontSizeOptions.map((fontSizePx) => (
+                        <option key={fontSizePx} value={fontSizePx}>{t.settings.general.pixelSize(fontSizePx)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <p className="settings-note">{t.settings.general.typographyNote}</p>
+              </div>
               <dl className="settings-facts">
                 <div>
                   <dt>{t.settings.general.openLinksBehavior}</dt>

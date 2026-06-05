@@ -139,7 +139,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       recoveryRestorePrompt: (name: string) => `${name} の自動保存内容が見つかりました。復元しますか？`,
       exportRequiresSavedFileForRelativeImages: '相対画像を含む HTML 書き出しには、先に Markdown ファイルを保存してください',
       exportInlineImageFailed: (source: string) => `相対画像を inline 化できませんでした: ${source}`,
-      statusbarHelp: '任意の場所へ .md / .markdown / .txt ファイルをドロップして開けます。画像ファイルのドロップまたは貼り付けは assets/ へ取り込んで相対参照を挿入します。ショートカット: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      statusbarHelp: '任意の場所へ .md / .markdown / .txt ファイルをドロップして開けます。画像ファイルのドロップまたは貼り付けは assets/ へ取り込んで相対参照を挿入します。ショートカット: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2, Ctrl/Cmd++, Ctrl/Cmd+-, Ctrl/Cmd+0',
       status: {
         createdNewDocument: '新規文書を作成しました',
         newDocumentCancelled: '新規文書の作成をキャンセルしました',
@@ -190,6 +190,10 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
         imageImportFailed: (message: string) => `画像の取り込みに失敗しました: ${message}`,
         aiInsertedContent: 'AI が内容を挿入しました',
         aiUpdatedDocument: 'AI が文書を更新しました',
+        editorFontSizeChanged: (size: number) => `エディタ文字サイズを ${size}px に変更しました`,
+        editorFontSizeReset: (size: number) => `エディタ文字サイズを ${size}px に戻しました`,
+        chatFontSizeChanged: (size: number) => `AI chat 文字サイズを ${size}px に変更しました`,
+        chatFontSizeReset: (size: number) => `AI chat 文字サイズを ${size}px に戻しました`,
       },
     },
     settings: {
@@ -215,10 +219,17 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       general: {
         themeMode: 'テーマモード',
         language: '表示言語',
+        typography: '表示密度',
+        editorFontSize: 'エディタ文字サイズ',
+        aiChatFontSize: 'AI chat 文字サイズ',
+        pixelSize: (size: number) => `${size}px`,
         openLinksBehavior: 'リンクを開く動作',
+        typographyNote: 'Ctrl/Cmd++、Ctrl/Cmd+-、Ctrl/Cmd+0 で、現在フォーカスしている editor または AI chat の文字サイズを変更できます。',
         note: 'テーマは即時反映されます。リンクの開き方は main process で制御されます。',
       },
       status: {
+        savingTypographySettings: '表示設定を保存中',
+        typographySettingsSaved: '表示設定を保存しました',
         savingOpenAiSettings: 'OpenAI 設定を保存中',
         openAiSettingsSaved: 'OpenAI 設定を保存しました',
         openAiApiKeyEmpty: 'OpenAI API キーを入力してください',
@@ -342,7 +353,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       updaterUpToDate: '最新です',
       updaterError: 'エラー',
       shortcutsTitle: '主なショートカット',
-      shortcutsValue: 'Ctrl/Cmd+N, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+F, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      shortcutsValue: 'Ctrl/Cmd+N, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2, Ctrl/Cmd++, Ctrl/Cmd+-, Ctrl/Cmd+0',
       note: '表示中の version、release tag、platform はアプリが内部で使っている値と同じです。更新状態は main process の updater runtime から取得しています。',
     },
     chat: {
@@ -541,7 +552,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       recoveryRestorePrompt: (name: string) => `An autosaved recovery for ${name} is available. Restore it?`,
       exportRequiresSavedFileForRelativeImages: 'Save the Markdown file before exporting HTML with relative images',
       exportInlineImageFailed: (source: string) => `Could not inline the relative image: ${source}`,
-      statusbarHelp: 'Drop a .md, .markdown, or .txt file anywhere to open it. Dropped or pasted image files are imported into assets/ and inserted as relative references. Shortcuts: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      statusbarHelp: 'Drop a .md, .markdown, or .txt file anywhere to open it. Dropped or pasted image files are imported into assets/ and inserted as relative references. Shortcuts: Ctrl/Cmd+N, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2, Ctrl/Cmd++, Ctrl/Cmd+-, Ctrl/Cmd+0',
       status: {
         createdNewDocument: 'Created a new document',
         newDocumentCancelled: 'Cancelled new document creation',
@@ -592,6 +603,10 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
         imageImportFailed: (message: string) => `Image import failed: ${message}`,
         aiInsertedContent: 'AI inserted content',
         aiUpdatedDocument: 'AI updated document',
+        editorFontSizeChanged: (size: number) => `Editor text size set to ${size}px`,
+        editorFontSizeReset: (size: number) => `Editor text size reset to ${size}px`,
+        chatFontSizeChanged: (size: number) => `AI chat text size set to ${size}px`,
+        chatFontSizeReset: (size: number) => `AI chat text size reset to ${size}px`,
       },
     },
     settings: {
@@ -617,10 +632,17 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       general: {
         themeMode: 'Theme mode',
         language: 'Language',
+        typography: 'Typography density',
+        editorFontSize: 'Editor text size',
+        aiChatFontSize: 'AI chat text size',
+        pixelSize: (size: number) => `${size}px`,
         openLinksBehavior: 'Open links behavior',
+        typographyNote: 'Ctrl/Cmd++, Ctrl/Cmd+-, and Ctrl/Cmd+0 adjust the text size of the editor or AI chat that currently has focus.',
         note: 'Theme updates live. Open link behavior is enforced in the main process.',
       },
       status: {
+        savingTypographySettings: 'Saving display settings',
+        typographySettingsSaved: 'Display settings saved',
         savingOpenAiSettings: 'Saving OpenAI settings',
         openAiSettingsSaved: 'OpenAI settings saved',
         openAiApiKeyEmpty: 'OpenAI API key cannot be empty',
@@ -744,7 +766,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       updaterUpToDate: 'Up to date',
       updaterError: 'Error',
       shortcutsTitle: 'Primary shortcuts',
-      shortcutsValue: 'Ctrl/Cmd+N, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+F, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2',
+      shortcutsValue: 'Ctrl/Cmd+N, Ctrl/Cmd+O, Ctrl/Cmd+S, Ctrl/Cmd+Shift+S, Ctrl/Cmd+F, Ctrl/Cmd+H, Ctrl/Cmd+Comma, Ctrl/Cmd+I, Ctrl/Cmd+1, Ctrl/Cmd+2, Ctrl/Cmd++, Ctrl/Cmd+-, Ctrl/Cmd+0',
       note: 'The version, release tag, and platform shown here match the values the app uses internally. Update status is read from the main-process updater runtime.',
     },
     chat: {

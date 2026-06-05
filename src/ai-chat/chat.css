@@ -545,8 +545,8 @@ body,
   padding: 10px 11px;
   box-sizing: border-box;
   font: inherit;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
   color: var(--text);
 }
 

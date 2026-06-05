@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { applyBootstrapTypography } from './shared/desktopTypography'
 import { applyBootstrapTheme } from './shared/useDesktopTheme'
 
 function logToDesktop(level: string, scope: string, message: unknown) {
@@ -24,6 +25,7 @@ window.addEventListener('unhandledrejection', (event) => {
 logToDesktop('info', 'renderer', 'Renderer bootstrap start')
 
 applyBootstrapTheme()
+applyBootstrapTypography()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

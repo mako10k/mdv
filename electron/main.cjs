@@ -4031,9 +4031,11 @@ function createDefaultSettings() {
       initialEditType: 'markdown',
       showModeSwitch: true,
       previewStyle: 'tab',
+      fontSizePx: 13,
     },
     ai: {
       defaultWriteMode: 'direct',
+      chatFontSizePx: 12,
       toolPermissions: {
         readActiveDocument: true,
         readActiveSelection: true,
@@ -4121,6 +4123,26 @@ function normalizeInitialEditType(value) {
 
 function normalizePreviewStyle(value) {
   return value === 'vertical' ? 'vertical' : 'tab'
+}
+
+function clampEditorFontSizePx(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return 13
+  }
+
+  return Math.min(18, Math.max(11, Math.round(numericValue)))
+}
+
+function clampChatFontSizePx(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return 12
+  }
+
+  return Math.min(16, Math.max(11, Math.round(numericValue)))
 }
 
 function normalizeWriteMode(value) {
@@ -4272,9 +4294,11 @@ function sanitizeSettings(candidate) {
       initialEditType: normalizeInitialEditType(merged.editor?.initialEditType),
       showModeSwitch: merged.editor?.showModeSwitch !== false,
       previewStyle: normalizePreviewStyle(merged.editor?.previewStyle),
+      fontSizePx: clampEditorFontSizePx(merged.editor?.fontSizePx),
     },
     ai: {
       defaultWriteMode: normalizeWriteMode(merged.ai?.defaultWriteMode),
+      chatFontSizePx: clampChatFontSizePx(merged.ai?.chatFontSizePx),
       toolPermissions: {
         readActiveDocument: toolPermissions?.readActiveDocument !== false,
         readActiveSelection: toolPermissions?.readActiveSelection !== false,
