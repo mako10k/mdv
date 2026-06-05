@@ -7,6 +7,11 @@ type ChatAppProps = {
   variant?: 'window' | 'dock'
   autoFocusNonce?: number
   onRequestClose?: () => void
+  defaultTargetContext?: {
+    title: string
+    currentFilePath: string | null
+    activePanel: 'write' | 'preview'
+  } | null
 }
 
 type ContextAttachmentKind = 'editor' | 'document' | 'selection'
@@ -473,7 +478,15 @@ function createContextAttachment(kind: ContextAttachmentKind, payload: {
   }
 }
 
-function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatAppProps) {
+function formatHeaderTargetPath(context: { currentFilePath: string | null } | null, chatText: ReturnType<typeof useI18n>['t']['chat']): string {
+  if (!context) {
+    return chatText.currentTargetMissing
+  }
+
+  return context.currentFilePath ?? chatText.untitledPath
+}
+
+function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, defaultTargetContext = null }: ChatAppProps) {
   const { resolvedTheme } = useDesktopTheme()
   const { t } = useI18n()
   const i18nRef = useRef(t)
@@ -494,6 +507,7 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
   const [composerText, setComposerText] = useState('')
   const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
   const [isSending, setIsSending] = useState(false)
+  const [headerContext, setHeaderContext] = useState<MdvAiContextPayload | null>(null)
   const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
   const inlineAttachmentTokenBudgetRef = useRef(inlineAttachmentTokenBudget)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
@@ -519,6 +533,52 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
 
     composerRef.current?.focus({ preventScroll: true })
   }, [variant, autoFocusNonce])
+
+  const refreshHeaderContext = useEffectEvent(async () => {
+    if (defaultTargetContext) {
+      return
+    }
+
+    try {
+      const nextContext = await window.mdvDesktop?.getAiChatContext() ?? null
+      setHeaderContext(nextContext)
+    } catch {
+      setHeaderContext(null)
+    }
+  })
+
+  useEffect(() => {
+    if (defaultTargetContext) {
+      return
+    }
+
+    void refreshHeaderContext()
+
+    const handleFocus = () => {
+      void refreshHeaderContext()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshHeaderContext()
+      }
+    }
+
+    const unsubscribe = window.mdvDesktop?.onCurrentFileChanged(() => {
+      void refreshHeaderContext()
+    })
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      unsubscribe?.()
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [defaultTargetContext])
+
+  const resolvedHeaderContext = defaultTargetContext ?? headerContext
 
   useEffect(() => {
     let active = true
@@ -1117,6 +1177,11 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose }: ChatA
           <p className="ai-chat-eyebrow">{t.chat.eyebrow}</p>
           <h1>{t.chat.title}</h1>
           <p className="ai-chat-subtitle">{t.chat.subtitle}</p>
+          <div className="ai-chat-target-card" aria-live="polite">
+            <p className="ai-chat-target-label">{t.chat.currentTargetLabel}</p>
+            <p className="ai-chat-target-title">{resolvedHeaderContext?.title ?? t.chat.currentTargetMissing}</p>
+            <p className="ai-chat-target-path">{formatHeaderTargetPath(resolvedHeaderContext, t.chat)}</p>
+          </div>
         </div>
         <div className="ai-chat-header-actions">
           <div className="ai-chat-toast-stack" aria-live="polite" aria-relevant="additions text">

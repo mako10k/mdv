@@ -4034,6 +4034,11 @@ function App() {
               <ChatApp
                 variant="dock"
                 autoFocusNonce={assistantFocusNonce}
+                defaultTargetContext={{
+                  title: displayTitle,
+                  currentFilePath,
+                  activePanel,
+                }}
                 onRequestClose={() => {
                   closeAssistantDock()
                 }}
