@@ -83,7 +83,7 @@
 注記:
 
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](docs/adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
-- 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供を含める
+- 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 
 ## Usernote Intake
@@ -143,18 +143,33 @@
 
 ### AI-P2 Current Product Gaps
 
-1. dock 前提の現行 AI バックログへ再分解する
-2. workspace grep を assistant tool surface に追加する
-3. slice 加工系 `nl` / `cut` / `sort` を追加する
-4. suggest mode と audit trail を追加する
+1. dock 前提の AI-P2 残件整理と優先順位再評価を続ける
+2. AI-TL-001 GH Issue の閲覧 / 発行 tool surface を追加する
+3. workspace grep を assistant tool surface に追加する
+4. slice 加工系 `nl` / `cut` / `sort` を追加する
 5. AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
 6. AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
 7. AI-UX-003 INSTRUCTION / SKILL / HOOK の責務境界と優先順位を整理する
-8. AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
+8. AI-CFG-001 Custom Prompt を編集・切替できる customization surface を追加する
+9. AI-CFG-002 SKILL を登録・有効化・切替できる runtime surface を追加する
+10. AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
+11. suggest mode と audit trail を追加する
+12. AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
 
 asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) の workspace / asset foundation を前提にするため、MD-BL-005 とその後続 implementation phase に従属させ、AI-P2 の一部として foundation 完了後に扱う。
+
+AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](docs/ai-tool-customization-backlog.md) を参照する。release 前チェックは [docs/release-workflow.md](docs/release-workflow.md) で扱う。
+
+注記:
+
+- AI-TL-001 は issue 一覧、個票取得、新規 Issue 作成を first slice とし、追加 mutation は後続で評価する
+- AI-CFG-001 と AI-CFG-002 は user-facing 機能として別 backlog にするが、先に AI-UX-003 で instruction / custom prompt / skill / hook の責務境界を整理してから実装する
+- AI-CFG-001 は prompt 文面編集だけでなく、適用範囲、差分確認、rollback、どの会話から有効になるかの policy を含める
+- AI-CFG-002 は SKILL の自動注入条件、優先順位、可視化、失敗時診断を含め、単なる prompt 断片管理にしない
+- AI-CFG-003 は固定 model 選択を置き換える product backlog とし、model ID、provider、context window、価格、deprecation 状態、default 推奨を registry 正本で管理する
+- AI-CFG-003 の release completeness は REL-BL-001 と release workflow 側で管理し、ここでは user-facing picker と metadata surface の整備を主対象にする
 
 ### AI-P3 Context Management
 
@@ -218,7 +233,7 @@ asset tool 群は [docs/local-asset-storage-design.md](docs/local-asset-storage-
 3. MD-BL-006, MD-BL-007
 4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
 5. REL-BL-001 update foundation と version metadata surface
-6. AI-P2 の再分解と tool surface 残件の整理
+6. AI-P2 の残件整理と tool surface 残件の優先順位見直し
 7. AI-P3 context management
 8. AI-CM context lifecycle
 9. AI-P4 subagent orchestration

@@ -98,7 +98,7 @@ npm run mdast:build
 - OpenAI live chat は settings の OpenAI enabled が有効で、settings に保存した API key または `OPENAI_API_KEY` があるときに main process 経由で送信できます
 - Tavily web search は settings の Tavily enabled が有効で、settings に保存した API key または `TAVILY_API_KEY` があるときに main process 経由で利用できます
 - `fetch_url` は settings の fetch permission が有効で、fetch permissions window に保存した YAML ACL に従って main process で判定されます。ACL は origin / path ごとに method、header、forced header、pending を扱えます。pending に一致した場合は main process ダイアログで、許可して保存 / 拒否して保存 / 今回のみ実行 / 今回は実行しない、を選べます。大きいレスポンスを temp buffer へ退避した場合は auto-dispose が出力 lifecycle に適用されます
-- `MDV_OPENAI_MODEL` は OpenAI model の初期値として使われ、`MDV_OPENAI_BASE_URL` は settings に base URL が無いときの fallback として使われます
+- `MDV_OPENAI_MODEL` は settings 未設定時の bootstrap 用 fallback として使われます。model registry 導入後は registry 既知の modelId だけを受け付け、未知値は warning 扱いになります。`MDV_OPENAI_BASE_URL` は settings に base URL が無いときの fallback として使われます
 
 ## Windows 配布 / host build
 
@@ -270,16 +270,17 @@ npm run dist:win:dir
 2. `npm run lint && npm run build` を通す。
 3. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
 4. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
-5. 必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
-6. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
-7. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
-8. version bump、対応する Windows artifact、release notes を同じ release slice として commit する。
-9. tag 作成直前は `npm run release:check` を通す。
-10. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
-11. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
-12. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
-13. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
-14. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+5. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で配置した candidate を対象に、[docs/release-workflow.md](docs/release-workflow.md) の model registry preflight を実施する。
+6. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
+7. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
+8. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
+9. version bump、対応する Windows artifact、release notes を同じ release slice として commit する。
+10. tag 作成直前は `npm run release:check` を通す。
+11. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
+12. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
+13. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
+14. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
+15. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
 
 installer auto-update を GitHub Release asset で使う場合の feed URL は、通常 `https://github.com/<owner>/<repo>/releases/latest/download` を設定します。
 

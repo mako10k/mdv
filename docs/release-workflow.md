@@ -23,16 +23,30 @@
 2. `npm run lint && npm run build` を通す
 3. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
 4. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
-5. 必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置して検証する
-6. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
-7. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
-8. version bump と artifact と release notes を同じ release commit として commit する
-9. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
-10. `secdat exec git push origin main` で `main` へ push する
-11. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
-12. `secdat exec git push origin vX.Y.Z` を実行する
-13. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
-14. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
+5. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、その配置物を対象に model registry preflight を実施する
+6. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
+7. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
+8. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
+9. version bump と artifact と release notes を同じ release commit として commit する
+10. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
+11. `secdat exec git push origin main` で `main` へ push する
+12. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
+13. `secdat exec git push origin vX.Y.Z` を実行する
+14. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
+15. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
+
+model registry preflight の観点例:
+
+- settings UI の選択肢が registry 正本と一致している
+- default として表示される model が意図した release 既定値になっている
+- UI 表示している価格 metadata が registry と一致している
+- deprecated / unavailable 扱いの model が通常選択肢に残っていない
+- registry 非掲載の legacy model 値が warning と migration 導線付きで扱われる
+- `get_app_metadata` が settings UI と同じ registry facts を返す
+
+first slice ではこの確認は手動でよいが、確認に使った画面、`get_app_metadata` の取得結果、または出力断面を release 作業メモへ残す。
+
+settings UI と `get_app_metadata` が食い違った場合は、main process の model registry 正本を基準に差分原因を解消してから release を進める。
 
 ## Internal Packaging Refresh
 
@@ -47,7 +61,7 @@ canonical path の `release/windows-host` を直接更新せず、candidate 生�
 
 ## Commands
 
-release candidate check:
+release check:
 
 ```bash
 npm run release:check
@@ -62,13 +76,13 @@ npm run release:check:candidate
 candidate artifact generate:
 
 ```bash
-npm run win:host:generate:noadmin
+npm run win:host:generate:clean:noadmin
 ```
 
 candidate artifact generate (native Windows PowerShell):
 
 ```powershell
-.\scripts\build-win-host.ps1 -Action generate
+.\scripts\build-win-host.ps1 -Action generate -Clean
 ```
 
 candidate local deploy:

@@ -154,10 +154,17 @@ AI が使う操作面。
 - merge_context_items
 - delete_context_item
 
+planned additions:
+
+- list_github_issues
+- get_github_issue
+- create_github_issue
+
 注記:
 
 - 現行で実装済みの contract は文書冒頭の Summary と Current Scaffold Scope を正とする
 - この節より下に出てくる `grep_slice` / `nl` / `cut` / `sort` / `stats` は旧分解を含む後続候補であり、現行 shipped tool 名ではない
+- 上の planned additions は AI-TL-001 の first slice 候補であり、現時点では未実装である
 - asset は editor text と異なる file semantics を持つため、`read` / `write` に雑に混ぜず、read 系参照と mutation 系 tool を分ける
 - local asset の詳細方針は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を参照する
 
@@ -323,7 +330,7 @@ type ContextTransportPolicy = {
 - 5% を超える attachment は本文を直貼りせず、`EditorID + SPAN + 概要` の hint だけを送る
 - hint を受けた model は必要箇所だけ `read` を繰り返して取得する
 
-model context window は model ごとの既知値を settings または model registry で管理し、未知モデルでは保守的な fallback を使う。
+selected model ID は settings から解決し、その model の metadata と context window は model registry 正本から解決する。未知モデルでは保守的な fallback を使う。registry 正本の shape と cross-surface 配布は [docs/ai-model-registry-design.md](docs/ai-model-registry-design.md) を参照する。
 
 ### Important API Adjustment
 
@@ -866,7 +873,7 @@ Settings 実装後の優先順位:
 1. settings store
 2. environment variable fallback
 
-環境変数は、settings UI 未設定時の bootstrap と managed deployment の補助経路として残す。
+環境変数は、settings UI 未設定時の bootstrap と managed deployment の補助経路として残す。model については registry 既知の `modelId` だけを受け付け、未知値は warning と migration 導線を返す。
 
 ### System Prompt Policy
 
