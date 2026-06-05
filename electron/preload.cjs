@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 const pendingOpenFileRequests = []
+const pendingAiEditorRequests = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
 const aiChatStreamListeners = new Set()
@@ -24,6 +25,10 @@ ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
 ipcRenderer.on('mdv:ai-editor-request', (_event, request) => {
   for (const listener of aiEditorRequestListeners) {
     listener(request)
+  }
+
+  if (aiEditorRequestListeners.size === 0) {
+    pendingAiEditorRequests.push(request)
   }
 })
 
@@ -182,6 +187,10 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   },
   onAiEditorRequest: (callback) => {
     aiEditorRequestListeners.add(callback)
+
+    while (pendingAiEditorRequests.length > 0) {
+      callback(pendingAiEditorRequests.shift())
+    }
 
     return () => {
       aiEditorRequestListeners.delete(callback)

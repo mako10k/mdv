@@ -219,3 +219,56 @@ test('typing into a fresh untitled document in WYSIWYG mode does not crash the r
     await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {})
   }
 })
+
+test('AI write_target with :new creates a populated new document window', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-new-document-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+
+  const app = await launchElectronApp({
+    userDataDir,
+    dialogResponses: {
+      messageBox: [{ response: 0 }],
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+    const nextWindowPromise = app.waitForEvent('window')
+
+    const writeResult = await page.evaluate(async () => {
+      return window.mdvDesktop?.writeAiTarget({
+        destination: {
+          editorId: ':new',
+          span: { kind: 'document' },
+        },
+        sources: [
+          {
+            type: 'literal',
+            text: '# Draft\n\nCreated by AI.\n',
+          },
+        ],
+        mode: 'replace',
+        title: 'Draft.md',
+      })
+    })
+
+    const nextPage = await nextWindowPromise
+
+    expect(writeResult).toMatchObject({
+      created: true,
+      mode: 'replace',
+      text: '# Draft\n\nCreated by AI.\n',
+    })
+
+    await openWritePanel(nextPage)
+    await expect.poll(async () => nextPage.title()).toMatch(/Draft\.md\*? - MDV/i)
+    await expect(nextPage.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Created by AI.')
+    await expect(nextPage.locator('.editor-sample-placeholder')).toHaveCount(0)
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {})
+  }
+})

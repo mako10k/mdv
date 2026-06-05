@@ -3405,6 +3405,7 @@ function App() {
           setDisplayTitle(request.title.trim())
         }
 
+        shouldCanonicalizeLoadedBaselineRef.current = false
         applyMarkdownContent(updatedMarkdown, request.mode === 'replace' ? i18nRef.current.app.status.aiUpdatedDocument : i18nRef.current.app.status.aiInsertedContent)
 
         window.mdvDesktop?.sendAiEditorResponse({
