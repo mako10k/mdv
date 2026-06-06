@@ -1,9 +1,129 @@
-// @ts-nocheck
-const fs = require('node:fs')
-const fsPromises = require('node:fs/promises')
-const path = require('node:path')
+const fs = require('node:fs') as typeof import('node:fs')
+const fsPromises = require('node:fs/promises') as typeof import('node:fs/promises')
+const path = require('node:path') as typeof import('node:path')
 
-function createSettingsController(options) {
+type ThemeMode = 'light' | 'dark' | 'system'
+type LocaleCode = 'ja' | 'en'
+type StartPanel = 'preview' | 'write'
+type OpenLinksBehavior = 'block-untrusted' | 'confirm-if-untrusted'
+type InitialEditType = 'wysiwyg' | 'markdown'
+type PreviewStyle = 'vertical' | 'tab'
+type WriteMode = 'suggest' | 'direct'
+type SearchDepth = 'advanced' | 'basic'
+
+type FetchSettings = {
+  aclText: string
+  requestTimeoutMs: number
+  idleTimeoutMs: number
+  autoDisposeAfterMs: number
+  maxResponseBytes: number
+}
+
+type ToolPermissions = {
+  readActiveDocument: boolean
+  readActiveSelection: boolean
+  writeActiveDocument: boolean
+  writeActiveSelection: boolean
+  writeNewDocument: boolean
+  sliceSearch: boolean
+  workspaceGrep: boolean
+  tavilyWebSearch: boolean
+  fetchUrl: boolean
+}
+
+type SettingsState = {
+  version: 3
+  general: {
+    locale: LocaleCode
+    themeMode: ThemeMode
+    defaultStartPanel: StartPanel
+    openLinksBehavior: OpenLinksBehavior
+  }
+  editor: {
+    initialEditType: InitialEditType
+    showModeSwitch: boolean
+    previewStyle: PreviewStyle
+    fontSizePx: number
+  }
+  ai: {
+    defaultWriteMode: WriteMode
+    chatFontSizePx: number
+    toolPermissions: ToolPermissions
+    openai: {
+      enabled: boolean
+      baseUrl: string | null
+      model: string
+    }
+    tavily: {
+      enabled: boolean
+      defaultSearchDepth: SearchDepth
+      defaultMaxResults: number
+    }
+    fetch: FetchSettings
+  }
+  safety: {
+    confirmBeforeFullDocumentOverwrite: boolean
+    confirmBeforeNewDocumentFromAi: boolean
+    confirmBeforeExternalUrlOpen: boolean
+  }
+  updates: {
+    enabled: boolean
+    autoCheckOnLaunch: boolean
+    feedUrl: string | null
+  }
+}
+
+type SecretsState = {
+  openaiApiKey: string | null
+  tavilyApiKey: string | null
+}
+
+type ProviderStatus = {
+  openaiConfigured: boolean
+  tavilyConfigured: boolean
+}
+
+type LegacyFetchConfig = Record<string, unknown>
+type PlainObject = Record<string, unknown>
+type SettingsControllerOptions = {
+  settingsPath: string
+  secretsPath: string
+  defaultOpenAiModel: string
+  defaultUpdateFeedUrl: string | null
+  appLocale: string
+  createDefaultFetchAclText: () => string
+  migrateLegacyFetchConfig: (candidateFetch: LegacyFetchConfig) => string
+  assertSafeFetchAclText: (value: unknown) => string
+  DEFAULT_FETCH_REQUEST_TIMEOUT_MS: number
+  DEFAULT_FETCH_IDLE_TIMEOUT_MS: number
+  DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS: number
+  DEFAULT_FETCH_MAX_RESPONSE_BYTES: number
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+}
+
+type SettingsController = {
+  createDefaultSettings: () => SettingsState
+  getHasPersistedSettings: () => boolean
+  getHasReadableSettings: () => boolean
+  getProviderStatus: () => ProviderStatus
+  getSecretsState: () => SecretsState
+  getSettingsState: () => SettingsState
+  isPlainObject: (value: unknown) => value is PlainObject
+  mergePlainObjects: <T>(base: T, patch: unknown) => T
+  normalizeAllowedHeaderList: (value: unknown) => string[]
+  normalizeAllowedMethodList: (value: unknown) => string[]
+  normalizeSecret: (value: unknown) => string | null
+  persistSecrets: () => Promise<void>
+  persistSettings: () => Promise<void>
+  sanitizeSecrets: (candidate: Record<string, unknown> | null | undefined) => SecretsState
+  sanitizeSettings: (candidate: Record<string, unknown> | null | undefined) => SettingsState
+  setSecretsState: (nextSecretsState: SecretsState) => void
+  setSettingsState: (nextSettingsState: SettingsState) => void
+}
+
+type LoadSettingsFn = (() => SettingsState) & { didLoadPersisted?: boolean }
+
+function createSettingsController(options: SettingsControllerOptions): SettingsController {
   const {
     settingsPath,
     secretsPath,
@@ -20,54 +140,56 @@ function createSettingsController(options) {
     writeLog,
   } = options
 
-  function isPlainObject(value) {
+  function isPlainObject(value: unknown): value is PlainObject {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
   }
 
-  function mergePlainObjects(base, patch) {
+  function mergePlainObjects<T>(base: T, patch: unknown): T {
     if (!isPlainObject(base) || !isPlainObject(patch)) {
-      return patch
+      return patch as T
     }
 
-    const merged = { ...base }
+    const merged: PlainObject = { ...base }
 
     for (const [key, value] of Object.entries(patch)) {
-      if (isPlainObject(value) && isPlainObject(merged[key])) {
-        merged[key] = mergePlainObjects(merged[key], value)
+      const currentValue = merged[key]
+
+      if (isPlainObject(value) && isPlainObject(currentValue)) {
+        merged[key] = mergePlainObjects(currentValue, value)
         continue
       }
 
       merged[key] = value
     }
 
-    return merged
+    return merged as T
   }
 
-  function normalizeThemeMode(value) {
+  function normalizeThemeMode(value: unknown): ThemeMode {
     return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
   }
 
-  function normalizeLocale(value) {
+  function normalizeLocale(value: unknown): LocaleCode {
     return typeof value === 'string' && value.toLowerCase().startsWith('ja') ? 'ja' : 'en'
   }
 
-  function normalizeStartPanel(value) {
+  function normalizeStartPanel(value: unknown): StartPanel {
     return value === 'preview' ? 'preview' : 'write'
   }
 
-  function normalizeOpenLinksBehavior(value) {
+  function normalizeOpenLinksBehavior(value: unknown): OpenLinksBehavior {
     return value === 'block-untrusted' ? 'block-untrusted' : 'confirm-if-untrusted'
   }
 
-  function normalizeInitialEditType(value) {
+  function normalizeInitialEditType(value: unknown): InitialEditType {
     return value === 'wysiwyg' ? 'wysiwyg' : 'markdown'
   }
 
-  function normalizePreviewStyle(value) {
+  function normalizePreviewStyle(value: unknown): PreviewStyle {
     return value === 'vertical' ? 'vertical' : 'tab'
   }
 
-  function clampEditorFontSizePx(value) {
+  function clampEditorFontSizePx(value: unknown) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return 13
@@ -75,7 +197,7 @@ function createSettingsController(options) {
     return Math.min(18, Math.max(11, Math.round(numericValue)))
   }
 
-  function clampChatFontSizePx(value) {
+  function clampChatFontSizePx(value: unknown) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return 12
@@ -83,11 +205,11 @@ function createSettingsController(options) {
     return Math.min(16, Math.max(11, Math.round(numericValue)))
   }
 
-  function normalizeWriteMode(value) {
+  function normalizeWriteMode(value: unknown): WriteMode {
     return value === 'suggest' ? 'suggest' : 'direct'
   }
 
-  function normalizeOpenAiModel(value) {
+  function normalizeOpenAiModel(value: unknown) {
     if (typeof value !== 'string') {
       return defaultOpenAiModel
     }
@@ -96,15 +218,15 @@ function createSettingsController(options) {
     return trimmedValue.length === 0 ? defaultOpenAiModel : trimmedValue
   }
 
-  function normalizeSearchDepth(value) {
+  function normalizeSearchDepth(value: unknown): SearchDepth {
     return value === 'advanced' ? 'advanced' : 'basic'
   }
 
-  function normalizeSecret(value) {
+  function normalizeSecret(value: unknown) {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
   }
 
-  function normalizeUpdateFeedUrl(value) {
+  function normalizeUpdateFeedUrl(value: unknown) {
     if (typeof value !== 'string' || value.trim().length === 0) {
       return null
     }
@@ -120,7 +242,7 @@ function createSettingsController(options) {
     }
   }
 
-  function clampDefaultMaxResults(value) {
+  function clampDefaultMaxResults(value: unknown) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return 5
@@ -128,18 +250,18 @@ function createSettingsController(options) {
     return Math.min(10, Math.max(1, Math.round(numericValue)))
   }
 
-  function sanitizeStringList(value) {
+  function sanitizeStringList(value: unknown) {
     if (!Array.isArray(value)) {
       return []
     }
 
     return Array.from(new Set(value
-      .filter((entry) => typeof entry === 'string')
+      .filter((entry): entry is string => typeof entry === 'string')
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0)))
   }
 
-  function normalizeAllowedMethodList(value) {
+  function normalizeAllowedMethodList(value: unknown) {
     const normalized = sanitizeStringList(value)
       .map((entry) => entry.toUpperCase())
       .filter((entry) => /^[A-Z]+$/.test(entry))
@@ -147,13 +269,13 @@ function createSettingsController(options) {
     return normalized.length > 0 ? normalized : ['GET']
   }
 
-  function normalizeAllowedHeaderList(value) {
+  function normalizeAllowedHeaderList(value: unknown) {
     return sanitizeStringList(value)
       .map((entry) => entry.toLowerCase())
       .filter((entry) => /^[a-z0-9-]+$/.test(entry))
   }
 
-  function normalizeFetchAclTextSetting(candidateFetch, fallbackFetch) {
+  function normalizeFetchAclTextSetting(candidateFetch: unknown, fallbackFetch: FetchSettings) {
     if (isPlainObject(candidateFetch) && Object.prototype.hasOwnProperty.call(candidateFetch, 'aclText') && typeof candidateFetch.aclText === 'string') {
       return assertSafeFetchAclText(candidateFetch.aclText)
     }
@@ -169,10 +291,10 @@ function createSettingsController(options) {
       return assertSafeFetchAclText(migrateLegacyFetchConfig(candidateFetch))
     }
 
-    return assertSafeFetchAclText(fallbackFetch?.aclText)
+    return assertSafeFetchAclText(fallbackFetch.aclText)
   }
 
-  function clampFetchTimeoutMs(value, fallback) {
+  function clampFetchTimeoutMs(value: unknown, fallback: number) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return fallback
@@ -180,7 +302,7 @@ function createSettingsController(options) {
     return Math.min(120_000, Math.max(1_000, Math.round(numericValue)))
   }
 
-  function clampFetchAutoDisposeMs(value) {
+  function clampFetchAutoDisposeMs(value: unknown) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return DEFAULT_FETCH_AUTO_DISPOSE_AFTER_MS
@@ -188,7 +310,7 @@ function createSettingsController(options) {
     return Math.min(24 * 60 * 60_000, Math.max(10_000, Math.round(numericValue)))
   }
 
-  function clampFetchResponseBytes(value) {
+  function clampFetchResponseBytes(value: unknown) {
     const numericValue = Number(value)
     if (!Number.isFinite(numericValue)) {
       return DEFAULT_FETCH_MAX_RESPONSE_BYTES
@@ -196,7 +318,7 @@ function createSettingsController(options) {
     return Math.min(4 * 1024 * 1024, Math.max(16 * 1024, Math.round(numericValue)))
   }
 
-  function createDefaultSettings() {
+  function createDefaultSettings(): SettingsState {
     return {
       version: 3,
       general: {
@@ -256,9 +378,11 @@ function createSettingsController(options) {
     }
   }
 
-  function sanitizeSettings(candidate) {
+  function sanitizeSettings(candidate: Record<string, unknown> | null | undefined): SettingsState {
     const defaults = createDefaultSettings()
     const merged = isPlainObject(candidate) ? mergePlainObjects(defaults, candidate) : defaults
+    const candidateAi = isPlainObject(candidate?.ai) ? candidate.ai : null
+    const candidateFetch = isPlainObject(candidateAi?.fetch) ? candidateAi.fetch : null
     const toolPermissions = merged.ai?.toolPermissions
     const hasExplicitSliceSearch = isPlainObject(toolPermissions) && Object.prototype.hasOwnProperty.call(toolPermissions, 'sliceSearch')
     const normalizedSliceSearch = hasExplicitSliceSearch ? toolPermissions.sliceSearch !== false : true
@@ -304,7 +428,7 @@ function createSettingsController(options) {
           defaultMaxResults: clampDefaultMaxResults(merged.ai?.tavily?.defaultMaxResults),
         },
         fetch: {
-          aclText: normalizeFetchAclTextSetting(candidate?.ai?.fetch, defaults.ai.fetch),
+          aclText: normalizeFetchAclTextSetting(candidateFetch, defaults.ai.fetch),
           requestTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.requestTimeoutMs, DEFAULT_FETCH_REQUEST_TIMEOUT_MS),
           idleTimeoutMs: clampFetchTimeoutMs(merged.ai?.fetch?.idleTimeoutMs, DEFAULT_FETCH_IDLE_TIMEOUT_MS),
           autoDisposeAfterMs: clampFetchAutoDisposeMs(merged.ai?.fetch?.autoDisposeAfterMs),
@@ -324,14 +448,14 @@ function createSettingsController(options) {
     }
   }
 
-  function sanitizeSecrets(candidate) {
+  function sanitizeSecrets(candidate: Record<string, unknown> | null | undefined): SecretsState {
     return {
       openaiApiKey: normalizeSecret(candidate?.openaiApiKey),
       tavilyApiKey: normalizeSecret(candidate?.tavilyApiKey),
     }
   }
 
-  function loadSettings() {
+  const loadSettings: LoadSettingsFn = function loadSettings() {
     try {
       if (!fs.existsSync(settingsPath)) {
         loadSettings.didLoadPersisted = false
@@ -340,7 +464,7 @@ function createSettingsController(options) {
 
       const raw = fs.readFileSync(settingsPath, 'utf8')
       loadSettings.didLoadPersisted = true
-      return sanitizeSettings(JSON.parse(raw))
+      return sanitizeSettings(JSON.parse(raw) as Record<string, unknown>)
     } catch (error) {
       loadSettings.didLoadPersisted = false
       writeLog('WARN', 'settings', 'Falling back to default settings', error instanceof Error ? error.message : String(error))
@@ -350,14 +474,14 @@ function createSettingsController(options) {
 
   loadSettings.didLoadPersisted = false
 
-  function loadSecrets() {
+  function loadSecrets(): SecretsState {
     try {
       if (!fs.existsSync(secretsPath)) {
         return sanitizeSecrets({})
       }
 
       const raw = fs.readFileSync(secretsPath, 'utf8')
-      return sanitizeSecrets(JSON.parse(raw))
+      return sanitizeSecrets(JSON.parse(raw) as Record<string, unknown>)
     } catch (error) {
       writeLog('WARN', 'settings', 'Falling back to empty secrets store', error instanceof Error ? error.message : String(error))
       return sanitizeSecrets({})
@@ -367,7 +491,7 @@ function createSettingsController(options) {
   let settingsState = loadSettings()
   let secretsState = loadSecrets()
   let hasPersistedSettings = fs.existsSync(settingsPath)
-  let hasReadableSettings = loadSettings.didLoadPersisted === true
+  let hasReadableSettings = Boolean(loadSettings.didLoadPersisted)
 
   async function persistSettings() {
     await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true })
@@ -381,7 +505,7 @@ function createSettingsController(options) {
     await fsPromises.writeFile(secretsPath, `${JSON.stringify(secretsState, null, 2)}\n`, 'utf8')
   }
 
-  function getProviderStatus() {
+  function getProviderStatus(): ProviderStatus {
     return {
       openaiConfigured: secretsState.openaiApiKey !== null,
       tavilyConfigured: secretsState.tavilyApiKey !== null,
