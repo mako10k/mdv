@@ -1,5 +1,116 @@
-// @ts-nocheck
-const path = require('node:path')
+const path = require('node:path') as typeof import('node:path')
+
+type LaunchRequest = {
+  filePath?: string | null
+  explicitInitialPanel?: string | null
+}
+
+type MenuMessages = {
+  file: string
+  newDocument: string
+  open: string
+  save: string
+  saveAs: string
+  settings: string
+  view: string
+  aiChat: string
+  editor: string
+  renderedPreview: string
+  help: string
+  about: string
+}
+
+type MainI18n = {
+  menu: MenuMessages
+}
+
+type BrowserWindowLike = {
+  id: number
+  webContents: {
+    send: (channel: string, payload?: unknown) => void
+    on: (event: string, handler: (...args: unknown[]) => void) => void
+    getURL: () => string
+    isLoading: () => boolean
+    openDevTools: (options: { mode: 'detach' }) => void
+  }
+  loadURL: (url: string) => void
+  loadFile: (filePath: string) => void
+  on: (event: string, handler: (...args: unknown[]) => void) => void
+  once: (event: string, handler: (...args: unknown[]) => void) => void
+  close: () => void
+  show: () => void
+  focus: () => void
+  restore: () => void
+  isDestroyed: () => boolean
+  isVisible: () => boolean
+  isMinimized: () => boolean
+}
+
+type BrowserWindowStatic = {
+  new (options: Record<string, unknown>): BrowserWindowLike
+  getAllWindows: () => BrowserWindowLike[]
+  getFocusedWindow: () => BrowserWindowLike | null
+  fromId: (id: number) => BrowserWindowLike | null
+}
+
+type MenuStatic = {
+  setApplicationMenu: (menu: unknown) => void
+  buildFromTemplate: (template: Array<Record<string, unknown>>) => unknown
+}
+
+type WindowStateMap = Map<number, LaunchRequest & { initialPanel?: string | null }>
+type WindowTimerMap = Map<number, ReturnType<typeof setTimeout>>
+
+type WindowControllerDependencies = {
+  BrowserWindow: BrowserWindowStatic
+  Menu: MenuStatic
+  isDev: boolean
+  windowIcon: string | null
+  preloadPath: string
+  rendererDistPath: string
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+  getMainI18n: () => MainI18n
+  focusWindow: (window: BrowserWindowLike) => void
+  approveWindowClose: (window: BrowserWindowLike) => void
+  approvedWindowCloseIds: Set<number>
+  pendingWindowCloseIds: Set<number>
+  resolveInitialPanelForLaunch: (launchRequest: LaunchRequest | null | undefined) => string | null
+  findEditorWindowByTrackedFilePath: (filePath: string) => BrowserWindowLike | null
+  getPendingLaunchRequest: () => LaunchRequest | null
+  setPendingLaunchRequest: (launchRequest: LaunchRequest | null) => void
+  launchStateByWindowId: WindowStateMap
+  hiddenLaunchRevealTimerByWindowId: WindowTimerMap
+  emitDebugChannelEvent: (type: string, payload?: unknown) => void
+  confirmEditorWindowClose: (window: BrowserWindowLike) => Promise<void>
+  clearEditorRuntimeState: (windowId: number) => void
+  isManagedClient: () => boolean
+  registerManagedClient: (window: BrowserWindowLike) => Promise<void>
+  setManagedMainWindow: (window: BrowserWindowLike) => void
+}
+
+type WindowOpenResult = {
+  status: 'focused' | 'opened'
+}
+
+type WindowController = {
+  attachWindowLogging: (mainWindow: BrowserWindowLike, initialLaunchRequest?: LaunchRequest | null) => void
+  createApplicationMenu: () => void
+  createWindow: (initialLaunchRequest?: LaunchRequest | null) => Promise<BrowserWindowLike>
+  closeAuxiliaryWindowsForEditor: (editorWindow: BrowserWindowLike) => void
+  dispatchOpenFileToWindow: (targetWindow: BrowserWindowLike | null | undefined, launchRequest: LaunchRequest | null | undefined) => void
+  getAboutWindow: () => BrowserWindowLike | null
+  getDefaultEditorWindow: () => BrowserWindowLike | null
+  getEditorWindowForAiAction: (candidateWindow: BrowserWindowLike | null | undefined) => BrowserWindowLike | null
+  getSettingsWindow: () => BrowserWindowLike | null
+  handleEditorWindowClosed: (editorWindowId: number) => void
+  isEditorWindow: (targetWindow: BrowserWindowLike | null | undefined) => boolean
+  loadRendererWindow: (targetWindow: BrowserWindowLike, htmlFileName: string) => void
+  openAboutWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
+  openAiChatWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
+  openFetchPermissionsWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
+  openSettingsWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
+  queueOrDispatchOpenFile: (launchRequest: LaunchRequest | null | undefined) => void
+}
 
 function createWindowController({
   BrowserWindow,
@@ -26,15 +137,15 @@ function createWindowController({
   isManagedClient,
   registerManagedClient,
   setManagedMainWindow,
-}) {
-  let settingsWindow = null
-  let settingsWindowOwnerEditorId = null
-  let fetchPermissionsWindow = null
-  let fetchPermissionsWindowOwnerEditorId = null
-  let aboutWindow = null
-  let aboutWindowOwnerEditorId = null
+}: WindowControllerDependencies): WindowController {
+  let settingsWindow: BrowserWindowLike | null = null
+  let settingsWindowOwnerEditorId: number | null = null
+  let fetchPermissionsWindow: BrowserWindowLike | null = null
+  let fetchPermissionsWindowOwnerEditorId: number | null = null
+  let aboutWindow: BrowserWindowLike | null = null
+  let aboutWindowOwnerEditorId: number | null = null
 
-  function loadRendererWindow(targetWindow, htmlFileName) {
+  function loadRendererWindow(targetWindow: BrowserWindowLike, htmlFileName: string) {
     if (isDev) {
       targetWindow.loadURL(`http://localhost:5173/${htmlFileName}`)
       return
@@ -43,19 +154,19 @@ function createWindowController({
     targetWindow.loadFile(path.join(rendererDistPath, htmlFileName))
   }
 
-  function isSettingsWindow(targetWindow) {
-    return Boolean(settingsWindow) && Boolean(targetWindow) && settingsWindow.id === targetWindow.id
+  function isSettingsWindow(targetWindow: BrowserWindowLike | null | undefined) {
+    return Boolean(settingsWindow?.id) && Boolean(targetWindow?.id) && settingsWindow?.id === targetWindow?.id
   }
 
-  function isFetchPermissionsWindow(targetWindow) {
-    return Boolean(fetchPermissionsWindow) && Boolean(targetWindow) && fetchPermissionsWindow.id === targetWindow.id
+  function isFetchPermissionsWindow(targetWindow: BrowserWindowLike | null | undefined) {
+    return Boolean(fetchPermissionsWindow?.id) && Boolean(targetWindow?.id) && fetchPermissionsWindow?.id === targetWindow?.id
   }
 
-  function isAboutWindow(targetWindow) {
-    return Boolean(aboutWindow) && Boolean(targetWindow) && aboutWindow.id === targetWindow.id
+  function isAboutWindow(targetWindow: BrowserWindowLike | null | undefined) {
+    return Boolean(aboutWindow?.id) && Boolean(targetWindow?.id) && aboutWindow?.id === targetWindow?.id
   }
 
-  function isEditorWindow(targetWindow) {
+  function isEditorWindow(targetWindow: BrowserWindowLike | null | undefined) {
     return Boolean(targetWindow) && !isSettingsWindow(targetWindow) && !isFetchPermissionsWindow(targetWindow) && !isAboutWindow(targetWindow)
   }
 
@@ -63,7 +174,7 @@ function createWindowController({
     return BrowserWindow.getAllWindows().find((targetWindow) => isEditorWindow(targetWindow)) ?? null
   }
 
-  function getEditorWindowForAiAction(candidateWindow) {
+  function getEditorWindowForAiAction(candidateWindow: BrowserWindowLike | null | undefined) {
     if (!candidateWindow) {
       return getDefaultEditorWindow()
     }
@@ -104,7 +215,7 @@ function createWindowController({
     return candidateWindow
   }
 
-  function sendMenuAction(action) {
+  function sendMenuAction(action: string) {
     const targetWindow = getEditorWindowForAiAction(BrowserWindow.getFocusedWindow())
       ?? BrowserWindow.getAllWindows().find((targetWindow) => isEditorWindow(targetWindow))
 
@@ -117,7 +228,7 @@ function createWindowController({
     targetWindow.webContents.send('mdv:menu-action', action)
   }
 
-  function openAiChatWindow(targetWindow) {
+  function openAiChatWindow(targetWindow: BrowserWindowLike | null | undefined): WindowOpenResult {
     const editorWindow = getEditorWindowForAiAction(targetWindow)
 
     if (!editorWindow || editorWindow.isDestroyed()) {
@@ -132,7 +243,7 @@ function createWindowController({
     return { status: 'opened' }
   }
 
-  function createAuxiliaryWindow(options) {
+  function createAuxiliaryWindow(options: Record<string, unknown>) {
     return new BrowserWindow({
       ...options,
       backgroundColor: '#fffaf4',
@@ -146,7 +257,7 @@ function createWindowController({
     })
   }
 
-  function openSettingsWindow(targetWindow) {
+  function openSettingsWindow(targetWindow: BrowserWindowLike | null | undefined): WindowOpenResult {
     const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
 
     if (!ownerEditorWindow && (!settingsWindow || settingsWindow.isDestroyed())) {
@@ -182,7 +293,7 @@ function createWindowController({
     return { status: 'opened' }
   }
 
-  function openFetchPermissionsWindow(targetWindow) {
+  function openFetchPermissionsWindow(targetWindow: BrowserWindowLike | null | undefined): WindowOpenResult {
     const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
 
     if (!ownerEditorWindow && (!fetchPermissionsWindow || fetchPermissionsWindow.isDestroyed())) {
@@ -218,7 +329,7 @@ function createWindowController({
     return { status: 'opened' }
   }
 
-  function openAboutWindow(targetWindow) {
+  function openAboutWindow(targetWindow: BrowserWindowLike | null | undefined): WindowOpenResult {
     const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
 
     if (!ownerEditorWindow && (!aboutWindow || aboutWindow.isDestroyed())) {
@@ -254,7 +365,7 @@ function createWindowController({
     return { status: 'opened' }
   }
 
-  function closeAuxiliaryWindowsForEditor(editorWindow) {
+  function closeAuxiliaryWindowsForEditor(editorWindow: BrowserWindowLike) {
     if (settingsWindowOwnerEditorId === editorWindow.id && settingsWindow && !settingsWindow.isDestroyed()) {
       approveWindowClose(settingsWindow)
       settingsWindow.close()
@@ -266,7 +377,7 @@ function createWindowController({
     }
   }
 
-  function handleEditorWindowClosed(editorWindowId) {
+  function handleEditorWindowClosed(editorWindowId: number) {
     if (settingsWindowOwnerEditorId === editorWindowId) {
       settingsWindowOwnerEditorId = null
     }
@@ -295,7 +406,7 @@ function createWindowController({
 
   function createApplicationMenu() {
     const messages = getMainI18n().menu
-    const template = [
+    const template: Array<Record<string, unknown>> = [
       ...(process.platform === 'darwin'
         ? [{ role: 'appMenu' }]
         : []),
@@ -327,7 +438,7 @@ function createWindowController({
           {
             label: messages.settings,
             accelerator: 'CmdOrCtrl+,',
-            click: () => openSettingsWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
+            click: () => openSettingsWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null),
           },
           { type: 'separator' },
           process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
@@ -339,7 +450,7 @@ function createWindowController({
           {
             label: messages.aiChat,
             accelerator: 'CmdOrCtrl+I',
-            click: () => openAiChatWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
+            click: () => openAiChatWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null),
           },
           { type: 'separator' },
           {
@@ -363,7 +474,7 @@ function createWindowController({
         submenu: [
           {
             label: messages.about,
-            click: () => openAboutWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]),
+            click: () => openAboutWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null),
           },
         ],
       },
@@ -372,27 +483,27 @@ function createWindowController({
     Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   }
 
-  function dispatchOpenFileToWindow(targetWindow, launchRequest) {
+  function dispatchOpenFileToWindow(targetWindow: BrowserWindowLike | null | undefined, launchRequest: LaunchRequest | null | undefined) {
     if (!targetWindow || (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel)) {
       return
     }
 
     const resolvedLaunchRequest = {
-      filePath: launchRequest?.filePath || null,
+      filePath: launchRequest.filePath || null,
       initialPanel: resolveInitialPanelForLaunch(launchRequest),
-      isInitialLaunch: !targetWindow.isVisible() && Boolean(launchRequest?.filePath),
+      isInitialLaunch: !targetWindow.isVisible() && Boolean(launchRequest.filePath),
     }
 
     writeLog('INFO', 'main', 'Dispatch launch/open file request', resolvedLaunchRequest)
     targetWindow.webContents.send('mdv:open-file-requested', resolvedLaunchRequest)
   }
 
-  function queueOrDispatchOpenFile(launchRequest) {
+  function queueOrDispatchOpenFile(launchRequest: LaunchRequest | null | undefined) {
     if (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel) {
       return
     }
 
-    const existingWindow = launchRequest?.filePath ? findEditorWindowByTrackedFilePath(launchRequest.filePath) : null
+    const existingWindow = launchRequest.filePath ? findEditorWindowByTrackedFilePath(launchRequest.filePath) : null
 
     if (existingWindow) {
       writeLog('INFO', 'main', 'Focused existing editor for launch/open file request', {
@@ -414,7 +525,7 @@ function createWindowController({
     dispatchOpenFileToWindow(targetWindow, launchRequest)
   }
 
-  function attachWindowLogging(mainWindow, initialLaunchRequest = null) {
+  function attachWindowLogging(mainWindow: BrowserWindowLike, initialLaunchRequest: LaunchRequest | null = null) {
     mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
       writeLog('ERROR', 'webContents', 'did-fail-load', {
         errorCode,
@@ -451,7 +562,7 @@ function createWindowController({
     })
   }
 
-  async function createWindow(initialLaunchRequest = null) {
+  async function createWindow(initialLaunchRequest: LaunchRequest | null = null) {
     const mainWindow = new BrowserWindow({
       width: 1600,
       height: 980,
@@ -478,7 +589,8 @@ function createWindowController({
       initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
     })
 
-    mainWindow.on('close', (event) => {
+    mainWindow.on('close', (...args: unknown[]) => {
+      const event = args[0] as { preventDefault: () => void }
       if (approvedWindowCloseIds.delete(mainWindow.id)) {
         return
       }
