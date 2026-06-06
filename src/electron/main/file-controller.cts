@@ -1,5 +1,156 @@
-// @ts-nocheck
-const path = require('node:path')
+const path = require('node:path') as typeof import('node:path')
+
+type MessageBoxResult = {
+  response: number
+}
+
+type SaveDialogResult = {
+  canceled: boolean
+  filePath?: string
+}
+
+type FileSnapshot = {
+  path: string
+  contentHash?: string
+  size?: number
+  mtimeMs?: number | null
+}
+
+type OptionalUtf8File = {
+  path: string
+  content: string
+  snapshot: FileSnapshot
+} | null
+
+type SettingsState = {
+  general: {
+    openLinksBehavior: string
+  }
+  safety: {
+    confirmBeforeExternalUrlOpen: boolean
+  }
+}
+
+type MainI18n = {
+  buttons: {
+    cancel: string
+    close: string
+    overwriteSave: string
+    saveAs: string
+    mergeSave: string
+  }
+  externalLink: {
+    allowAndRemember: string
+    openOnce: string
+    title: string
+    message: string
+    suggestedRuleLabel: string
+  }
+  fileDialog: {
+    markdownFilter: string
+    htmlFilter: string
+    allFilesFilter: string
+  }
+  saveConflict: {
+    title: string
+    message: string
+    detail: (targetPath: string) => string
+    mergePreviewTitle: string
+    mergePreviewMessage: string
+    mergePreviewDetail: (targetPath: string, preview: string) => string
+    mergePreviewContinue: string
+    mergeFailedTitle: string
+    mergeFailedMessage: string
+  }
+}
+
+type PendingImportedAsset = {
+  filePath: string
+  relativePath?: string
+}
+
+type SaveContentPayload = {
+  content?: string
+  path?: string
+  forceDialog?: boolean
+  defaultFileName?: string
+  expectedSnapshot?: FileSnapshot | null
+  baseContent?: string
+  draftWorkspace?: object | null
+  recoveryKey?: string | null
+  pendingImportedAssets?: PendingImportedAsset[]
+}
+
+type SaveContentResult =
+  | { status: 'cancelled' }
+  | { status: 'merge-failed', message: string }
+  | { status: 'saved', path: string, content: string, snapshot: FileSnapshot }
+
+type SaveHtmlPayload = {
+  content?: string
+  defaultFileName?: string
+}
+
+type HtmlExportResult = {
+  path: string
+} | null
+
+type LinkOpenResult = {
+  status: 'blocked' | 'cancelled' | 'opened'
+}
+
+type ParentWindowLike = unknown
+
+type FsLike = {
+  readFileSync: (filePath: string, encoding: 'utf8') => string
+  mkdirSync: (filePath: string, options: { recursive: true }) => void
+  writeFileSync: (filePath: string, content: string, encoding: 'utf8') => void
+}
+
+type FsPromisesLike = {
+  writeFile: (filePath: string, content: string, encoding: 'utf8') => Promise<void>
+  stat: (filePath: string) => Promise<{ mtimeMs?: number }>
+  readFile: (filePath: string) => Promise<Buffer>
+}
+
+type FileControllerDependencies = {
+  fs: FsLike
+  fsPromises: FsPromisesLike
+  shell: {
+    openExternal: (href: string) => Promise<void>
+  }
+  allowedLinkRulesPath: string
+  getMainI18n: () => MainI18n
+  getSettingsState: () => SettingsState
+  showMessageBox: (parentWindow: ParentWindowLike, options: Record<string, unknown>) => Promise<MessageBoxResult>
+  showSaveDialog: (parentWindow: ParentWindowLike, options: Record<string, unknown>) => Promise<SaveDialogResult>
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+  readOptionalUtf8File: (filePath: string) => Promise<OptionalUtf8File>
+  areFileSnapshotsEqual: (left: FileSnapshot | null, right: FileSnapshot | null) => boolean
+  buildMergePreviewText: (baseContent: string, content: string, mergedContent: string, currentDiskContent: string) => string
+  createPatch: (filePath: string, baseContent: string, content: string) => string
+  applyPatch: (currentDiskContent: string, patch: string) => string | false
+  materializeDraftWorkspaceAssets: (
+    draftWorkspace: object | null | undefined,
+    targetPath: string,
+    content: string,
+    recoveryKey: string | null | undefined,
+  ) => Promise<string>
+  materializePendingImportedAssets: (
+    pendingImportedAssets: PendingImportedAsset[] | undefined,
+    currentPath: string,
+    targetPath: string,
+    content: string,
+  ) => Promise<string>
+  buildFileSnapshot: (filePath: string, content: string, stat: { mtimeMs?: number }) => FileSnapshot
+}
+
+type FileController = {
+  openExternalLink: (parentWindow: ParentWindowLike, href: string) => Promise<LinkOpenResult>
+  readRelativeAssetAsDataUrl: (baseFilePath: string, source: string) => Promise<{ path: string, dataUrl: string } | null>
+  saveContentToPath: (parentWindow: ParentWindowLike, payload: SaveContentPayload | undefined) => Promise<SaveContentResult>
+  saveHtmlExportToPath: (parentWindow: ParentWindowLike, payload: SaveHtmlPayload | undefined) => Promise<HtmlExportResult>
+}
 
 function createFileController({
   fs,
@@ -19,19 +170,19 @@ function createFileController({
   materializeDraftWorkspaceAssets,
   materializePendingImportedAssets,
   buildFileSnapshot,
-}) {
+}: FileControllerDependencies): FileController {
   let allowedLinkRules = loadAllowedLinkRules()
 
-  function loadAllowedLinkRules() {
+  function loadAllowedLinkRules(): string[] {
     try {
       const raw = fs.readFileSync(allowedLinkRulesPath, 'utf8')
-      const parsed = JSON.parse(raw)
+      const parsed: unknown = JSON.parse(raw)
 
       if (!Array.isArray(parsed)) {
         return []
       }
 
-      return parsed.filter((rule) => typeof rule === 'string' && rule.length > 0)
+      return parsed.filter((rule): rule is string => typeof rule === 'string' && rule.length > 0)
     } catch {
       return []
     }
@@ -42,15 +193,15 @@ function createFileController({
     fs.writeFileSync(allowedLinkRulesPath, JSON.stringify(allowedLinkRules, null, 2), 'utf8')
   }
 
-  function isSupportedExternalUrl(targetUrl) {
+  function isSupportedExternalUrl(targetUrl: URL) {
     return targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:'
   }
 
-  function createAllowedLinkRule(targetUrl) {
+  function createAllowedLinkRule(targetUrl: URL) {
     return `${targetUrl.origin}/*`
   }
 
-  function isUrlAllowed(targetUrl) {
+  function isUrlAllowed(targetUrl: URL) {
     return allowedLinkRules.some((rule) => {
       if (rule.endsWith('*')) {
         return targetUrl.href.startsWith(rule.slice(0, -1))
@@ -60,7 +211,7 @@ function createFileController({
     })
   }
 
-  function registerAllowedLinkRule(rule) {
+  function registerAllowedLinkRule(rule: string) {
     if (allowedLinkRules.includes(rule)) {
       return
     }
@@ -69,7 +220,7 @@ function createFileController({
     saveAllowedLinkRules()
   }
 
-  async function confirmExternalNavigation(parentWindow, targetUrl) {
+  async function confirmExternalNavigation(parentWindow: ParentWindowLike, targetUrl: URL) {
     const messages = getMainI18n()
     const suggestedRule = createAllowedLinkRule(targetUrl)
     const response = await showMessageBox(parentWindow, {
@@ -91,8 +242,8 @@ function createFileController({
     return response.response === 1
   }
 
-  async function openExternalLink(parentWindow, href) {
-    let targetUrl
+  async function openExternalLink(parentWindow: ParentWindowLike, href: string): Promise<LinkOpenResult> {
+    let targetUrl: URL
 
     try {
       targetUrl = new URL(href)
@@ -134,17 +285,17 @@ function createFileController({
     return { status: 'opened' }
   }
 
-  async function saveContentToPath(parentWindow, payload) {
-    const content = typeof payload?.content === 'string' ? payload.content : ''
-    const currentPath = typeof payload?.path === 'string' ? payload.path : ''
-    const forceDialog = payload?.forceDialog === true
-    const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
+  async function saveContentToPath(parentWindow: ParentWindowLike, payload: SaveContentPayload = {}): Promise<SaveContentResult> {
+    const content = typeof payload.content === 'string' ? payload.content : ''
+    const currentPath = typeof payload.path === 'string' ? payload.path : ''
+    const forceDialog = payload.forceDialog === true
+    const defaultFileName = typeof payload.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
       ? payload.defaultFileName.trim()
       : 'document.md'
-    const expectedSnapshot = payload?.expectedSnapshot && typeof payload.expectedSnapshot === 'object'
+    const expectedSnapshot = payload.expectedSnapshot && typeof payload.expectedSnapshot === 'object'
       ? payload.expectedSnapshot
       : null
-    const baseContent = typeof payload?.baseContent === 'string' ? payload.baseContent : content
+    const baseContent = typeof payload.baseContent === 'string' ? payload.baseContent : content
 
     let targetPath = currentPath
 
@@ -212,7 +363,7 @@ function createFileController({
             throw new Error('The local file no longer exists, so merge save is unavailable.')
           }
 
-          if (typeof payload?.baseContent !== 'string') {
+          if (typeof payload.baseContent !== 'string') {
             throw new Error('Merge save requires the last synchronized document content.')
           }
 
@@ -280,11 +431,11 @@ function createFileController({
       }
     }
 
-    if (!currentPath && (payload?.draftWorkspace || payload?.recoveryKey)) {
-      nextContent = await materializeDraftWorkspaceAssets(payload.draftWorkspace, targetPath, nextContent, payload?.recoveryKey)
+    if (!currentPath && (payload.draftWorkspace || payload.recoveryKey)) {
+      nextContent = await materializeDraftWorkspaceAssets(payload.draftWorkspace, targetPath, nextContent, payload.recoveryKey)
     }
 
-    if (currentPath && targetPath !== currentPath && payload?.pendingImportedAssets) {
+    if (currentPath && targetPath !== currentPath && payload.pendingImportedAssets) {
       nextContent = await materializePendingImportedAssets(payload.pendingImportedAssets, currentPath, targetPath, nextContent)
     }
 
@@ -300,9 +451,9 @@ function createFileController({
     }
   }
 
-  async function saveHtmlExportToPath(parentWindow, payload) {
-    const content = typeof payload?.content === 'string' ? payload.content : ''
-    const defaultFileName = typeof payload?.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
+  async function saveHtmlExportToPath(parentWindow: ParentWindowLike, payload: SaveHtmlPayload = {}): Promise<HtmlExportResult> {
+    const content = typeof payload.content === 'string' ? payload.content : ''
+    const defaultFileName = typeof payload.defaultFileName === 'string' && payload.defaultFileName.trim().length > 0
       ? payload.defaultFileName.trim()
       : 'document.html'
     const messages = getMainI18n()
@@ -327,7 +478,7 @@ function createFileController({
     }
   }
 
-  function getMimeTypeForFile(filePath) {
+  function getMimeTypeForFile(filePath: string) {
     switch (path.extname(filePath).toLowerCase()) {
       case '.png':
         return 'image/png'
@@ -351,11 +502,11 @@ function createFileController({
     }
   }
 
-  function isInlineExportImagePath(filePath) {
+  function isInlineExportImagePath(filePath: string) {
     return getMimeTypeForFile(filePath).startsWith('image/')
   }
 
-  async function readRelativeAssetAsDataUrl(baseFilePath, source) {
+  async function readRelativeAssetAsDataUrl(baseFilePath: string, source: string) {
     const normalizedBasePath = typeof baseFilePath === 'string' ? baseFilePath.trim() : ''
     const normalizedSource = typeof source === 'string' ? source.trim() : ''
 
