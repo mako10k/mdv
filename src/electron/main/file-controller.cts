@@ -152,6 +152,34 @@ type FileController = {
   saveHtmlExportToPath: (parentWindow: ParentWindowLike, payload: SaveHtmlPayload | undefined) => Promise<HtmlExportResult>
 }
 
+function getMimeTypeForFile(filePath: string) {
+  switch (path.extname(filePath).toLowerCase()) {
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.gif':
+      return 'image/gif'
+    case '.webp':
+      return 'image/webp'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.bmp':
+      return 'image/bmp'
+    case '.ico':
+      return 'image/x-icon'
+    case '.avif':
+      return 'image/avif'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+function isInlineExportImagePath(filePath: string) {
+  return getMimeTypeForFile(filePath).startsWith('image/')
+}
+
 function createFileController({
   fs,
   fsPromises,
@@ -478,34 +506,6 @@ function createFileController({
     }
   }
 
-  function getMimeTypeForFile(filePath: string) {
-    switch (path.extname(filePath).toLowerCase()) {
-      case '.png':
-        return 'image/png'
-      case '.jpg':
-      case '.jpeg':
-        return 'image/jpeg'
-      case '.gif':
-        return 'image/gif'
-      case '.webp':
-        return 'image/webp'
-      case '.svg':
-        return 'image/svg+xml'
-      case '.bmp':
-        return 'image/bmp'
-      case '.ico':
-        return 'image/x-icon'
-      case '.avif':
-        return 'image/avif'
-      default:
-        return 'application/octet-stream'
-    }
-  }
-
-  function isInlineExportImagePath(filePath: string) {
-    return getMimeTypeForFile(filePath).startsWith('image/')
-  }
-
   async function readRelativeAssetAsDataUrl(baseFilePath: string, source: string) {
     const normalizedBasePath = typeof baseFilePath === 'string' ? baseFilePath.trim() : ''
     const normalizedSource = typeof source === 'string' ? source.trim() : ''
@@ -553,6 +553,8 @@ function createFileController({
   }
 }
 
-module.exports = {
+export {
   createFileController,
+  getMimeTypeForFile,
+  isInlineExportImagePath,
 }

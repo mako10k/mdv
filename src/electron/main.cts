@@ -30,7 +30,11 @@ const { createDebugChannelController } = require('./main/debug-channel.cjs')
 const { createE2eDialogController } = require('./main/dialogs.cjs')
 const { buildMergePreviewText, getMainI18n: getMainI18nForSettings } = require('./main/i18n.cjs')
 const { createAutosaveRecoveryStore } = require('./main/autosave-recovery.cjs')
-const { createFileController } = require('./main/file-controller.cjs')
+const {
+  createFileController,
+  getMimeTypeForFile,
+  isInlineExportImagePath,
+} = require('./main/file-controller.cjs')
 const { registerAppLifecycle } = require('./main/lifecycle.cjs')
 const { registerMainIpcHandlers } = require('./main/main-ipc.cjs')
 const { createCloseController } = require('./main/close-controller.cjs')
