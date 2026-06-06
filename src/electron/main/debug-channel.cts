@@ -1,15 +1,50 @@
-// @ts-nocheck
-const http = require('node:http')
+const http = require('node:http') as typeof import('node:http')
 
-function formatDebugChannelEvent(event) {
+type IncomingMessage = import('node:http').IncomingMessage
+type Server = import('node:http').Server
+type ServerResponse = import('node:http').ServerResponse<IncomingMessage>
+
+type DebugChannelEvent = {
+  id: string
+  type: string
+  timestamp: string
+  payload: unknown
+}
+
+type ServerResponseLike = ServerResponse & {
+  write: (chunk: string) => boolean
+  end: (chunk?: string) => void
+}
+
+type DebugChannelState = {
+  port: number
+  nextEventId: number
+  server: Server | null
+  clients: Set<ServerResponseLike>
+  history: DebugChannelEvent[]
+}
+
+type DebugChannelControllerOptions = {
+  port: number | null | undefined
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+}
+
+type DebugChannelController = {
+  emitEvent: (type: string, payload?: unknown) => void
+  startServer: () => void
+  stopServer: () => void
+  getState: () => DebugChannelState | null
+}
+
+function formatDebugChannelEvent(event: DebugChannelEvent) {
   return `event: mdv-debug\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`
 }
 
-function readDebugChannelRequestBody(request) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
+function readDebugChannelRequestBody(request: IncomingMessage) {
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = []
 
-    request.on('data', (chunk) => {
+    request.on('data', (chunk: Buffer | string) => {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
     })
 
@@ -21,7 +56,11 @@ function readDebugChannelRequestBody(request) {
   })
 }
 
-function createDebugChannelController(options) {
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object'
+}
+
+function createDebugChannelController(options: DebugChannelControllerOptions): DebugChannelController {
   const { port, writeLog } = options
 
   if (!port) {
@@ -35,7 +74,7 @@ function createDebugChannelController(options) {
     }
   }
 
-  const state = {
+  const state: DebugChannelState = {
     port,
     nextEventId: 0,
     server: null,
@@ -43,10 +82,10 @@ function createDebugChannelController(options) {
     history: [],
   }
 
-  function emitEvent(type, payload = null) {
+  function emitEvent(type: string, payload: unknown = null) {
     state.nextEventId += 1
 
-    const event = {
+    const event: DebugChannelEvent = {
       id: String(state.nextEventId),
       type,
       timestamp: new Date().toISOString(),
@@ -81,28 +120,29 @@ function createDebugChannelController(options) {
       }
 
       if (request.method === 'GET' && requestUrl.pathname === '/events') {
+        const eventResponse = response as ServerResponseLike
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
           'cache-control': 'no-cache, no-transform',
           connection: 'keep-alive',
           'access-control-allow-origin': '*',
         })
-        response.write(': connected\n\n')
-        state.clients.add(response)
+        eventResponse.write(': connected\n\n')
+        state.clients.add(eventResponse)
 
         if (requestUrl.searchParams.get('replay') !== '0') {
           for (const event of state.history) {
-            response.write(formatDebugChannelEvent(event))
+            eventResponse.write(formatDebugChannelEvent(event))
           }
         }
 
         const heartbeat = setInterval(() => {
-          response.write(': heartbeat\n\n')
+          eventResponse.write(': heartbeat\n\n')
         }, 15_000)
 
         request.on('close', () => {
           clearInterval(heartbeat)
-          state.clients.delete(response)
+          state.clients.delete(eventResponse)
         })
         return
       }
@@ -110,12 +150,13 @@ function createDebugChannelController(options) {
       if (request.method === 'POST' && requestUrl.pathname === '/publish') {
         try {
           const rawBody = await readDebugChannelRequestBody(request)
-          const parsedBody = rawBody.trim().length > 0 ? JSON.parse(rawBody) : {}
-          const eventType = typeof parsedBody?.type === 'string' && parsedBody.type.trim().length > 0
-            ? parsedBody.type.trim()
+          const parsedBody: unknown = rawBody.trim().length > 0 ? JSON.parse(rawBody) : {}
+          const parsedRecord = isObjectRecord(parsedBody) ? parsedBody : null
+          const eventType = typeof parsedRecord?.type === 'string' && parsedRecord.type.trim().length > 0
+            ? parsedRecord.type.trim()
             : 'external:message'
 
-          emitEvent(eventType, parsedBody?.payload ?? null)
+          emitEvent(eventType, parsedRecord?.payload ?? null)
           response.writeHead(202, { 'content-type': 'application/json; charset=utf-8' })
           response.end(JSON.stringify({ ok: true }))
         } catch (error) {
@@ -132,8 +173,8 @@ function createDebugChannelController(options) {
       response.end(JSON.stringify({ ok: false, error: 'Not found' }))
     })
 
-    server.on('error', (error) => {
-      writeLog('ERROR', 'debug-channel', 'Debug channel server failed', error instanceof Error ? error.message : String(error))
+    server.on('error', (error: Error) => {
+      writeLog('ERROR', 'debug-channel', 'Debug channel server failed', error.message)
     })
 
     server.listen(state.port, '127.0.0.1', () => {
