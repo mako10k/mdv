@@ -87,10 +87,11 @@
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 - ENG-BL-001 の 2026-06-06 時点の進捗:
   - 完了: `electron/main.cjs` を薄い wrapper へ縮退し、実体を `src/electron/main.cts` と `src/electron/main/*.cts` へ移した
-  - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close の責務分解
-  - 残件: save / open / export / link handling などファイル I/O と dialog orchestration の controller 分離
-  - 残件: main process controller 群の node-level unit tests 追加と、window close / launch dispatch / settings persistence の回帰固定
-  - 残件: `@ts-nocheck` を controller 単位で剥がし、依存注入境界の型を先に固定してから `main.cts` 本体の型付けへ進む
+  - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close / file / draft workspace / managed client の責務分解
+  - 完了: controller 群の node-level unit tests を追加し、window close / launch dispatch / settings persistence / updater / debug channel / dialogs / recovery / runtime / i18n / managed client の基本回帰を固定した
+  - 完了: controller 群の `@ts-nocheck` を概ね剥がし、依存注入境界の型を先に固定した
+  - 残件: `src/electron/main.cts` に残る tracked-file watcher / file snapshot / AI tool orchestration / semantic cache / fetch / structure mutation などの巨大責務をさらに controller 単位へ分解する
+  - 残件: `src/electron/main.cts` の `@ts-nocheck` を外せる粒度まで main process 本体の責務面積を縮め、最終的に型付けする
   - 残件: `electron/main.cjs` を参照するドキュメントを順次 `src/electron/main.cts` / controller 群へ更新する
 
 ## Usernote Intake

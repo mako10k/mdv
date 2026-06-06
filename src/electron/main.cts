@@ -31,6 +31,7 @@ const { createE2eDialogController } = require('./main/dialogs.cjs')
 const { buildMergePreviewText, getMainI18n: getMainI18nForSettings } = require('./main/i18n.cjs')
 const { createAutosaveRecoveryStore } = require('./main/autosave-recovery.cjs')
 const { createDraftWorkspaceController } = require('./main/draft-workspace-controller.cjs')
+const { createManagedClientController } = require('./main/managed-client-controller.cjs')
 const {
   createFileController,
   getMimeTypeForFile,
@@ -64,9 +65,6 @@ const {
 const preloadPath = path.join(__dirname, '..', 'preload.cjs')
 const rendererDistPath = path.join(__dirname, '..', '..', 'dist')
 let pendingLaunchRequest = resolveLaunchRequest(process.argv)
-let managedMainWindow = null
-let commandPollTimer = null
-const pendingServerRequests = new Map()
 const pendingAiEditorRequests = new Map()
 const launchStateByWindowId = new Map()
 const hiddenLaunchRevealTimerByWindowId = new Map()
@@ -150,10 +148,6 @@ let secretsState = settingsController.getSecretsState()
 
 autosaveRecoveryStore.load()
 
-function isManagedClient() {
-  return Boolean(managedServerUrl && managedClientId && managedWindowId)
-}
-
 function estimateTokenCount(text) {
   return typeof text === 'string' && text.length > 0 ? Math.ceil(text.length / DEFAULT_TOKEN_TO_CHAR_RATIO) : 0
 }
@@ -227,6 +221,27 @@ const {
   materializePendingImportedAssets,
   collectReferencedDraftAssetPaths,
 } = draftWorkspaceController
+const managedClientController = createManagedClientController({
+  fetch,
+  URL,
+  processRef: process,
+  setInterval,
+  clearInterval,
+  managedServerUrl,
+  managedClientId,
+  managedWindowId,
+  getPendingLaunchFilePath: () => pendingLaunchRequest?.filePath ?? null,
+  getAppMetadata,
+  writeLog,
+})
+const {
+  isManagedClient,
+  setManagedMainWindow,
+  registerManagedClient,
+  pendingServerRequests,
+  postServerJson,
+  clearCommandPollTimer,
+} = managedClientController
 
 const windowController = createWindowController({
   BrowserWindow,
@@ -254,9 +269,7 @@ const windowController = createWindowController({
   clearEditorRuntimeState,
   isManagedClient,
   registerManagedClient,
-  setManagedMainWindow: (nextManagedMainWindow) => {
-    managedMainWindow = nextManagedMainWindow
-  },
+  setManagedMainWindow,
 })
 const {
   createApplicationMenu,
@@ -6039,106 +6052,6 @@ function disposeBufferForWindow(editorWindow, payload) {
   }
 }
 
-function dispatchServerCommand(command) {
-  if (!managedMainWindow || managedMainWindow.isDestroyed()) {
-    return
-  }
-
-  managedMainWindow.webContents.send('mdv:server-command', command)
-}
-
-async function postServerJson(routePath, payload) {
-  if (!managedServerUrl) {
-    return null
-  }
-
-  const response = await fetch(new URL(routePath, managedServerUrl), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Server request failed: ${response.status} ${routePath}`)
-  }
-
-  return response.json()
-}
-
-async function getServerJson(routePath) {
-  if (!managedServerUrl) {
-    return null
-  }
-
-  const response = await fetch(new URL(routePath, managedServerUrl))
-
-  if (!response.ok) {
-    throw new Error(`Server request failed: ${response.status} ${routePath}`)
-  }
-
-  return response.json()
-}
-
-async function registerManagedClient(window) {
-  if (!isManagedClient()) {
-    return
-  }
-
-  const appMetadata = getAppMetadata()
-  const registration = {
-    clientId: managedClientId,
-    windowId: managedWindowId,
-    pid: process.pid,
-    filePath: pendingLaunchFilePath,
-    version: appMetadata.version,
-  }
-
-  await postServerJson('/api/clients/register', registration)
-  writeLog('INFO', 'server-client', 'registered', registration)
-
-  if (commandPollTimer) {
-    clearInterval(commandPollTimer)
-  }
-
-  commandPollTimer = setInterval(() => {
-    void pollManagedServerCommands(window)
-  }, 1000)
-
-  void pollManagedServerCommands(window)
-}
-
-async function pollManagedServerCommands(window) {
-  if (!isManagedClient() || !window || window.isDestroyed()) {
-    return
-  }
-
-  const payload = await getServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/commands`)
-  const commands = Array.isArray(payload?.commands) ? payload.commands : []
-
-  for (const command of commands) {
-    await handleManagedServerCommand(window, command)
-  }
-}
-
-async function handleManagedServerCommand(window, command) {
-  if (!command || typeof command.type !== 'string') {
-    return
-  }
-
-  writeLog('INFO', 'server-client', 'command', command)
-
-  if (command.type === 'suspend') {
-    pendingServerRequests.set(command.requestId, { type: 'suspend' })
-    dispatchServerCommand(command)
-    return
-  }
-
-  if (command.type === 'resume') {
-    pendingServerRequests.set(command.requestId, { type: 'resume' })
-    dispatchServerCommand(command)
-  }
-}
-
 function serializeLogValue(value) {
   if (value instanceof Error) {
     return `${value.name}: ${value.message}\n${value.stack ?? ''}`.trim()
@@ -6315,12 +6228,7 @@ registerAppLifecycle({
   },
   stopDebugChannelServer,
   flushAutosaveRecoveryStoreSync,
-  clearCommandPollTimer: () => {
-    if (commandPollTimer) {
-      clearInterval(commandPollTimer)
-      commandPollTimer = null
-    }
-  },
+  clearCommandPollTimer,
   isDev,
   forceStaticRenderer,
 })
