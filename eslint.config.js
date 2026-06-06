@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'vendor/mdast-control/**']),
+  globalIgnores(['dist', 'vendor/mdast-control/**', 'electron/lib/**']),
   {
     files: ['eslint.config.js', 'electron/mdast-adapter.cjs', 'scripts/**/*.mjs'],
     extends: [js.configs.recommended],
@@ -24,6 +24,22 @@ export default defineConfig([
     ],
     languageOptions: {
       globals: globals.browser,
+    },
+  },
+  {
+    files: ['src/electron/main.cts', 'src/electron/main/**/*.cts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-empty': 'off',
+      'no-extra-boolean-cast': 'off',
+      'no-useless-assignment': 'off',
+      'no-useless-escape': 'off',
+      'preserve-caught-error': 'off',
     },
   },
 ])
