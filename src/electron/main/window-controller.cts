@@ -12,6 +12,10 @@ function createWindowController({
   getMainI18n,
   focusWindow,
   approveWindowClose,
+  resolveInitialPanelForLaunch,
+  findEditorWindowByTrackedFilePath,
+  getPendingLaunchRequest,
+  setPendingLaunchRequest,
 }) {
   let settingsWindow = null
   let settingsWindowOwnerEditorId = null
@@ -358,9 +362,90 @@ function createWindowController({
     Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   }
 
+  function dispatchOpenFileToWindow(targetWindow, launchRequest) {
+    if (!targetWindow || (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel)) {
+      return
+    }
+
+    const resolvedLaunchRequest = {
+      filePath: launchRequest?.filePath || null,
+      initialPanel: resolveInitialPanelForLaunch(launchRequest),
+      isInitialLaunch: !targetWindow.isVisible() && Boolean(launchRequest?.filePath),
+    }
+
+    writeLog('INFO', 'main', 'Dispatch launch/open file request', resolvedLaunchRequest)
+    targetWindow.webContents.send('mdv:open-file-requested', resolvedLaunchRequest)
+  }
+
+  function queueOrDispatchOpenFile(launchRequest) {
+    if (!launchRequest?.filePath && !launchRequest?.explicitInitialPanel) {
+      return
+    }
+
+    const existingWindow = launchRequest?.filePath ? findEditorWindowByTrackedFilePath(launchRequest.filePath) : null
+
+    if (existingWindow) {
+      writeLog('INFO', 'main', 'Focused existing editor for launch/open file request', {
+        filePath: launchRequest.filePath,
+        windowId: existingWindow.id,
+      })
+      focusWindow(existingWindow)
+      return
+    }
+
+    const targetWindow = getDefaultEditorWindow()
+
+    if (!targetWindow || targetWindow.webContents.isLoading()) {
+      setPendingLaunchRequest(launchRequest)
+      writeLog('INFO', 'main', 'Queued launch file path', launchRequest)
+      return
+    }
+
+    dispatchOpenFileToWindow(targetWindow, launchRequest)
+  }
+
+  function attachWindowLogging(mainWindow, initialLaunchRequest = null) {
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      writeLog('ERROR', 'webContents', 'did-fail-load', {
+        errorCode,
+        errorDescription,
+        validatedURL,
+      })
+    })
+
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+      writeLog('ERROR', 'webContents', 'render-process-gone', details)
+    })
+
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      writeLog('INFO', 'renderer-console', { level, message, line, sourceId })
+    })
+
+    mainWindow.webContents.on('dom-ready', () => {
+      writeLog('INFO', 'webContents', 'dom-ready', mainWindow.webContents.getURL())
+    })
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
+
+      if (initialLaunchRequest?.filePath || initialLaunchRequest?.explicitInitialPanel) {
+        dispatchOpenFileToWindow(mainWindow, initialLaunchRequest)
+        return
+      }
+
+      const pendingLaunchRequest = getPendingLaunchRequest()
+      if (pendingLaunchRequest?.filePath || pendingLaunchRequest?.explicitInitialPanel) {
+        setPendingLaunchRequest(null)
+        dispatchOpenFileToWindow(mainWindow, pendingLaunchRequest)
+      }
+    })
+  }
+
   return {
+    attachWindowLogging,
     createApplicationMenu,
     closeAuxiliaryWindowsForEditor,
+    dispatchOpenFileToWindow,
     getAboutWindow: () => aboutWindow,
     getDefaultEditorWindow,
     getEditorWindowForAiAction,
@@ -372,6 +457,7 @@ function createWindowController({
     openAiChatWindow,
     openFetchPermissionsWindow,
     openSettingsWindow,
+    queueOrDispatchOpenFile,
   }
 }
 
