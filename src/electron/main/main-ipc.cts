@@ -1,5 +1,186 @@
-// @ts-nocheck
-function registerMainIpcHandlers(context) {
+type WebContentsLike = {
+  id: number
+}
+
+type BrowserWindowLike = {
+  id: number
+  isDestroyed: () => boolean
+  isVisible: () => boolean
+  show: () => void
+}
+
+type BrowserWindowStatic = {
+  getFocusedWindow: () => BrowserWindowLike | null
+  fromWebContents: (sender: WebContentsLike) => BrowserWindowLike | null
+}
+
+type IpcEventLike = {
+  sender: WebContentsLike
+  returnValue?: unknown
+}
+
+type IpcMainLike = {
+  handle: (channel: string, handler: (...args: unknown[]) => unknown) => void
+  on: (channel: string, handler: (...args: unknown[]) => void) => void
+}
+
+type MainI18n = {
+  fileDialog: {
+    markdownFilter: string
+    allFilesFilter: string
+  }
+}
+
+type SettingsState = {
+  general: {
+    themeMode: string
+  }
+  ai: {
+    openai: {
+      model: string
+    }
+  }
+}
+
+type SecretsState = {
+  openaiApiKey: string | null
+  tavilyApiKey: string | null
+}
+
+type ProviderStatus = {
+  openaiConfigured: boolean
+  tavilyConfigured: boolean
+}
+
+type PlainObject = Record<string, unknown>
+
+type LaunchState = {
+  filePath?: string | null
+  initialPanel?: string | null
+}
+
+type EditorRuntimeState = {
+  editorId: string
+}
+
+type AiChatStreamEvent = Record<string, unknown>
+type AiChatResponse = {
+  reply: unknown
+  model: string
+  responseId: string
+}
+
+type DraftWorkspace = {
+  workspaceId: string
+  rootDir: string
+}
+
+type ImportedImageAsset = {
+  filePath: string
+  relativePath: string
+  markdownFilePath: string | null
+} | null
+
+type SaveResult = unknown
+
+type PendingAiEditorRequest = {
+  timeout: ReturnType<typeof setTimeout>
+  resolve: (value: unknown) => void
+  reject: (error: Error) => void
+}
+
+type PendingServerRequest = {
+  type?: string
+}
+
+type LogFn = (level: string, scope: string, ...parts: unknown[]) => void
+
+type MainIpcContext = {
+  ipcMain: IpcMainLike
+  BrowserWindow: BrowserWindowStatic
+  app: {
+    quit: () => void
+  }
+  randomUUID: () => string
+  writeLog: LogFn
+  getMainI18n: () => MainI18n
+  showOpenDialog: (window: BrowserWindowLike | null, options: Record<string, unknown>) => Promise<{
+    canceled: boolean
+    filePaths: string[]
+  }>
+  findEditorWindowByTrackedFilePath: (filePath: string) => BrowserWindowLike | null
+  focusWindow: (window: BrowserWindowLike) => void
+  readUtf8File: (filePath: string) => Promise<unknown>
+  emitDebugChannelEvent: (type: string, payload?: unknown) => void
+  upsertAutosaveRecovery: (snapshot: object) => Promise<unknown> | unknown
+  clearAutosaveRecovery: (payload: unknown) => Promise<void> | void
+  getLatestAutosaveRecovery: () => Promise<unknown> | unknown
+  getAutosaveRecoveryForFile: (filePath: unknown) => Promise<unknown> | unknown
+  getMdastCapabilities: () => Promise<unknown> | unknown
+  extractHeadingOutline: (markdown: string) => Promise<unknown> | unknown
+  trackCurrentFileForWindow: (window: BrowserWindowLike, filePath: string | null) => void
+  readRelativeAssetAsDataUrl: (baseFilePath: string, source: string) => Promise<unknown>
+  hiddenLaunchRevealTimerByWindowId: Map<number, ReturnType<typeof setTimeout>>
+  saveHtmlExportToPath: (window: BrowserWindowLike | undefined, payload: unknown) => Promise<unknown>
+  openSettingsWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
+  openFetchPermissionsWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
+  openAboutWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
+  launchStateByWindowId: Map<number, LaunchState>
+  getSettingsState: () => SettingsState
+  getHasPersistedSettings: () => boolean
+  getHasReadableSettings: () => boolean
+  getUpdaterStateSnapshot: () => Promise<unknown> | unknown
+  checkForAppUpdates: (options: { silent: boolean }) => Promise<unknown>
+  downloadAvailableUpdate: () => Promise<unknown>
+  installDownloadedUpdate: () => boolean
+  sanitizeSettings: (candidate: Record<string, unknown>) => SettingsState
+  mergePlainObjects: <T>(base: T, patch: unknown) => T
+  isPlainObject: (value: unknown) => value is PlainObject
+  persistSettings: () => Promise<void>
+  broadcastSettingsChanged: () => void
+  normalizeSecret: (value: unknown) => string | null
+  getSecretsState: () => SecretsState
+  setSecretsState: (nextSecretsState: SecretsState) => void
+  sanitizeSecrets: (candidate: Record<string, unknown>) => SecretsState
+  persistSecrets: () => Promise<void>
+  getProviderStatus: () => ProviderStatus
+  getAppMetadata: () => Promise<unknown> | unknown
+  getEditorWindowForAiAction: (window: BrowserWindowLike | null) => BrowserWindowLike | null
+  requestEditorContext: (window: BrowserWindowLike | null) => Promise<unknown>
+  ensureEditorRuntimeState: (window: BrowserWindowLike | null) => EditorRuntimeState
+  readAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  exactSearchForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  statsAiSliceForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  semanticSearchForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  writeAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  listAiBuffersForWindow: (window: BrowserWindowLike | null) => Promise<unknown>
+  requestOpenAiChatResponse: (
+    window: BrowserWindowLike | null,
+    messages: unknown,
+    onEvent: (event: AiChatStreamEvent) => void,
+  ) => Promise<AiChatResponse>
+  emitAiChatStreamEvent: (window: BrowserWindowLike | null, payload: Record<string, unknown>) => void
+  openExternalLink: (window: BrowserWindowLike | null, href: string) => Promise<unknown>
+  ensureDraftWorkspace: (payload: unknown) => Promise<DraftWorkspace>
+  importImageAsset: (payload: unknown) => Promise<ImportedImageAsset>
+  cleanupImportedAssetFiles: (filePaths: unknown) => Promise<void>
+  cleanupDraftWorkspace: (payload: unknown) => Promise<void>
+  saveContentToPath: (window: BrowserWindowLike | undefined, payload: unknown) => Promise<SaveResult>
+  showUnsavedChangesDialog: (window: BrowserWindowLike | undefined, payload: unknown) => Promise<unknown>
+  pendingAiEditorRequests: Map<string, PendingAiEditorRequest>
+  isManagedClient: () => boolean
+  pendingServerRequests: Map<string, PendingServerRequest>
+  managedClientId: string
+  postServerJson: (path: string, payload: unknown) => Promise<unknown>
+  logFilePath: string
+  setSettingsState: (nextSettingsState: SettingsState) => void
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object'
+}
+
+function registerMainIpcHandlers(context: MainIpcContext) {
   const {
     ipcMain,
     BrowserWindow,
@@ -88,22 +269,23 @@ function registerMainIpcHandlers(context) {
       return null
     }
 
-    const existingWindow = findEditorWindowByTrackedFilePath(result.filePaths[0])
+    const selectedPath = result.filePaths[0]
+    const existingWindow = findEditorWindowByTrackedFilePath(selectedPath)
 
     if (existingWindow) {
       writeLog('INFO', 'ipc', 'open-file focused existing editor', {
-        filePath: result.filePaths[0],
+        filePath: selectedPath,
         windowId: existingWindow.id,
       })
       focusWindow(existingWindow)
       return null
     }
 
-    writeLog('INFO', 'ipc', 'open-file selected', result.filePaths[0])
-    return readUtf8File(result.filePaths[0])
+    writeLog('INFO', 'ipc', 'open-file selected', selectedPath)
+    return readUtf8File(selectedPath)
   })
 
-  ipcMain.handle('mdv:read-file', async (_event, filePath) => {
+  ipcMain.handle('mdv:read-file', async (_event: unknown, filePath: unknown) => {
     if (typeof filePath !== 'string' || filePath.length === 0) {
       writeLog('WARN', 'ipc', 'read-file received invalid path', filePath)
       return null
@@ -113,47 +295,50 @@ function registerMainIpcHandlers(context) {
     return readUtf8File(filePath)
   })
 
-  ipcMain.on('mdv:debug-channel-notify', (event, payload) => {
-    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-    const eventType = typeof payload?.type === 'string' && payload.type.trim().length > 0
-      ? payload.type.trim()
+  ipcMain.on('mdv:debug-channel-notify', (event: unknown, payload: unknown) => {
+    const ipcEvent = event as IpcEventLike
+    const sourceWindow = BrowserWindow.fromWebContents(ipcEvent.sender)
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const eventType = typeof payloadRecord?.type === 'string' && payloadRecord.type.trim().length > 0
+      ? payloadRecord.type.trim()
       : 'renderer:message'
 
     emitDebugChannelEvent(`renderer:${eventType}`, {
       windowId: sourceWindow?.id ?? null,
-      webContentsId: event.sender.id,
-      payload: payload?.payload ?? null,
+      webContentsId: ipcEvent.sender.id,
+      payload: payloadRecord?.payload ?? null,
     })
   })
 
-  ipcMain.handle('mdv:autosave-recovery-upsert', async (_event, payload) => {
-    const snapshot = payload?.snapshot
+  ipcMain.handle('mdv:autosave-recovery-upsert', async (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const snapshot = isObjectRecord(payloadRecord?.snapshot) ? payloadRecord.snapshot : null
 
-    if (!snapshot || typeof snapshot !== 'object') {
+    if (!snapshot) {
       writeLog('WARN', 'ipc', 'autosave-recovery-upsert received invalid payload')
       return null
     }
 
     writeLog('INFO', 'ipc', 'autosave-recovery-upsert', {
-      currentFilePath: snapshot.currentFilePath || null,
-      displayTitle: snapshot.displayTitle || null,
+      currentFilePath: typeof snapshot.currentFilePath === 'string' ? snapshot.currentFilePath : null,
+      displayTitle: typeof snapshot.displayTitle === 'string' ? snapshot.displayTitle : null,
     })
     return upsertAutosaveRecovery(snapshot)
   })
 
-  ipcMain.handle('mdv:autosave-recovery-clear', async (_event, payload) => {
+  ipcMain.handle('mdv:autosave-recovery-clear', async (_event: unknown, payload: unknown) => {
     clearAutosaveRecovery(payload)
   })
 
   ipcMain.handle('mdv:autosave-recovery-latest', async () => getLatestAutosaveRecovery())
-  ipcMain.handle('mdv:autosave-recovery-for-file', async (_event, filePath) => getAutosaveRecoveryForFile(filePath))
+  ipcMain.handle('mdv:autosave-recovery-for-file', async (_event: unknown, filePath: unknown) => getAutosaveRecoveryForFile(filePath))
 
   ipcMain.handle('mdv:mdast-get-capabilities', async () => {
     writeLog('INFO', 'ipc', 'mdast-get-capabilities')
     return getMdastCapabilities()
   })
 
-  ipcMain.handle('mdv:mdast-extract-heading-outline', async (_event, markdown) => {
+  ipcMain.handle('mdv:mdast-extract-heading-outline', async (_event: unknown, markdown: unknown) => {
     if (typeof markdown !== 'string') {
       writeLog('WARN', 'ipc', 'mdast-extract-heading-outline received invalid markdown payload')
       return []
@@ -163,17 +348,18 @@ function registerMainIpcHandlers(context) {
     return extractHeadingOutline(markdown)
   })
 
-  ipcMain.handle('mdv:track-current-file', async (event, filePath) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
+  ipcMain.handle('mdv:track-current-file', async (event: unknown, filePath: unknown) => {
+    const window = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
     if (!window || window.isDestroyed()) {
       return
     }
     trackCurrentFileForWindow(window, typeof filePath === 'string' ? filePath : null)
   })
 
-  ipcMain.handle('mdv:read-relative-asset-data-url', async (_event, payload) => {
-    const baseFilePath = typeof payload?.baseFilePath === 'string' ? payload.baseFilePath : ''
-    const source = typeof payload?.source === 'string' ? payload.source : ''
+  ipcMain.handle('mdv:read-relative-asset-data-url', async (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const baseFilePath = typeof payloadRecord?.baseFilePath === 'string' ? payloadRecord.baseFilePath : ''
+    const source = typeof payloadRecord?.source === 'string' ? payloadRecord.source : ''
 
     if (!baseFilePath || !source) {
       writeLog('WARN', 'ipc', 'read-relative-asset-data-url received invalid payload', payload)
@@ -184,8 +370,8 @@ function registerMainIpcHandlers(context) {
     return readRelativeAssetAsDataUrl(baseFilePath, source)
   })
 
-  ipcMain.on('mdv:initial-launch-open-handled', (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
+  ipcMain.on('mdv:initial-launch-open-handled', (event: unknown) => {
+    const window = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
 
     if (!window || window.isDestroyed() || window.isVisible()) {
       return
@@ -201,20 +387,21 @@ function registerMainIpcHandlers(context) {
     focusWindow(window)
   })
 
-  ipcMain.handle('mdv:export-html', async (event, payload) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
+  ipcMain.handle('mdv:export-html', async (event: unknown, payload: unknown) => {
+    const window = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
     return saveHtmlExportToPath(window ?? undefined, payload)
   })
 
-  ipcMain.handle('mdv:open-settings-window', async (event) => openSettingsWindow(BrowserWindow.fromWebContents(event.sender)))
-  ipcMain.handle('mdv:open-fetch-permissions-window', async (event) => openFetchPermissionsWindow(BrowserWindow.fromWebContents(event.sender)))
-  ipcMain.handle('mdv:open-about-window', async (event) => openAboutWindow(BrowserWindow.fromWebContents(event.sender)))
+  ipcMain.handle('mdv:open-settings-window', async (event: unknown) => openSettingsWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
+  ipcMain.handle('mdv:open-fetch-permissions-window', async (event: unknown) => openFetchPermissionsWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
+  ipcMain.handle('mdv:open-about-window', async (event: unknown) => openAboutWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
 
-  ipcMain.on('mdv:settings-bootstrap', (event) => {
-    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
+  ipcMain.on('mdv:settings-bootstrap', (event: unknown) => {
+    const ipcEvent = event as IpcEventLike
+    const sourceWindow = BrowserWindow.fromWebContents(ipcEvent.sender)
     const launchState = sourceWindow ? launchStateByWindowId.get(sourceWindow.id) : null
 
-    event.returnValue = {
+    ipcEvent.returnValue = {
       settings: getSettingsState(),
       hasPersistedSettings: getHasPersistedSettings(),
       hasReadableSettings: getHasReadableSettings(),
@@ -229,9 +416,9 @@ function registerMainIpcHandlers(context) {
   ipcMain.handle('mdv:updater-download', async () => downloadAvailableUpdate())
   ipcMain.handle('mdv:updater-install', async () => ({ started: installDownloadedUpdate() }))
 
-  ipcMain.handle('mdv:settings-migrate-legacy-theme', async (_event, themeMode) => {
+  ipcMain.handle('mdv:settings-migrate-legacy-theme', async (_event: unknown, themeMode: unknown) => {
     const settingsState = getSettingsState()
-    if (hasPersistedSettings || settingsState.general.themeMode !== 'system') {
+    if (getHasPersistedSettings() || settingsState.general.themeMode !== 'system') {
       return settingsState
     }
     if (themeMode !== 'light' && themeMode !== 'dark') {
@@ -247,7 +434,7 @@ function registerMainIpcHandlers(context) {
     return nextSettingsState
   })
 
-  ipcMain.handle('mdv:settings-update', async (_event, patch) => {
+  ipcMain.handle('mdv:settings-update', async (_event: unknown, patch: unknown) => {
     const nextSettingsState = sanitizeSettings(mergePlainObjects(getSettingsState(), isPlainObject(patch) ? patch : {}))
     setSettingsState(nextSettingsState)
     await persistSettings()
@@ -255,7 +442,7 @@ function registerMainIpcHandlers(context) {
     return nextSettingsState
   })
 
-  ipcMain.handle('mdv:settings-save-openai-api-key', async (_event, apiKey) => {
+  ipcMain.handle('mdv:settings-save-openai-api-key', async (_event: unknown, apiKey: unknown) => {
     const normalizedApiKey = normalizeSecret(apiKey)
     if (!normalizedApiKey) {
       throw new Error('OpenAI API key cannot be empty')
@@ -280,7 +467,7 @@ function registerMainIpcHandlers(context) {
     return getProviderStatus()
   })
 
-  ipcMain.handle('mdv:settings-save-tavily-api-key', async (_event, apiKey) => {
+  ipcMain.handle('mdv:settings-save-tavily-api-key', async (_event: unknown, apiKey: unknown) => {
     const normalizedApiKey = normalizeSecret(apiKey)
     if (!normalizedApiKey) {
       throw new Error('Tavily API key cannot be empty')
@@ -308,13 +495,13 @@ function registerMainIpcHandlers(context) {
   ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
   ipcMain.handle('mdv:get-app-metadata', async () => getAppMetadata())
 
-  ipcMain.handle('mdv:ai-chat-get-context', async (event) => {
-    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))
+  ipcMain.handle('mdv:ai-chat-get-context', async (event: unknown) => {
+    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     return requestEditorContext(editorWindow)
   })
 
-  ipcMain.handle('mdv:ai-chat-read-active-document', async (event) => {
-    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))
+  ipcMain.handle('mdv:ai-chat-read-active-document', async (event: unknown) => {
+    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
     return readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'document' } },
@@ -322,8 +509,8 @@ function registerMainIpcHandlers(context) {
     })
   })
 
-  ipcMain.handle('mdv:ai-chat-read-active-selection', async (event) => {
-    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))
+  ipcMain.handle('mdv:ai-chat-read-active-selection', async (event: unknown) => {
+    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
     return readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'selection' } },
@@ -331,52 +518,55 @@ function registerMainIpcHandlers(context) {
     })
   })
 
-  ipcMain.handle('mdv:ai-chat-read-target', async (event, payload) => readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender)), payload))
-  ipcMain.handle('mdv:ai-chat-grep-slice', async (event, payload) => exactSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender)), payload))
-  ipcMain.handle('mdv:ai-chat-stats-slice', async (event, payload) => statsAiSliceForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender)), payload))
-  ipcMain.handle('mdv:ai-chat-semantic-search', async (event, payload) => semanticSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender)), payload))
+  ipcMain.handle('mdv:ai-chat-read-target', async (event: unknown, payload: unknown) => readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
+  ipcMain.handle('mdv:ai-chat-grep-slice', async (event: unknown, payload: unknown) => exactSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
+  ipcMain.handle('mdv:ai-chat-stats-slice', async (event: unknown, payload: unknown) => statsAiSliceForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
+  ipcMain.handle('mdv:ai-chat-semantic-search', async (event: unknown, payload: unknown) => semanticSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
 
-  ipcMain.handle('mdv:ai-chat-write-active-document', async (event, payload) => {
-    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))
+  ipcMain.handle('mdv:ai-chat-write-active-document', async (event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
     return writeAiTargetForWindow(editorWindow, {
       destination: { editorId: runtimeState.editorId, span: { kind: 'document' } },
-      sources: [{ type: 'literal', text: typeof payload?.content === 'string' ? payload.content : '' }],
+      sources: [{ type: 'literal', text: typeof payloadRecord?.content === 'string' ? payloadRecord.content : '' }],
       mode: 'replace',
     })
   })
 
-  ipcMain.handle('mdv:ai-chat-write-active-selection', async (event, payload) => {
-    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))
+  ipcMain.handle('mdv:ai-chat-write-active-selection', async (event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
     return writeAiTargetForWindow(editorWindow, {
       destination: { editorId: runtimeState.editorId, span: { kind: 'selection' } },
-      sources: [{ type: 'literal', text: typeof payload?.content === 'string' ? payload.content : '' }],
+      sources: [{ type: 'literal', text: typeof payloadRecord?.content === 'string' ? payloadRecord.content : '' }],
       mode: 'replace',
     })
   })
 
-  ipcMain.handle('mdv:ai-chat-write-target', async (event, payload) => writeAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender)), payload))
-  ipcMain.handle('mdv:ai-chat-list-buffers', async (event) => listAiBuffersForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents(event.sender))))
+  ipcMain.handle('mdv:ai-chat-write-target', async (event: unknown, payload: unknown) => writeAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
+  ipcMain.handle('mdv:ai-chat-list-buffers', async (event: unknown) => listAiBuffersForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))))
 
-  ipcMain.handle('mdv:ai-chat-send-message', async (_event, payload) => {
-    const sourceWindow = BrowserWindow.fromWebContents(_event.sender)
+  ipcMain.handle('mdv:ai-chat-send-message', async (event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
     const editorWindow = getEditorWindowForAiAction(sourceWindow)
     const settingsState = getSettingsState()
-    const requestId = typeof payload?.requestId === 'string' && payload.requestId.trim().length > 0
-      ? payload.requestId.trim()
+    const requestId = typeof payloadRecord?.requestId === 'string' && payloadRecord.requestId.trim().length > 0
+      ? payloadRecord.requestId.trim()
       : randomUUID()
 
     writeLog('INFO', 'ai-chat', 'OpenAI chat request start', {
       requestId,
-      messageCount: Array.isArray(payload?.messages) ? payload.messages.length : 0,
+      messageCount: Array.isArray(payloadRecord?.messages) ? payloadRecord.messages.length : 0,
       model: settingsState.ai.openai.model,
     })
 
     void (async () => {
       try {
-        const result = await requestOpenAiChatResponse(editorWindow, payload?.messages, (event) => {
-          emitAiChatStreamEvent(sourceWindow, { requestId, ...event })
+        const result = await requestOpenAiChatResponse(editorWindow, payloadRecord?.messages, (streamEvent) => {
+          emitAiChatStreamEvent(sourceWindow, { requestId, ...streamEvent })
         })
 
         writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
@@ -410,21 +600,21 @@ function registerMainIpcHandlers(context) {
     return { status: 'started', requestId }
   })
 
-  ipcMain.handle('mdv:open-external-link', async (event, href) => {
+  ipcMain.handle('mdv:open-external-link', async (event: unknown, href: unknown) => {
     if (typeof href !== 'string' || href.length === 0) {
       writeLog('WARN', 'ipc', 'open-external-link received invalid URL', href)
       return { status: 'blocked' }
     }
-    return openExternalLink(BrowserWindow.fromWebContents(event.sender), href)
+    return openExternalLink(BrowserWindow.fromWebContents((event as IpcEventLike).sender), href)
   })
 
-  ipcMain.handle('mdv:ensure-draft-workspace', async (_event, payload) => {
+  ipcMain.handle('mdv:ensure-draft-workspace', async (_event: unknown, payload: unknown) => {
     const workspace = await ensureDraftWorkspace(payload)
     writeLog('INFO', 'ipc', 'ensure-draft-workspace', { workspaceId: workspace.workspaceId, rootDir: workspace.rootDir })
     return workspace
   })
 
-  ipcMain.handle('mdv:import-image-asset', async (_event, payload) => {
+  ipcMain.handle('mdv:import-image-asset', async (_event: unknown, payload: unknown) => {
     const result = await importImageAsset(payload)
     if (result) {
       writeLog('INFO', 'ipc', 'import-image-asset', {
@@ -438,57 +628,73 @@ function registerMainIpcHandlers(context) {
     return result
   })
 
-  ipcMain.handle('mdv:cleanup-imported-assets', async (_event, payload) => {
-    await cleanupImportedAssetFiles(payload?.filePaths)
+  ipcMain.handle('mdv:cleanup-imported-assets', async (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    await cleanupImportedAssetFiles(payloadRecord?.filePaths)
   })
-  ipcMain.handle('mdv:cleanup-draft-workspace', async (_event, payload) => {
+  ipcMain.handle('mdv:cleanup-draft-workspace', async (_event: unknown, payload: unknown) => {
     await cleanupDraftWorkspace(payload)
   })
-  ipcMain.handle('mdv:save-file', async (_event, payload) => saveContentToPath(BrowserWindow.getFocusedWindow() ?? undefined, payload))
-  ipcMain.handle('mdv:confirm-unsaved-changes', async (event, payload) => showUnsavedChangesDialog(BrowserWindow.fromWebContents(event.sender) ?? undefined, payload))
+  ipcMain.handle('mdv:save-file', async (_event: unknown, payload: unknown) => saveContentToPath(BrowserWindow.getFocusedWindow() ?? undefined, payload))
+  ipcMain.handle('mdv:confirm-unsaved-changes', async (event: unknown, payload: unknown) => showUnsavedChangesDialog(BrowserWindow.fromWebContents((event as IpcEventLike).sender) ?? undefined, payload))
 
-  ipcMain.on('mdv:log', (_event, payload) => {
-    const level = typeof payload?.level === 'string' ? payload.level : 'INFO'
-    const scope = typeof payload?.scope === 'string' ? payload.scope : 'renderer'
-    writeLog(level.toUpperCase(), scope, payload?.message ?? '')
+  ipcMain.on('mdv:log', (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const level = typeof payloadRecord?.level === 'string' ? payloadRecord.level : 'INFO'
+    const scope = typeof payloadRecord?.scope === 'string' ? payloadRecord.scope : 'renderer'
+    writeLog(level.toUpperCase(), scope, payloadRecord?.message ?? '')
   })
 
-  ipcMain.on('mdv:ai-editor-response', (_event, payload) => {
-    const pendingRequest = pendingAiEditorRequests.get(payload?.requestId)
+  ipcMain.on('mdv:ai-editor-response', (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const requestId = typeof payloadRecord?.requestId === 'string' ? payloadRecord.requestId : null
+    if (!requestId) {
+      return
+    }
+
+    const pendingRequest = pendingAiEditorRequests.get(requestId)
     if (!pendingRequest) {
       return
     }
 
     clearTimeout(pendingRequest.timeout)
-    pendingAiEditorRequests.delete(payload.requestId)
+    pendingAiEditorRequests.delete(requestId)
 
-    if (payload?.ok === false) {
-      pendingRequest.reject(new Error(payload?.error || 'AI editor request failed'))
+    if (payloadRecord?.ok === false) {
+      pendingRequest.reject(new Error(typeof payloadRecord.error === 'string' ? payloadRecord.error : 'AI editor request failed'))
       return
     }
 
-    pendingRequest.resolve(payload?.payload ?? null)
+    pendingRequest.resolve(payloadRecord?.payload ?? null)
   })
 
-  ipcMain.on('mdv:server-command-result', (_event, payload) => {
-    if (!isManagedClient() || !payload?.requestId) {
+  ipcMain.on('mdv:server-command-result', (_event: unknown, payload: unknown) => {
+    const payloadRecord = isObjectRecord(payload) ? payload : null
+    const requestId = typeof payloadRecord?.requestId === 'string' ? payloadRecord.requestId : null
+    if (!isManagedClient() || !requestId) {
       return
     }
 
-    const pendingRequest = pendingServerRequests.get(payload.requestId)
+    const pendingRequest = pendingServerRequests.get(requestId)
     if (pendingRequest?.type === 'suspend') {
-      pendingServerRequests.delete(payload.requestId)
+      pendingServerRequests.delete(requestId)
     }
 
+    const snapshotSource = payloadRecord?.snapshot
+    const snapshot = isObjectRecord(snapshotSource) ? snapshotSource : null
+    const currentFilePath = typeof snapshot?.currentFilePath === 'string' ? snapshot.currentFilePath : null
+    const payloadType = typeof payloadRecord?.type === 'string' ? payloadRecord.type : null
+    const payloadStatus = typeof payloadRecord?.status === 'string' ? payloadRecord.status : null
+
     void postServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/state`, {
-      snapshot: payload.snapshot || null,
-      filePath: payload.snapshot?.currentFilePath || null,
-      status: payload.type === 'suspend' ? 'suspended' : 'running',
+      snapshot,
+      filePath: currentFilePath,
+      status: payloadType === 'suspend' ? 'suspended' : 'running',
     })
 
-    void postServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/command-result`, payload)
+    void postServerJson(`/api/clients/${encodeURIComponent(managedClientId)}/command-result`, payloadRecord)
 
-    if (payload.type === 'suspend' && payload.status === 'completed') {
+    if (payloadType === 'suspend' && payloadStatus === 'completed') {
       setTimeout(() => {
         app.quit()
       }, 100)
