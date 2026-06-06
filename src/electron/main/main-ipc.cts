@@ -27,8 +27,8 @@ function registerMainIpcHandlers(context) {
     openAboutWindow,
     launchStateByWindowId,
     getSettingsState,
-    hasPersistedSettings,
-    hasReadableSettings,
+    getHasPersistedSettings,
+    getHasReadableSettings,
     getUpdaterStateSnapshot,
     checkForAppUpdates,
     downloadAvailableUpdate,
@@ -216,8 +216,8 @@ function registerMainIpcHandlers(context) {
 
     event.returnValue = {
       settings: getSettingsState(),
-      hasPersistedSettings,
-      hasReadableSettings,
+      hasPersistedSettings: getHasPersistedSettings(),
+      hasReadableSettings: getHasReadableSettings(),
       hasInitialLaunchRequest: Boolean(launchState?.filePath),
       initialPanel: launchState?.initialPanel === 'write' ? 'write' : 'preview',
     }
