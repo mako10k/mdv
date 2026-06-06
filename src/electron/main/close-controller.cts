@@ -1,4 +1,88 @@
-// @ts-nocheck
+type WindowCloseAction = 'save' | 'discard' | 'cancel'
+
+type EditorCloseSnapshot = {
+  markdownText?: string
+  persistedMarkdown?: string
+  currentFilePath?: string | null
+  pendingImportedAssets?: Array<{ filePath: string, relativePath?: string }>
+  displayTitle?: string
+  activePanel?: string
+  isUntouchedUntitledBuffer?: boolean
+  recoveryKey?: string | null
+  fileSnapshot?: object | null
+  draftWorkspace?: object | null
+}
+
+type EditorCloseState = {
+  isDirty?: boolean
+  snapshot?: EditorCloseSnapshot | null
+}
+
+type SaveResult = {
+  status?: string
+  path?: string
+  content?: string
+}
+
+type MainI18n = {
+  untitledTitle: string
+  buttons: {
+    save: string
+    cancel: string
+    continue: string
+    close: string
+  }
+  unsaved: {
+    file: string
+    hasUnsavedChanges: string
+    title: string
+    message: (proceedLabel: string) => string
+  }
+  closeFallback: {
+    title: string
+    message: string
+    detail: string
+  }
+}
+
+type WindowLike = {
+  id: number
+  isDestroyed: () => boolean
+  close: () => void
+  webContents: {
+    send: (channel: string, payload?: unknown) => void
+  }
+}
+
+type CloseControllerDependencies = {
+  approvedWindowCloseIds: Set<number>
+  getMainI18n: () => MainI18n
+  showMessageBox: (
+    window: WindowLike,
+    options: Record<string, unknown>,
+  ) => Promise<{ response: number }>
+  requestEditorWindowData: (
+    editorWindow: WindowLike,
+    request: { type: 'get-close-state' },
+  ) => Promise<EditorCloseState>
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+  closeAuxiliaryWindowsForEditor: (window: WindowLike) => void
+  cleanupDraftWorkspace: (payload: { draftWorkspace: object | null }) => Promise<void>
+  saveContentToPath: (window: WindowLike, payload: Record<string, unknown>) => Promise<SaveResult | null>
+  collectReferencedDraftAssetPaths: (markdown: string) => Iterable<string>
+  cleanupImportedAssetFiles: (filePaths: string[]) => Promise<void>
+  clearAutosaveRecovery: (payload: { recoveryKey?: string | null, filePath?: string | null }) => void
+}
+
+type CloseController = {
+  confirmEditorWindowClose: (window: WindowLike | null | undefined) => Promise<void>
+  requestEditorCloseState: (editorWindow: WindowLike) => Promise<EditorCloseState>
+  showUnsavedChangesDialog: (
+    window: WindowLike,
+    payload: { currentFilePath?: string, displayTitle?: string, proceedLabel?: string },
+  ) => Promise<{ action: WindowCloseAction }>
+}
+
 function createCloseController({
   approvedWindowCloseIds,
   getMainI18n,
@@ -11,8 +95,11 @@ function createCloseController({
   collectReferencedDraftAssetPaths,
   cleanupImportedAssetFiles,
   clearAutosaveRecovery,
-}) {
-  async function showUnsavedChangesDialog(window, payload) {
+}: CloseControllerDependencies): CloseController {
+  async function showUnsavedChangesDialog(
+    window: WindowLike,
+    payload: { currentFilePath?: string, displayTitle?: string, proceedLabel?: string },
+  ) {
     const messages = getMainI18n()
     const currentFilePath = typeof payload?.currentFilePath === 'string' ? payload.currentFilePath : ''
     const displayTitle = typeof payload?.displayTitle === 'string' && payload.displayTitle.trim().length > 0
@@ -37,17 +124,17 @@ function createCloseController({
     })
 
     if (response.response === 0) {
-      return { action: 'save' }
+      return { action: 'save' as const }
     }
 
     if (response.response === 2) {
-      return { action: 'discard' }
+      return { action: 'discard' as const }
     }
 
-    return { action: 'cancel' }
+    return { action: 'cancel' as const }
   }
 
-  async function showUnresponsiveCloseDialog(window) {
+  async function showUnresponsiveCloseDialog(window: WindowLike) {
     const messages = getMainI18n()
     const response = await showMessageBox(window, {
       type: 'warning',
@@ -63,13 +150,13 @@ function createCloseController({
     return response.response === 1
   }
 
-  async function requestEditorCloseState(editorWindow) {
+  async function requestEditorCloseState(editorWindow: WindowLike) {
     return requestEditorWindowData(editorWindow, {
       type: 'get-close-state',
     })
   }
 
-  function approveAndCloseWindow(window) {
+  function approveAndCloseWindow(window: WindowLike) {
     approvedWindowCloseIds.add(window.id)
     window.webContents.send('mdv:window-close-approved')
     setImmediate(() => {
@@ -79,12 +166,12 @@ function createCloseController({
     })
   }
 
-  async function confirmEditorWindowClose(window) {
+  async function confirmEditorWindowClose(window: WindowLike | null | undefined) {
     if (!window || window.isDestroyed()) {
       return
     }
 
-    let closeState = null
+    let closeState: EditorCloseState | null = null
 
     try {
       closeState = await requestEditorCloseState(window)
@@ -102,7 +189,7 @@ function createCloseController({
     }
 
     if (!closeState?.isDirty) {
-      await cleanupDraftWorkspace({ draftWorkspace: closeState?.snapshot?.draftWorkspace || null })
+      await cleanupDraftWorkspace({ draftWorkspace: closeState?.snapshot?.draftWorkspace ?? null })
       closeAuxiliaryWindowsForEditor(window)
       approveAndCloseWindow(window)
       return
@@ -119,7 +206,7 @@ function createCloseController({
       isUntouchedUntitledBuffer: true,
     }
     const response = await showUnsavedChangesDialog(window, {
-      currentFilePath: snapshot.currentFilePath,
+      currentFilePath: snapshot.currentFilePath ?? undefined,
       displayTitle: snapshot.displayTitle,
       proceedLabel: messages.buttons.close,
     })
@@ -130,27 +217,27 @@ function createCloseController({
 
     if (response.action === 'save') {
       const saveResult = await saveContentToPath(window, {
-        path: snapshot.currentFilePath,
-        content: snapshot.markdownText,
-        recoveryKey: snapshot.recoveryKey || null,
+        path: snapshot.currentFilePath ?? '',
+        content: snapshot.markdownText ?? '',
+        recoveryKey: snapshot.recoveryKey ?? null,
         defaultFileName: snapshot.displayTitle || messages.untitledTitle,
-        expectedSnapshot: snapshot.fileSnapshot || null,
-        baseContent: snapshot.persistedMarkdown,
-        draftWorkspace: snapshot.draftWorkspace || null,
-        pendingImportedAssets: snapshot.pendingImportedAssets || [],
+        expectedSnapshot: snapshot.fileSnapshot ?? null,
+        baseContent: snapshot.persistedMarkdown ?? snapshot.markdownText ?? '',
+        draftWorkspace: snapshot.draftWorkspace ?? null,
+        pendingImportedAssets: snapshot.pendingImportedAssets ?? [],
       })
 
       if (!saveResult || saveResult.status !== 'saved') {
         return
       }
 
-      const referencedAssetPaths = new Set(collectReferencedDraftAssetPaths(saveResult.content))
-      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || [])
+      const referencedAssetPaths = new Set(collectReferencedDraftAssetPaths(saveResult.content ?? ''))
+      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets ?? [])
         .filter((asset) => typeof asset?.relativePath === 'string' && !referencedAssetPaths.has(asset.relativePath))
         .map((asset) => asset.filePath))
 
       if (snapshot.currentFilePath && saveResult.path !== snapshot.currentFilePath) {
-        await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
+        await cleanupImportedAssetFiles((snapshot.pendingImportedAssets ?? []).map((asset) => asset.filePath))
       }
 
       if (!snapshot.currentFilePath && snapshot.draftWorkspace) {
@@ -158,8 +245,8 @@ function createCloseController({
       }
 
       clearAutosaveRecovery({
-        recoveryKey: snapshot.recoveryKey || null,
-        filePath: snapshot.currentFilePath || null,
+        recoveryKey: snapshot.recoveryKey ?? null,
+        filePath: snapshot.currentFilePath ?? null,
       })
 
       if (saveResult.path && saveResult.path !== snapshot.currentFilePath) {
@@ -168,11 +255,11 @@ function createCloseController({
     }
 
     if (response.action === 'discard') {
-      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets || []).map((asset) => asset.filePath))
-      await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace || null })
+      await cleanupImportedAssetFiles((snapshot.pendingImportedAssets ?? []).map((asset) => asset.filePath))
+      await cleanupDraftWorkspace({ draftWorkspace: snapshot.draftWorkspace ?? null })
       clearAutosaveRecovery({
-        recoveryKey: snapshot.recoveryKey || null,
-        filePath: snapshot.currentFilePath || null,
+        recoveryKey: snapshot.recoveryKey ?? null,
+        filePath: snapshot.currentFilePath ?? null,
       })
     }
 

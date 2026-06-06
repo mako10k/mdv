@@ -85,6 +85,13 @@
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](docs/adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
+- ENG-BL-001 の 2026-06-06 時点の進捗:
+  - 完了: `electron/main.cjs` を薄い wrapper へ縮退し、実体を `src/electron/main.cts` と `src/electron/main/*.cts` へ移した
+  - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close の責務分解
+  - 残件: save / open / export / link handling などファイル I/O と dialog orchestration の controller 分離
+  - 残件: main process controller 群の node-level unit tests 追加と、window close / launch dispatch / settings persistence の回帰固定
+  - 残件: `@ts-nocheck` を controller 単位で剥がし、依存注入境界の型を先に固定してから `main.cts` 本体の型付けへ進む
+  - 残件: `electron/main.cjs` を参照するドキュメントを順次 `src/electron/main.cts` / controller 群へ更新する
 
 ## Usernote Intake
 
