@@ -1,20 +1,94 @@
-// @ts-nocheck
-const fs = require('node:fs')
-const fsPromises = require('node:fs/promises')
-const path = require('node:path')
-const { randomUUID } = require('node:crypto')
+const fs = require('node:fs') as typeof import('node:fs')
+const fsPromises = require('node:fs/promises') as typeof import('node:fs/promises')
+const path = require('node:path') as typeof import('node:path')
+const { randomUUID } = require('node:crypto') as typeof import('node:crypto')
 
-function createAutosaveRecoveryStore(options) {
+type ActivePanel = 'preview' | 'write'
+
+type PendingImportedAsset = {
+  filePath: string
+  relativePath: string
+}
+
+type RecoverySnapshot = {
+  markdownText: string
+  persistedMarkdown: string
+  currentFilePath: string | null
+  fileSnapshot: Record<string, unknown> | null
+  draftWorkspace: Record<string, unknown> | null
+  pendingImportedAssets: PendingImportedAsset[]
+  displayTitle: string
+  activePanel: ActivePanel
+  isUntouchedUntitledBuffer: boolean
+  recoveryKey: string
+}
+
+type RecoveryEntry = {
+  recoveryKey: string
+  savedAt: string
+  snapshot: RecoverySnapshot
+}
+
+type AutosaveRecoveryStoreOptions = {
+  autosaveRecoveryPath: string
+  getUntitledTitle: () => string
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+}
+
+type UpsertRecoveryPayload = {
+  markdownText?: unknown
+  persistedMarkdown?: unknown
+  currentFilePath?: unknown
+  fileSnapshot?: unknown
+  draftWorkspace?: unknown
+  pendingImportedAssets?: unknown
+  displayTitle?: unknown
+  activePanel?: unknown
+  isUntouchedUntitledBuffer?: unknown
+  recoveryKey?: unknown
+}
+
+type ClearRecoveryPayload = {
+  recoveryKey?: unknown
+  filePath?: unknown
+}
+
+type StoredEntryRecord = {
+  recoveryKey?: unknown
+  savedAt?: unknown
+  snapshot?: unknown
+}
+
+type AutosaveRecoveryStore = {
+  clear: (payload?: ClearRecoveryPayload) => void
+  flushSync: () => void
+  getByRecoveryKey: (recoveryKey: unknown) => RecoveryEntry | null
+  getForFile: (filePath: unknown) => RecoveryEntry | null
+  getLatest: () => RecoveryEntry | null
+  load: () => void
+  normalizeRecoveryFilePath: (filePath: unknown) => string | null
+  upsert: (snapshot: UpsertRecoveryPayload) => { recoveryKey: string, savedAt: string }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object'
+}
+
+function isPendingImportedAsset(value: unknown): value is PendingImportedAsset {
+  return isObjectRecord(value) && typeof value.filePath === 'string' && typeof value.relativePath === 'string'
+}
+
+function createAutosaveRecoveryStore(options: AutosaveRecoveryStoreOptions): AutosaveRecoveryStore {
   const { autosaveRecoveryPath, getUntitledTitle, writeLog } = options
-  const autosaveRecoveryByKey = new Map()
+  const autosaveRecoveryByKey = new Map<string, RecoveryEntry>()
   let autosaveRecoveryDirty = false
-  let autosaveRecoverySaveTimer = null
+  let autosaveRecoverySaveTimer: ReturnType<typeof setTimeout> | null = null
 
-  function normalizeRecoveryFilePath(filePath) {
+  function normalizeRecoveryFilePath(filePath: unknown) {
     return typeof filePath === 'string' && filePath.trim().length > 0 ? path.resolve(filePath) : null
   }
 
-  function buildRecoveryStorageKey(snapshot) {
+  function buildRecoveryStorageKey(snapshot: UpsertRecoveryPayload) {
     const normalizedFilePath = normalizeRecoveryFilePath(snapshot?.currentFilePath)
 
     if (normalizedFilePath) {
@@ -28,7 +102,7 @@ function createAutosaveRecoveryStore(options) {
     return `draft:${randomUUID()}`
   }
 
-  function inferUntouchedUntitledBuffer(snapshot) {
+  function inferUntouchedUntitledBuffer(snapshot: UpsertRecoveryPayload) {
     if (snapshot?.isUntouchedUntitledBuffer === true) {
       return true
     }
@@ -101,15 +175,17 @@ function createAutosaveRecoveryStore(options) {
         return
       }
 
-      const parsed = JSON.parse(fs.readFileSync(autosaveRecoveryPath, 'utf8'))
-      const entries = Array.isArray(parsed?.entries) ? parsed.entries : []
+      const parsed: unknown = JSON.parse(fs.readFileSync(autosaveRecoveryPath, 'utf8'))
+      const parsedRecord = isObjectRecord(parsed) ? parsed : null
+      const entries = Array.isArray(parsedRecord?.entries) ? parsedRecord.entries : []
 
       for (const entry of entries) {
-        if (typeof entry?.recoveryKey !== 'string' || typeof entry?.savedAt !== 'string' || typeof entry?.snapshot !== 'object' || entry.snapshot === null) {
+        const entryRecord = isObjectRecord(entry) ? entry as StoredEntryRecord : null
+        if (!entryRecord || typeof entryRecord.recoveryKey !== 'string' || typeof entryRecord.savedAt !== 'string' || !isObjectRecord(entryRecord.snapshot)) {
           continue
         }
 
-        const snapshot = entry.snapshot
+        const snapshot = entryRecord.snapshot
 
         if (
           typeof snapshot.markdownText !== 'string'
@@ -121,19 +197,19 @@ function createAutosaveRecoveryStore(options) {
 
         const normalizedRecoveryKey = typeof snapshot.recoveryKey === 'string' && snapshot.recoveryKey.trim().length > 0
           ? snapshot.recoveryKey.trim()
-          : entry.recoveryKey.replace(/^draft:/, '')
+          : entryRecord.recoveryKey.replace(/^draft:/, '')
 
-        autosaveRecoveryByKey.set(entry.recoveryKey, {
-          recoveryKey: entry.recoveryKey,
-          savedAt: entry.savedAt,
+        autosaveRecoveryByKey.set(entryRecord.recoveryKey, {
+          recoveryKey: entryRecord.recoveryKey,
+          savedAt: entryRecord.savedAt,
           snapshot: {
             markdownText: snapshot.markdownText,
             persistedMarkdown: snapshot.persistedMarkdown,
             currentFilePath: normalizeRecoveryFilePath(snapshot.currentFilePath),
-            fileSnapshot: snapshot.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
-            draftWorkspace: snapshot.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+            fileSnapshot: isObjectRecord(snapshot.fileSnapshot) ? snapshot.fileSnapshot : null,
+            draftWorkspace: isObjectRecord(snapshot.draftWorkspace) ? snapshot.draftWorkspace : null,
             pendingImportedAssets: Array.isArray(snapshot.pendingImportedAssets)
-              ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+              ? snapshot.pendingImportedAssets.filter(isPendingImportedAsset)
               : [],
             displayTitle: snapshot.displayTitle,
             activePanel: snapshot.activePanel === 'write' ? 'write' : 'preview',
@@ -147,17 +223,17 @@ function createAutosaveRecoveryStore(options) {
     }
   }
 
-  function upsert(snapshot) {
+  function upsert(snapshot: UpsertRecoveryPayload) {
     const recoveryKey = buildRecoveryStorageKey(snapshot)
     const savedAt = new Date().toISOString()
-    const normalizedSnapshot = {
+    const normalizedSnapshot: RecoverySnapshot = {
       markdownText: typeof snapshot?.markdownText === 'string' ? snapshot.markdownText : '',
       persistedMarkdown: typeof snapshot?.persistedMarkdown === 'string' ? snapshot.persistedMarkdown : '',
       currentFilePath: normalizeRecoveryFilePath(snapshot?.currentFilePath),
-      fileSnapshot: snapshot?.fileSnapshot && typeof snapshot.fileSnapshot === 'object' ? snapshot.fileSnapshot : null,
-      draftWorkspace: snapshot?.draftWorkspace && typeof snapshot.draftWorkspace === 'object' ? snapshot.draftWorkspace : null,
+      fileSnapshot: isObjectRecord(snapshot?.fileSnapshot) ? snapshot.fileSnapshot : null,
+      draftWorkspace: isObjectRecord(snapshot?.draftWorkspace) ? snapshot.draftWorkspace : null,
       pendingImportedAssets: Array.isArray(snapshot?.pendingImportedAssets)
-        ? snapshot.pendingImportedAssets.filter((asset) => typeof asset?.filePath === 'string' && typeof asset?.relativePath === 'string')
+        ? snapshot.pendingImportedAssets.filter(isPendingImportedAsset)
         : [],
       displayTitle: typeof snapshot?.displayTitle === 'string' && snapshot.displayTitle.trim().length > 0 ? snapshot.displayTitle.trim() : getUntitledTitle(),
       activePanel: snapshot?.activePanel === 'write' ? 'write' : 'preview',
@@ -174,7 +250,7 @@ function createAutosaveRecoveryStore(options) {
     return { recoveryKey, savedAt }
   }
 
-  function clear(payload = {}) {
+  function clear(payload: ClearRecoveryPayload = {}) {
     const recoveryKey = typeof payload?.recoveryKey === 'string' && payload.recoveryKey.trim().length > 0
       ? payload.recoveryKey.trim()
       : null
@@ -200,13 +276,13 @@ function createAutosaveRecoveryStore(options) {
 
   function getLatest() {
     const entries = Array.from(autosaveRecoveryByKey.values())
-      .filter((entry) => !normalizeRecoveryFilePath(entry?.snapshot?.currentFilePath))
-      .filter((entry) => entry?.snapshot?.isUntouchedUntitledBuffer !== true)
+      .filter((entry) => !normalizeRecoveryFilePath(entry.snapshot.currentFilePath))
+      .filter((entry) => entry.snapshot.isUntouchedUntitledBuffer !== true)
     entries.sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
     return entries[0] || null
   }
 
-  function getByRecoveryKey(recoveryKey) {
+  function getByRecoveryKey(recoveryKey: unknown) {
     const normalizedRecoveryKey = typeof recoveryKey === 'string' && recoveryKey.trim().length > 0
       ? recoveryKey.trim()
       : null
@@ -220,7 +296,7 @@ function createAutosaveRecoveryStore(options) {
       || null
   }
 
-  function getForFile(filePath) {
+  function getForFile(filePath: unknown) {
     const normalizedFilePath = normalizeRecoveryFilePath(filePath)
 
     if (!normalizedFilePath) {
