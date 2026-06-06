@@ -1,18 +1,123 @@
-// @ts-nocheck
-function buildMergePreviewText(baseContent, editorContent, mergedContent, currentDiskContent) {
-  const sections = [
-    { label: 'Merged result', content: mergedContent },
-    { label: 'Current file on disk', content: currentDiskContent },
-    { label: 'Your editor content', content: editorContent },
-    { label: 'Last synchronized content', content: baseContent },
+type LocaleCode = 'ja' | 'en'
+
+type SettingsState = {
+  general?: {
+    locale?: string
+  }
+} | null | undefined
+
+type MergePreviewSection = {
+  label: string
+  content: string
+}
+
+type MainI18n = {
+  untitledTitle: string
+  menu: {
+    file: string
+    newDocument: string
+    open: string
+    save: string
+    saveAs: string
+    settings: string
+    view: string
+    help: string
+    about: string
+    aiChat: string
+    editor: string
+    renderedPreview: string
+  }
+  buttons: {
+    continue: string
+    cancel: string
+    save: string
+    saveAs: string
+    overwriteSave: string
+    mergeSave: string
+    close: string
+    open: string
+  }
+  unsaved: {
+    file: string
+    hasUnsavedChanges: string
+    title: string
+    message: (proceedLabel: string) => string
+  }
+  closeFallback: {
+    title: string
+    message: string
+    detail: string
+  }
+  externalLink: {
+    title: string
+    message: string
+    allowAndRemember: string
+    openOnce: string
+    suggestedRuleLabel: string
+  }
+  fetchAclPrompt: {
+    title: string
+    message: string
+    allow: string
+    deny: string
+    runOnce: string
+    skipOnce: string
+    applyToOrigin: string
+    detailsLabel: string
+    pendingMethod: (method: string, scope: string) => string
+    pendingHeader: (headerName: string, scope: string) => string
+    urlLabel: string
+    methodLabel: string
+    headersLabel: string
+    none: string
+  }
+  fileDialog: {
+    markdownFilter: string
+    htmlFilter: string
+    allFilesFilter: string
+  }
+  saveConflict: {
+    title: string
+    message: string
+    detail: (targetPath: string) => string
+    mergePreviewTitle: string
+    mergePreviewMessage: string
+    mergePreviewDetail: (targetPath: string, previewText: string) => string
+    mergePreviewContinue: string
+    mergeFailedTitle: string
+    mergeFailedMessage: string
+  }
+  updater: {
+    availableTitle: string
+    availableMessage: (version: string) => string
+    availableDetail: string
+    invalidInstallMessage: (targetPath: string) => string
+    downloadNow: string
+    later: string
+    downloadedTitle: string
+    downloadedMessage: (version: string) => string
+    downloadedDetail: string
+    restartNow: string
+    checkFailedTitle: string
+    notAvailableTitle: string
+    notAvailableMessage: string
+  }
+}
+
+function buildMergePreviewText(baseContent: unknown, editorContent: unknown, mergedContent: unknown, currentDiskContent: unknown) {
+  const sections: MergePreviewSection[] = [
+    { label: 'Merged result', content: typeof mergedContent === 'string' ? mergedContent : '' },
+    { label: 'Current file on disk', content: typeof currentDiskContent === 'string' ? currentDiskContent : '' },
+    { label: 'Your editor content', content: typeof editorContent === 'string' ? editorContent : '' },
+    { label: 'Last synchronized content', content: typeof baseContent === 'string' ? baseContent : '' },
   ]
 
   return sections
-    .map(({ label, content }) => `=== ${label} ===\n${typeof content === 'string' && content.length > 0 ? content : '(empty)'}`)
+    .map(({ label, content }) => `=== ${label} ===\n${content.length > 0 ? content : '(empty)'}`)
     .join('\n\n')
 }
 
-const MAIN_I18N = {
+const MAIN_I18N: Record<LocaleCode, MainI18n> = {
   ja: {
     untitledTitle: '無題.md',
     menu: {
@@ -209,11 +314,11 @@ const MAIN_I18N = {
   },
 }
 
-function getMainLocale(settingsState) {
+function getMainLocale(settingsState: SettingsState): LocaleCode {
   return settingsState?.general?.locale === 'ja' ? 'ja' : 'en'
 }
 
-function getMainI18n(settingsState) {
+function getMainI18n(settingsState: SettingsState): MainI18n {
   return MAIN_I18N[getMainLocale(settingsState)]
 }
 

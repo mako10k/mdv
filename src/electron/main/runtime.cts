@@ -1,13 +1,53 @@
-// @ts-nocheck
-const path = require('node:path')
+const path = require('node:path') as typeof import('node:path')
 
-function resolveOptionalAbsoluteEnvPath(rawValue) {
+type AppPathName = 'userData' | 'logs'
+
+type AppLike = {
+  isPackaged: boolean
+  setPath: (name: AppPathName, value: string) => void
+  disableHardwareAcceleration: () => void
+  commandLine: {
+    appendSwitch: (value: string) => void
+  }
+  setName: (value: string) => void
+  setAppLogsPath: (value?: string) => void
+  getPath: (name: AppPathName) => string
+}
+
+type ConfigureMainProcessAppOptions = {
+  e2eUserDataPath: string | null
+  appDisplayName: string
+}
+
+type MainProcessRuntime = {
+  e2eUserDataPath: string | null
+  forceStaticRenderer: boolean
+  debugChannelPort: number | null
+  managedServerUrl: string | null
+  managedClientId: string | null
+  managedWindowId: string | null
+  appDisplayName: string
+  defaultOpenAiModel: string
+  defaultUpdateFeedUrl: string
+  isDev: boolean
+  windowIcon: string
+  logFilePath: string
+  allowedLinkRulesPath: string
+  settingsPath: string
+  secretsPath: string
+  semanticCachePath: string
+  autosaveRecoveryPath: string
+  stateRootPath: string
+  draftWorkspaceRootPath: string
+}
+
+function resolveOptionalAbsoluteEnvPath(rawValue: unknown) {
   return typeof rawValue === 'string' && rawValue.trim().length > 0
     ? path.resolve(rawValue.trim())
     : null
 }
 
-function resolveDebugChannelPort(rawValue) {
+function resolveDebugChannelPort(rawValue: unknown) {
   if (typeof rawValue !== 'string' || rawValue.trim().length === 0) {
     return null
   }
@@ -21,7 +61,7 @@ function resolveDebugChannelPort(rawValue) {
   return parsedPort
 }
 
-function configureMainProcessApp(app, options) {
+function configureMainProcessApp(app: AppLike, options: ConfigureMainProcessAppOptions) {
   const e2eUserDataPath = options.e2eUserDataPath
 
   if (e2eUserDataPath) {
@@ -35,7 +75,7 @@ function configureMainProcessApp(app, options) {
   app.setAppLogsPath(e2eUserDataPath ? path.join(e2eUserDataPath, 'logs') : undefined)
 }
 
-function createMainProcessRuntime(app) {
+function createMainProcessRuntime(app: AppLike): MainProcessRuntime {
   const e2eUserDataPath = resolveOptionalAbsoluteEnvPath(process.env.MDV_E2E_USER_DATA_DIR)
   const forceStaticRenderer = process.env.MDV_FORCE_STATIC_RENDERER === '1'
   const debugChannelPort = resolveDebugChannelPort(process.env.MDV_DEBUG_CHANNEL_PORT)
