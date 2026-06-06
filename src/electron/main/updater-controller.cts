@@ -1,8 +1,111 @@
-// @ts-nocheck
-const fs = require('node:fs')
-const path = require('node:path')
+const fs = require('node:fs') as typeof import('node:fs')
+const path = require('node:path') as typeof import('node:path')
 
-function createUpdaterController(options) {
+type BrowserWindowLike = {
+  isDestroyed: () => boolean
+}
+
+type MessageBoxResult = {
+  response: number
+}
+
+type MainI18n = {
+  buttons: {
+    close: string
+  }
+  updater: {
+    invalidInstallMessage: (filePath: string) => string
+    availableTitle: string
+    availableMessage: (version: string) => string
+    availableDetail: string
+    downloadNow: string
+    later: string
+    downloadedTitle: string
+    downloadedMessage: (version: string) => string
+    downloadedDetail: string
+    restartNow: string
+    checkFailedTitle: string
+  }
+}
+
+type SettingsState = {
+  updates?: {
+    enabled?: boolean
+    autoCheckOnLaunch?: boolean
+    feedUrl?: string | null
+  }
+}
+
+type UpdaterSnapshot = {
+  supported: boolean
+  enabled: boolean
+  configured: boolean
+  feedUrl: string | null
+  status: 'idle' | 'unsupported' | 'disabled' | 'unconfigured' | 'error' | 'checking' | 'update-available' | 'up-to-date' | 'downloading' | 'downloaded'
+  currentVersion: string
+  availableVersion: string | null
+  downloadedVersion: string | null
+  checkedAt: string | null
+  progressPercent: number | null
+  error: string | null
+}
+
+type UpdateInfo = {
+  version?: string
+}
+
+type DownloadProgress = {
+  percent?: number
+}
+
+type AutoUpdaterLike = {
+  autoDownload: boolean
+  autoInstallOnAppQuit: boolean
+  setFeedURL: (options: { provider: 'generic', url: string }) => void
+  checkForUpdates: () => Promise<unknown>
+  downloadUpdate: () => Promise<unknown>
+  quitAndInstall: (isSilent: boolean, isForceRunAfter: boolean) => void
+  on: {
+    (event: 'checking-for-update', handler: () => void): void
+    (event: 'update-available', handler: (info: UpdateInfo | null | undefined) => void): void
+    (event: 'update-not-available', handler: () => void): void
+    (event: 'download-progress', handler: (progress: DownloadProgress | null | undefined) => void): void
+    (event: 'update-downloaded', handler: (info: UpdateInfo | null | undefined) => void): void
+    (event: 'error', handler: (error: unknown) => void): void
+  }
+}
+
+type UpdaterControllerOptions = {
+  app: {
+    getVersion: () => string
+    isPackaged: boolean
+  }
+  autoUpdater: AutoUpdaterLike
+  processRef: {
+    env: Record<string, string | undefined>
+    execPath: string
+    resourcesPath: string
+    platform: string
+  }
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+  showMessageBox: (parentWindow: BrowserWindowLike | null, options: Record<string, unknown>) => Promise<MessageBoxResult>
+  getMainI18n: () => MainI18n
+  getDefaultEditorWindow: () => BrowserWindowLike | null
+  getSettingsWindow: () => BrowserWindowLike | null
+  getAboutWindow: () => BrowserWindowLike | null
+  getSettingsState: () => SettingsState
+  broadcastUpdaterStateChanged: (snapshot: UpdaterSnapshot) => void
+}
+
+type UpdaterController = {
+  checkForAppUpdates: (options?: { silent?: boolean }) => Promise<UpdaterSnapshot>
+  downloadAvailableUpdate: () => Promise<UpdaterSnapshot>
+  getUpdaterStateSnapshot: () => UpdaterSnapshot
+  initializeAutoUpdater: () => void
+  installDownloadedUpdate: () => boolean
+}
+
+function createUpdaterController(options: UpdaterControllerOptions): UpdaterController {
   const {
     app,
     autoUpdater,
@@ -17,12 +120,12 @@ function createUpdaterController(options) {
     broadcastUpdaterStateChanged,
   } = options
 
-  let updaterCheckInFlight = null
-  let updaterDownloadInFlight = null
-  let updaterConfiguredFeedUrl = null
+  let updaterCheckInFlight: Promise<UpdaterSnapshot> | null = null
+  let updaterDownloadInFlight: Promise<UpdaterSnapshot> | null = null
+  let updaterConfiguredFeedUrl: string | null = null
   let updaterAvailabilityPromptOpen = false
   let updaterDownloadedPromptOpen = false
-  const updaterState = {
+  const updaterState: UpdaterSnapshot = {
     supported: false,
     enabled: false,
     configured: false,
@@ -91,7 +194,7 @@ function createUpdaterController(options) {
     return getDefaultEditorWindow()
   }
 
-  function getUpdaterStateSnapshot() {
+  function getUpdaterStateSnapshot(): UpdaterSnapshot {
     const settingsState = getSettingsState()
 
     return {
@@ -104,7 +207,7 @@ function createUpdaterController(options) {
     }
   }
 
-  function setUpdaterState(patch) {
+  function setUpdaterState(patch: Partial<UpdaterSnapshot>) {
     Object.assign(updaterState, patch)
     broadcastUpdaterStateChanged(getUpdaterStateSnapshot())
   }
@@ -172,7 +275,7 @@ function createUpdaterController(options) {
     return true
   }
 
-  async function promptToDownloadUpdate(version) {
+  async function promptToDownloadUpdate(version: string) {
     if (updaterAvailabilityPromptOpen) {
       return
     }
@@ -200,7 +303,7 @@ function createUpdaterController(options) {
     }
   }
 
-  async function promptToInstallDownloadedUpdate(version) {
+  async function promptToInstallDownloadedUpdate(version: string) {
     if (updaterDownloadedPromptOpen) {
       return
     }
@@ -228,7 +331,7 @@ function createUpdaterController(options) {
     }
   }
 
-  async function checkForAppUpdates(optionsArg = {}) {
+  async function checkForAppUpdates(optionsArg: { silent?: boolean } = {}) {
     if (!configureAutoUpdaterFeed()) {
       const snapshot = getUpdaterStateSnapshot()
 
@@ -260,7 +363,7 @@ function createUpdaterController(options) {
 
     updaterCheckInFlight = autoUpdater.checkForUpdates()
       .then(() => getUpdaterStateSnapshot())
-      .catch((error) => {
+      .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         setUpdaterState({ status: 'error', error: message, progressPercent: null })
 
@@ -297,7 +400,7 @@ function createUpdaterController(options) {
     setUpdaterState({ status: 'downloading', progressPercent: 0, error: null })
     updaterDownloadInFlight = autoUpdater.downloadUpdate()
       .then(() => getUpdaterStateSnapshot())
-      .catch((error) => {
+      .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         setUpdaterState({ status: 'error', error: message, progressPercent: null })
         return getUpdaterStateSnapshot()
@@ -336,7 +439,10 @@ function createUpdaterController(options) {
     })
 
     autoUpdater.on('download-progress', (progress) => {
-      const percent = Number.isFinite(progress?.percent) ? Math.max(0, Math.min(100, progress.percent)) : null
+      const rawPercent = progress?.percent
+      const percent = typeof rawPercent === 'number' && Number.isFinite(rawPercent)
+        ? Math.max(0, Math.min(100, rawPercent))
+        : null
       setUpdaterState({ status: 'downloading', progressPercent: percent, error: null })
     })
 
