@@ -12,10 +12,20 @@ function createWindowController({
   getMainI18n,
   focusWindow,
   approveWindowClose,
+  approvedWindowCloseIds,
+  pendingWindowCloseIds,
   resolveInitialPanelForLaunch,
   findEditorWindowByTrackedFilePath,
   getPendingLaunchRequest,
   setPendingLaunchRequest,
+  launchStateByWindowId,
+  hiddenLaunchRevealTimerByWindowId,
+  emitDebugChannelEvent,
+  confirmEditorWindowClose,
+  clearEditorRuntimeState,
+  isManagedClient,
+  registerManagedClient,
+  setManagedMainWindow,
 }) {
   let settingsWindow = null
   let settingsWindowOwnerEditorId = null
@@ -441,9 +451,119 @@ function createWindowController({
     })
   }
 
+  async function createWindow(initialLaunchRequest = null) {
+    const mainWindow = new BrowserWindow({
+      width: 1600,
+      height: 980,
+      minWidth: 1200,
+      minHeight: 760,
+      show: !Boolean(initialLaunchRequest?.filePath),
+      backgroundColor: '#fffaf4',
+      autoHideMenuBar: true,
+      icon: windowIcon,
+      webPreferences: {
+        preload: preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    })
+
+    emitDebugChannelEvent('window:created', {
+      windowId: mainWindow.id,
+      hiddenForLaunch: Boolean(initialLaunchRequest?.filePath),
+    })
+
+    launchStateByWindowId.set(mainWindow.id, {
+      filePath: initialLaunchRequest?.filePath || null,
+      initialPanel: resolveInitialPanelForLaunch(initialLaunchRequest),
+    })
+
+    mainWindow.on('close', (event) => {
+      if (approvedWindowCloseIds.delete(mainWindow.id)) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (pendingWindowCloseIds.has(mainWindow.id)) {
+        return
+      }
+
+      pendingWindowCloseIds.add(mainWindow.id)
+      void confirmEditorWindowClose(mainWindow)
+        .catch((error) => {
+          writeLog('ERROR', 'main', 'Editor window close confirmation failed', error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => {
+          pendingWindowCloseIds.delete(mainWindow.id)
+        })
+    })
+
+    attachWindowLogging(mainWindow, initialLaunchRequest)
+
+    if (initialLaunchRequest?.filePath) {
+      const revealTimer = setTimeout(() => {
+        hiddenLaunchRevealTimerByWindowId.delete(mainWindow.id)
+
+        if (mainWindow.isDestroyed() || mainWindow.isVisible()) {
+          return
+        }
+
+        writeLog('WARN', 'main', 'Revealing hidden launch window after startup timeout', initialLaunchRequest.filePath)
+        mainWindow.show()
+        focusWindow(mainWindow)
+      }, 1500)
+
+      hiddenLaunchRevealTimerByWindowId.set(mainWindow.id, revealTimer)
+    }
+
+    mainWindow.on('closed', () => {
+      emitDebugChannelEvent('window:closed', { windowId: mainWindow.id })
+      const revealTimer = hiddenLaunchRevealTimerByWindowId.get(mainWindow.id)
+      if (revealTimer) {
+        clearTimeout(revealTimer)
+        hiddenLaunchRevealTimerByWindowId.delete(mainWindow.id)
+      }
+
+      approvedWindowCloseIds.delete(mainWindow.id)
+      pendingWindowCloseIds.delete(mainWindow.id)
+      launchStateByWindowId.delete(mainWindow.id)
+      clearEditorRuntimeState(mainWindow.id)
+      handleEditorWindowClosed(mainWindow.id)
+    })
+
+    setManagedMainWindow(mainWindow)
+    writeLog('INFO', 'main', 'BrowserWindow created')
+
+    mainWindow.once('ready-to-show', () => {
+      emitDebugChannelEvent('window:ready-to-show', { windowId: mainWindow.id })
+    })
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      emitDebugChannelEvent('window:did-finish-load', {
+        windowId: mainWindow.id,
+        url: mainWindow.webContents.getURL(),
+      })
+
+      if (isManagedClient()) {
+        void registerManagedClient(mainWindow)
+      }
+    })
+
+    if (isDev) {
+      loadRendererWindow(mainWindow, 'index.html')
+      mainWindow.webContents.openDevTools({ mode: 'detach' })
+      return mainWindow
+    }
+
+    loadRendererWindow(mainWindow, 'index.html')
+    return mainWindow
+  }
+
   return {
     attachWindowLogging,
     createApplicationMenu,
+    createWindow,
     closeAuxiliaryWindowsForEditor,
     dispatchOpenFileToWindow,
     getAboutWindow: () => aboutWindow,
