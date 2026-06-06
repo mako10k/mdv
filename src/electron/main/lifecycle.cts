@@ -1,5 +1,65 @@
-// @ts-nocheck
-function registerAppLifecycle(options) {
+type BrowserWindowLike = {
+  id: number
+}
+
+type WebContentsLike = {
+  on: (event: 'preload-error', handler: (event: unknown, preloadPath: string, error: unknown) => void) => void
+}
+
+type BrowserWindowStatic = {
+  getAllWindows: () => BrowserWindowLike[]
+}
+
+type LaunchRequest = {
+  filePath?: string | null
+  explicitInitialPanel?: string | null
+}
+
+type AppLike = {
+  on: {
+    (event: 'web-contents-created', handler: (event: unknown, contents: WebContentsLike) => void): void
+    (event: 'second-instance', handler: (event: unknown, argv: string[]) => void): void
+    (event: 'activate', handler: () => void): void
+    (event: 'window-all-closed', handler: () => void): void
+  }
+  whenReady: () => Promise<void>
+  quit: () => void
+}
+
+type ProcessLike = {
+  platform: string
+  on: {
+    (event: 'uncaughtException', handler: (error: unknown) => void): void
+    (event: 'unhandledRejection', handler: (reason: unknown) => void): void
+  }
+}
+
+type LifecycleOptions = {
+  app: AppLike
+  BrowserWindow: BrowserWindowStatic
+  writeLog: (level: string, scope: string, ...parts: unknown[]) => void
+  processRef: ProcessLike
+  resolveLaunchRequest: (argv: string[]) => LaunchRequest
+  findEditorWindowByTrackedFilePath: (filePath: string) => BrowserWindowLike | null
+  focusWindow: (window: BrowserWindowLike) => void
+  isManagedClient: () => boolean
+  createWindow: (launchRequest?: LaunchRequest | null) => Promise<BrowserWindowLike>
+  getDefaultEditorWindow: () => BrowserWindowLike | null
+  queueOrDispatchOpenFile: (launchRequest: LaunchRequest) => void
+  startDebugChannelServer: () => void
+  emitDebugChannelEvent: (type: string, payload?: unknown) => void
+  initializeAutoUpdater: () => void
+  createApplicationMenu: () => void
+  getPendingLaunchRequest: () => LaunchRequest | null
+  clearPendingLaunchRequest: () => void
+  stopDebugChannelServer: () => void
+  flushAutosaveRecoveryStoreSync: () => void
+  clearCommandPollTimer: () => void
+  isDev: boolean
+  forceStaticRenderer: boolean
+}
+
+function registerAppLifecycle(options: LifecycleOptions) {
   const {
     app,
     BrowserWindow,
@@ -57,7 +117,7 @@ function registerAppLifecycle(options) {
     if (shouldOpenAdditionalWindow) {
       void createWindow(launchRequest).then((nextWindow) => {
         focusWindow(nextWindow)
-      }).catch((error) => {
+      }).catch((error: unknown) => {
         writeLog('ERROR', 'main', 'Failed to create additional window', error instanceof Error ? error.message : String(error))
       })
       return
@@ -86,13 +146,13 @@ function registerAppLifecycle(options) {
     createApplicationMenu()
     const initialLaunchRequest = getPendingLaunchRequest()
     clearPendingLaunchRequest()
-    void createWindow(initialLaunchRequest).catch((error) => {
+    void createWindow(initialLaunchRequest).catch((error: unknown) => {
       writeLog('ERROR', 'main', 'Failed to create initial window', error instanceof Error ? error.message : String(error))
     })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        void createWindow().catch((error) => {
+        void createWindow().catch((error: unknown) => {
           writeLog('ERROR', 'main', 'Failed to recreate window on activate', error instanceof Error ? error.message : String(error))
         })
       }
