@@ -32,6 +32,7 @@ const { buildMergePreviewText, getMainI18n: getMainI18nForSettings } = require('
 const { createAutosaveRecoveryStore } = require('./main/autosave-recovery.cjs')
 const { registerAppLifecycle } = require('./main/lifecycle.cjs')
 const { registerMainIpcHandlers } = require('./main/main-ipc.cjs')
+const { createUpdaterController } = require('./main/updater-controller.cjs')
 
 const runtime = createMainProcessRuntime(app)
 const {
@@ -105,24 +106,6 @@ let settingsState = loadSettings()
 let secretsState = loadSecrets()
 let hasPersistedSettings = fs.existsSync(settingsPath)
 let hasReadableSettings = loadSettings.didLoadPersisted === true
-let updaterCheckInFlight = null
-let updaterDownloadInFlight = null
-let updaterConfiguredFeedUrl = null
-let updaterAvailabilityPromptOpen = false
-let updaterDownloadedPromptOpen = false
-const updaterState = {
-  supported: false,
-  enabled: false,
-  configured: false,
-  feedUrl: null,
-  status: 'idle',
-  currentVersion: app.getVersion(),
-  availableVersion: null,
-  downloadedVersion: null,
-  checkedAt: null,
-  progressPercent: null,
-  error: null,
-}
 
 let semanticCacheDidLoad = false
 let semanticCacheDirty = false
@@ -146,6 +129,27 @@ const autosaveRecoveryStore = createAutosaveRecoveryStore({
   autosaveRecoveryPath,
   getUntitledTitle: () => getMainI18n().untitledTitle,
   writeLog: (...parts) => writeLog(...parts),
+})
+const updaterController = createUpdaterController({
+  app,
+  autoUpdater,
+  processRef: process,
+  writeLog: (...parts) => writeLog(...parts),
+  showMessageBox,
+  getMainI18n,
+  getDefaultEditorWindow,
+  getSettingsWindow: () => settingsWindow,
+  getAboutWindow: () => aboutWindow,
+  getSettingsState: () => settingsState,
+  broadcastUpdaterStateChanged: (snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) {
+        continue
+      }
+
+      window.webContents.send('mdv:updater-state-changed', snapshot)
+    }
+  },
 })
 
 autosaveRecoveryStore.load()
@@ -3776,335 +3780,13 @@ function getProviderStatus() {
   }
 }
 
-function isPortableRuntime() {
-  return Boolean(process.env.PORTABLE_EXECUTABLE_FILE || process.env.PORTABLE_EXECUTABLE_DIR)
-}
-
-function hasNsisInstallMarker() {
-  try {
-    const executableDir = path.dirname(process.execPath)
-    const fileNames = fs.readdirSync(executableDir)
-    return fileNames.some((fileName) => /^Uninstall .*\.exe$/i.test(fileName))
-  } catch {
-    return false
-  }
-}
-
-function hasUpdaterConfigFile() {
-  try {
-    return fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))
-  } catch {
-    return false
-  }
-}
-
-function isInstalledWindowsReleaseRuntime() {
-  return process.platform === 'win32'
-    && app.isPackaged
-    && !isPortableRuntime()
-    && hasNsisInstallMarker()
-}
-
-function getAutoUpdaterSetupError() {
-  if (!isInstalledWindowsReleaseRuntime() || hasUpdaterConfigFile()) {
-    return null
-  }
-
-  return getMainI18n().updater.invalidInstallMessage(path.join(process.resourcesPath, 'app-update.yml'))
-}
-
-function isAutoUpdateSupported() {
-  return isInstalledWindowsReleaseRuntime()
-}
-
-function getUpdaterDialogParentWindow() {
-  if (aboutWindow && !aboutWindow.isDestroyed()) {
-    return aboutWindow
-  }
-
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    return settingsWindow
-  }
-
-  return getDefaultEditorWindow()
-}
-
-function getUpdaterStateSnapshot() {
-  return {
-    ...updaterState,
-    supported: isAutoUpdateSupported(),
-    enabled: settingsState.updates?.enabled !== false,
-    configured: typeof settingsState.updates?.feedUrl === 'string' && settingsState.updates.feedUrl.length > 0,
-    feedUrl: settingsState.updates?.feedUrl ?? null,
-    currentVersion: app.getVersion(),
-  }
-}
-
-function broadcastUpdaterStateChanged() {
-  const snapshot = getUpdaterStateSnapshot()
-
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) {
-      continue
-    }
-
-    window.webContents.send('mdv:updater-state-changed', snapshot)
-  }
-}
-
-function setUpdaterState(patch) {
-  Object.assign(updaterState, patch)
-  broadcastUpdaterStateChanged()
-}
-
-function configureAutoUpdaterFeed() {
-  if (!isAutoUpdateSupported()) {
-    setUpdaterState({
-      status: 'unsupported',
-      availableVersion: null,
-      downloadedVersion: null,
-      progressPercent: null,
-      error: null,
-    })
-    return false
-  }
-
-  const setupError = getAutoUpdaterSetupError()
-
-  if (setupError) {
-    writeLog('ERROR', 'updater', 'Broken installer auto-update setup', setupError)
-    setUpdaterState({
-      status: 'error',
-      availableVersion: null,
-      downloadedVersion: null,
-      progressPercent: null,
-      error: setupError,
-    })
-    return false
-  }
-
-  if (settingsState.updates?.enabled === false) {
-    setUpdaterState({
-      status: 'disabled',
-      availableVersion: null,
-      downloadedVersion: null,
-      progressPercent: null,
-      error: null,
-    })
-    return false
-  }
-
-  const feedUrl = settingsState.updates?.feedUrl ?? null
-
-  if (!feedUrl) {
-    setUpdaterState({
-      status: 'unconfigured',
-      availableVersion: null,
-      downloadedVersion: null,
-      progressPercent: null,
-      error: null,
-    })
-    return false
-  }
-
-  if (updaterConfiguredFeedUrl !== feedUrl) {
-    autoUpdater.setFeedURL({ provider: 'generic', url: feedUrl })
-    updaterConfiguredFeedUrl = feedUrl
-  }
-
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-  setUpdaterState({ error: null })
-  return true
-}
-
-async function promptToDownloadUpdate(version) {
-  if (updaterAvailabilityPromptOpen) {
-    return
-  }
-
-  updaterAvailabilityPromptOpen = true
-
-  try {
-    const messages = getMainI18n()
-    const response = await showMessageBox(getUpdaterDialogParentWindow(), {
-      type: 'info',
-      title: messages.updater.availableTitle,
-      message: messages.updater.availableMessage(version),
-      detail: messages.updater.availableDetail,
-      buttons: [messages.updater.downloadNow, messages.updater.later],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    })
-
-    if (response.response === 0) {
-      await downloadAvailableUpdate()
-    }
-  } finally {
-    updaterAvailabilityPromptOpen = false
-  }
-}
-
-async function promptToInstallDownloadedUpdate(version) {
-  if (updaterDownloadedPromptOpen) {
-    return
-  }
-
-  updaterDownloadedPromptOpen = true
-
-  try {
-    const messages = getMainI18n()
-    const response = await showMessageBox(getUpdaterDialogParentWindow(), {
-      type: 'info',
-      title: messages.updater.downloadedTitle,
-      message: messages.updater.downloadedMessage(version),
-      detail: messages.updater.downloadedDetail,
-      buttons: [messages.updater.restartNow, messages.updater.later],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    })
-
-    if (response.response === 0) {
-      installDownloadedUpdate()
-    }
-  } finally {
-    updaterDownloadedPromptOpen = false
-  }
-}
-
-async function checkForAppUpdates(options = {}) {
-  if (!configureAutoUpdaterFeed()) {
-    const snapshot = getUpdaterStateSnapshot()
-
-    if (options.silent !== true && snapshot.status === 'error' && snapshot.error) {
-      const messages = getMainI18n()
-      void showMessageBox(getUpdaterDialogParentWindow(), {
-        type: 'error',
-        title: messages.updater.checkFailedTitle,
-        message: snapshot.error,
-        buttons: [messages.buttons.close],
-        defaultId: 0,
-        noLink: true,
-      })
-    }
-
-    return snapshot
-  }
-
-  if (updaterCheckInFlight) {
-    return updaterCheckInFlight
-  }
-
-  setUpdaterState({
-    status: 'checking',
-    checkedAt: new Date().toISOString(),
-    progressPercent: null,
-    error: null,
-  })
-
-  updaterCheckInFlight = autoUpdater.checkForUpdates()
-    .then(() => getUpdaterStateSnapshot())
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      setUpdaterState({ status: 'error', error: message, progressPercent: null })
-
-      if (options.silent !== true) {
-        const messages = getMainI18n()
-        void showMessageBox(getUpdaterDialogParentWindow(), {
-          type: 'error',
-          title: messages.updater.checkFailedTitle,
-          message,
-          buttons: [messages.buttons.close],
-          defaultId: 0,
-          noLink: true,
-        })
-      }
-
-      return getUpdaterStateSnapshot()
-    })
-    .finally(() => {
-      updaterCheckInFlight = null
-    })
-
-  return updaterCheckInFlight
-}
-
-async function downloadAvailableUpdate() {
-  if (!configureAutoUpdaterFeed()) {
-    return getUpdaterStateSnapshot()
-  }
-
-  if (updaterDownloadInFlight) {
-    return updaterDownloadInFlight
-  }
-
-  setUpdaterState({ status: 'downloading', progressPercent: 0, error: null })
-  updaterDownloadInFlight = autoUpdater.downloadUpdate()
-    .then(() => getUpdaterStateSnapshot())
-    .catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      setUpdaterState({ status: 'error', error: message, progressPercent: null })
-      return getUpdaterStateSnapshot()
-    })
-    .finally(() => {
-      updaterDownloadInFlight = null
-    })
-
-  return updaterDownloadInFlight
-}
-
-function installDownloadedUpdate() {
-  if (updaterState.status !== 'downloaded') {
-    return false
-  }
-
-  writeLog('INFO', 'updater', 'Installing downloaded update')
-  autoUpdater.quitAndInstall(false, true)
-  return true
-}
-
-function initializeAutoUpdater() {
-  autoUpdater.on('checking-for-update', () => {
-    setUpdaterState({ status: 'checking', checkedAt: new Date().toISOString(), error: null })
-  })
-
-  autoUpdater.on('update-available', (info) => {
-    const version = typeof info?.version === 'string' && info.version.length > 0 ? info.version : null
-    setUpdaterState({ status: 'update-available', availableVersion: version, downloadedVersion: null, progressPercent: null, error: null })
-    writeLog('INFO', 'updater', 'Update available', { version, feedUrl: settingsState.updates?.feedUrl ?? null })
-    void promptToDownloadUpdate(version ?? 'unknown')
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    setUpdaterState({ status: 'up-to-date', availableVersion: null, downloadedVersion: null, progressPercent: null, error: null, checkedAt: new Date().toISOString() })
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    const percent = Number.isFinite(progress?.percent) ? Math.max(0, Math.min(100, progress.percent)) : null
-    setUpdaterState({ status: 'downloading', progressPercent: percent, error: null })
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    const version = typeof info?.version === 'string' && info.version.length > 0 ? info.version : null
-    setUpdaterState({ status: 'downloaded', downloadedVersion: version, progressPercent: 100, error: null })
-    writeLog('INFO', 'updater', 'Update downloaded', { version })
-    void promptToInstallDownloadedUpdate(version ?? 'unknown')
-  })
-
-  autoUpdater.on('error', (error) => {
-    const message = error instanceof Error ? error.message : String(error)
-    writeLog('WARN', 'updater', 'Auto-update error', message)
-    setUpdaterState({ status: 'error', error: message, progressPercent: null })
-  })
-
-  if (configureAutoUpdaterFeed() && settingsState.updates?.autoCheckOnLaunch !== false) {
-    void checkForAppUpdates({ silent: true })
-  } else {
-    broadcastUpdaterStateChanged()
-  }
-}
+const {
+  getUpdaterStateSnapshot,
+  checkForAppUpdates,
+  downloadAvailableUpdate,
+  installDownloadedUpdate,
+  initializeAutoUpdater,
+} = updaterController
 
 function isOpenAiEnabled() {
   return settingsState.ai.openai.enabled === true
@@ -6645,7 +6327,6 @@ function emitAiChatStreamEvent(targetWindow, payload) {
 
 function broadcastSettingsChanged() {
   createApplicationMenu()
-  configureAutoUpdaterFeed()
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) {
@@ -6655,7 +6336,15 @@ function broadcastSettingsChanged() {
     window.webContents.send('mdv:settings-changed', settingsState)
   }
 
-  broadcastUpdaterStateChanged()
+  const updaterSnapshot = getUpdaterStateSnapshot()
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue
+    }
+
+    window.webContents.send('mdv:updater-state-changed', updaterSnapshot)
+  }
 }
 
 function loadRendererWindow(window, htmlFileName) {
