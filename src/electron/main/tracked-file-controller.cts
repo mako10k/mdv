@@ -2,7 +2,7 @@
 function createTrackedFileController(options: {
   fs: typeof import('node:fs')
   writeLog: (level: string, scope: string, ...parts: unknown[]) => void
-  ensureEditorRuntimeState: (editorWindow: any) => any
+  ensureEditorRuntimeState: (editorWindow: unknown) => unknown
 }) {
   const { fs, writeLog, ensureEditorRuntimeState } = options
   const trackedFileWatchersByWindowId = new Map()
