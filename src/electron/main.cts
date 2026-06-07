@@ -5479,7 +5479,13 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
   const client = createOpenAiClient()
   const openAiTools = getValidatedOpenAiToolDefinitions()
   const toolEvents = []
-  let nextInput = input
+  // Use an accumulating input for the tool loop. We deliberately avoid previous_response_id on all creates
+  // (including continuations after function calls). This is the controlling fix for the "Previous response with id ... not found"
+  // error that occurs after successful write/replace tool turns (see GitHub #1). Relying on server-side response ID
+  // continuation for client-orchestrated tool chaining proved brittle (storage timing, input shape for continuations,
+  // specific tools like editor writes, or model behavior). Each iteration now carries explicit history so the create
+  // is self-describing. The returned final responseId is still captured for logging/completion events.
+  const workingInput = [...input]
   let previousResponseId = null
 
   try {
@@ -5487,7 +5493,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
       writeLog('INFO', 'ai-chat', 'OpenAI response iteration start', {
         iteration,
         previousResponseId,
-        inputCount: nextInput.length,
+        inputCount: workingInput.length,
       })
       let streamedTextSnapshot = ''
       let streamedTextDone = ''
@@ -5495,8 +5501,10 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
       const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
         instructions: openAiChatInstructions,
-        input: nextInput,
-        previous_response_id: previousResponseId || undefined,
+        input: workingInput,
+        // previous_response_id omitted entirely (was: previousResponseId || undefined). This removes the source of
+        // the 400 "not found" during/after tool-using assistant turns while preserving multi-tool loop support via
+        // explicit accumulation below.
         tools: openAiTools,
         store: true,
       })
@@ -5580,8 +5588,8 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         }
       }
 
-      nextInput = []
-
+      // Accumulate explicit function_call + function_call_output items into workingInput so the next create
+      // (tool result turn) has self-contained context. No previous_response_id is used (see top of function).
       for (const functionCall of functionCalls) {
         let args
         let result
@@ -5648,7 +5656,15 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           content: formatToolEventContent(result),
         })
 
-        nextInput.push({
+        // Append both the call (for context) and the output. This grows workingInput for the next iteration
+        // so the model sees the full chain for this assistant response without depending on previous_response_id.
+        workingInput.push({
+          type: 'function_call',
+          call_id: functionCall.call_id,
+          name: functionCall.name,
+          arguments: functionCall.arguments,
+        })
+        workingInput.push({
           type: 'function_call_output',
           call_id: functionCall.call_id,
           output: JSON.stringify(result),

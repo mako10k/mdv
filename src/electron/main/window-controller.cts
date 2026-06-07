@@ -496,6 +496,22 @@ function createWindowController({
 
     writeLog('INFO', 'main', 'Dispatch launch/open file request', resolvedLaunchRequest)
     targetWindow.webContents.send('mdv:open-file-requested', resolvedLaunchRequest)
+
+    // Explicitly set the native OS window title from the main process when we know the file being opened/loaded.
+    // This makes the "window title" robust (independent of renderer bootstrap timing, displayTitle state updates,
+    // or document.title effect). Addresses the intermittent "remains Untitled.md after loading a file" symptom
+    // across launch, second-instance, and open-request paths. The renderer still drives in-app visibleDisplayTitle
+    // and document.title for the header.
+    if (resolvedLaunchRequest.filePath) {
+      try {
+        const fileTitle = path.basename(resolvedLaunchRequest.filePath)
+        // The BrowserWindowLike type in this controller is intentionally minimal; the real Electron instance has setTitle.
+        // We use a narrow cast here rather than widening the shared-like for one call site.
+        ;(targetWindow as { setTitle?: (title: string) => void }).setTitle?.(fileTitle)
+      } catch {
+        // best-effort; renderer document.title will still apply
+      }
+    }
   }
 
   function queueOrDispatchOpenFile(launchRequest: LaunchRequest | null | undefined) {

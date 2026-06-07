@@ -663,7 +663,8 @@
 .editor-panel .toastui-editor-tabs .tab-item {
   font: inherit;
   font-family: var(--sans);
-  font-size: 12px;
+  /* Scale with editor typography setting (post v0.1.8 desktopTypography) so mode tabs don't appear with "incorrect font" relative to user-chosen size/family. */
+  font-size: calc(var(--editor-font-size, 13px) * 0.85);
   font-weight: 600;
   color: var(--text-muted);
 }
