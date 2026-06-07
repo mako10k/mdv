@@ -35,3 +35,4 @@ release/windows-host-candidate/
 release/windows-host-*/
 playwright-report/
 test-results/
+tmp/

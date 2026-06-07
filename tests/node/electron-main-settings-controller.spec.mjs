@@ -96,3 +96,32 @@ test('sanitizeSecrets trims strings and clears blanks', () => {
     tavilyApiKey: null,
   })
 })
+
+test('getProviderStatus treats environment fallback keys as configured', () => {
+  const previousOpenAiApiKey = process.env.OPENAI_API_KEY
+  const previousTavilyApiKey = process.env.TAVILY_API_KEY
+
+  process.env.OPENAI_API_KEY = 'env-openai-key'
+  process.env.TAVILY_API_KEY = 'env-tavily-key'
+
+  try {
+    const controller = createController()
+
+    assert.deepEqual(controller.getProviderStatus(), {
+      openaiConfigured: true,
+      tavilyConfigured: true,
+    })
+  } finally {
+    if (typeof previousOpenAiApiKey === 'string') {
+      process.env.OPENAI_API_KEY = previousOpenAiApiKey
+    } else {
+      delete process.env.OPENAI_API_KEY
+    }
+
+    if (typeof previousTavilyApiKey === 'string') {
+      process.env.TAVILY_API_KEY = previousTavilyApiKey
+    } else {
+      delete process.env.TAVILY_API_KEY
+    }
+  }
+})

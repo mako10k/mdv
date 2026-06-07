@@ -506,9 +506,18 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
   }
 
   function getProviderStatus(): ProviderStatus {
+    const openAiApiKey = secretsState.openaiApiKey
+      || (typeof process.env.OPENAI_API_KEY === 'string' && process.env.OPENAI_API_KEY.trim().length > 0
+        ? process.env.OPENAI_API_KEY.trim()
+        : null)
+    const tavilyApiKey = secretsState.tavilyApiKey
+      || (typeof process.env.TAVILY_API_KEY === 'string' && process.env.TAVILY_API_KEY.trim().length > 0
+        ? process.env.TAVILY_API_KEY.trim()
+        : null)
+
     return {
-      openaiConfigured: secretsState.openaiApiKey !== null,
-      tavilyConfigured: secretsState.tavilyApiKey !== null,
+      openaiConfigured: openAiApiKey !== null,
+      tavilyConfigured: tavilyApiKey !== null,
     }
   }
 

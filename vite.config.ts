@@ -7,6 +7,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   build: {
+    sourcemap: false,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),

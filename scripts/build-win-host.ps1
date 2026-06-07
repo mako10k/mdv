@@ -680,6 +680,33 @@ if (Test-ExternalCommandFailed) {
   throw "build failed with code $LASTEXITCODE"
 }
 
+# Strip all source maps from the build outputs (dist/ + electron/lib/).
+# This is defense-in-depth for the win-host temp-workspace flow (the only supported path
+# for correct signed Windows portable/installer artifacts per DEVELOPMENT.md and
+# docs/release-workflow.md). It prevents build-time paths under %TEMP%\mdv-winbuild
+# (or the WSL-side copy) from appearing in user-facing error dialogs, stacks, or
+# sourcemap sources after packaging.
+#
+# Why here (post `npm run build`, pre electron-builder):
+# - tsc (electron-lib) + Vite (renderer) + mdast:build run inside $workRoot.
+# - The strip is *after* the full build so it catches everything we will package.
+# - We also set sourceMap:false etc. in tsconfig.electron-lib.json + vite.config.ts
+#   so maps are not generated in the first place for project code.
+# - Note: mdast-control/dist maps may still be present (its own tsconfig); they are
+#   vendored via the package.json "files" glob and were pre-existing.
+#
+# See: the GitHub #1 "tmp path in errors" report, the packaging-review findings,
+# and the explicit comment in the staged diff that introduced this.
+Write-Host 'Stripping source maps (prevents tmp build paths from appearing in error dialogs/stacks)'
+$mapRoots = @('dist', 'electron\lib')
+foreach ($rel in $mapRoots) {
+  $full = Join-Path $workRoot $rel
+  if (Test-Path $full) {
+    Get-ChildItem -Path $full -Include '*.map' -Recurse -File -ErrorAction SilentlyContinue |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+  }
+}
+
 $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 & "$nodeRoot\npm.cmd" exec electron-builder -- --win --dir --config.win.signAndEditExecutable=false
 if (Test-ExternalCommandFailed) {

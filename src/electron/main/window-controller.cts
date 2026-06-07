@@ -505,9 +505,14 @@ function createWindowController({
     if (resolvedLaunchRequest.filePath) {
       try {
         const fileTitle = path.basename(resolvedLaunchRequest.filePath)
+        // Set the *full* conventional title (matching renderer document.title = `${visible} - MDV`)
+        // so that page.title() in E2E and the OS title bar are correct immediately on launch/open.
+        // This addresses the "sometimes remains Untitled" without breaking tests that poll for 'name - MDV'.
+        // The renderer effect and statusbar still drive the in-app visibleDisplayTitle (with * for dirty).
+        const fullTitle = `${fileTitle} - MDV`
         // The BrowserWindowLike type in this controller is intentionally minimal; the real Electron instance has setTitle.
         // We use a narrow cast here rather than widening the shared-like for one call site.
-        ;(targetWindow as { setTitle?: (title: string) => void }).setTitle?.(fileTitle)
+        ;(targetWindow as { setTitle?: (title: string) => void }).setTitle?.(fullTitle)
       } catch {
         // best-effort; renderer document.title will still apply
       }

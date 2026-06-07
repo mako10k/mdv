@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-const mainSource = fs.readFileSync(new URL('../../electron/main.cjs', import.meta.url), 'utf8')
+const mainSource = fs.readFileSync(new URL('../../src/electron/main.cts', import.meta.url), 'utf8')
 
 test('replace_structure schema documents maxReplacements as an integer', () => {
   assert.match(mainSource, /maxReplacements: \{ type: 'integer', description: 'Optional positive integer cap\. Defaults to 1\.'/)

@@ -1,22 +1,25 @@
+const fs = require('node:fs') as typeof import('node:fs')
 const path = require('node:path') as typeof import('node:path')
 
-type AppPathName = 'userData' | 'logs'
+type AppSetPathName = 'userData' | 'logs'
+type AppGetPathName = 'appData' | 'userData' | 'logs'
 
 type AppLike = {
   isPackaged: boolean
-  setPath: (name: AppPathName, value: string) => void
+  setPath: (name: AppSetPathName, value: string) => void
   disableHardwareAcceleration: () => void
   commandLine: {
     appendSwitch: (value: string) => void
   }
   setName: (value: string) => void
   setAppLogsPath: (value?: string) => void
-  getPath: (name: AppPathName) => string
+  getPath: (name: AppGetPathName) => string
 }
 
 type ConfigureMainProcessAppOptions = {
   e2eUserDataPath: string | null
   appDisplayName: string
+  legacyUserDataDirName: string
 }
 
 type MainProcessRuntime = {
@@ -61,18 +64,45 @@ function resolveDebugChannelPort(rawValue: unknown) {
   return parsedPort
 }
 
-function configureMainProcessApp(app: AppLike, options: ConfigureMainProcessAppOptions) {
-  const e2eUserDataPath = options.e2eUserDataPath
-
-  if (e2eUserDataPath) {
-    app.setPath('userData', e2eUserDataPath)
+function resolveUserDataPath(app: AppLike, options: ConfigureMainProcessAppOptions) {
+  // ENG-BL-001 / user-data migration policy:
+  // - Existing users may have data under the legacy "mdv" folder (from early 0.x builds).
+  // - Prefer that folder if it exists on disk (upgrade continuity, no data loss/migration).
+  // - Otherwise fall back to the branded "MarkDownViewer" folder (or create legacy for new installs
+  //   so that the on-disk name stays stable across the 0.x line).
+  // - E2E overrides via MDV_E2E_USER_DATA_DIR bypass this entirely.
+  // This is a *persistent default*, not a one-time migration. Documented here because the policy
+  // affects settings, secrets, recovery, drafts, logs, semantic cache, etc. for all users.
+  // See also: DEVELOPMENT.md (paths), the GitHub #1 title/AI fixes that touched launch paths,
+  // and tests/node/electron-main-runtime.spec.mjs for the two cases (legacy present vs. absent).
+  if (options.e2eUserDataPath) {
+    return options.e2eUserDataPath
   }
+
+  const appDataPath = app.getPath('appData')
+  const legacyUserDataPath = path.join(appDataPath, options.legacyUserDataDirName)
+  const brandedUserDataPath = path.join(appDataPath, options.appDisplayName)
+
+  if (fs.existsSync(legacyUserDataPath)) {
+    return legacyUserDataPath
+  }
+
+  if (fs.existsSync(brandedUserDataPath)) {
+    return brandedUserDataPath
+  }
+
+  return legacyUserDataPath
+}
+
+function configureMainProcessApp(app: AppLike, options: ConfigureMainProcessAppOptions) {
+  const userDataPath = resolveUserDataPath(app, options)
+  app.setPath('userData', userDataPath)
 
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('disable-gpu-compositing')
   app.setName(options.appDisplayName)
-  app.setAppLogsPath(e2eUserDataPath ? path.join(e2eUserDataPath, 'logs') : undefined)
+  app.setAppLogsPath(path.join(userDataPath, 'logs'))
 }
 
 function createMainProcessRuntime(app: AppLike): MainProcessRuntime {
@@ -83,10 +113,11 @@ function createMainProcessRuntime(app: AppLike): MainProcessRuntime {
   const managedClientId = process.env.MDV_CLIENT_ID || null
   const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
   const appDisplayName = 'MarkDownViewer'
+  const legacyUserDataDirName = 'mdv'
   const defaultOpenAiModel = process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini'
   const defaultUpdateFeedUrl = process.env.MDV_UPDATE_FEED_URL || 'https://github.com/mako10k/mdv/releases/latest/download'
 
-  configureMainProcessApp(app, { appDisplayName, e2eUserDataPath })
+  configureMainProcessApp(app, { appDisplayName, e2eUserDataPath, legacyUserDataDirName })
 
   return {
     e2eUserDataPath,

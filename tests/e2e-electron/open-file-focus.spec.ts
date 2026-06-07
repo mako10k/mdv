@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { _electron as electron } from 'playwright'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { launchElectronApp as launchElectronAppBase } from './support/electron-launch'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -29,11 +29,10 @@ test('opening the same file in a second instance focuses the existing editor win
   await fs.mkdir(userDataDir, { recursive: true })
   await fs.writeFile(filePath, '# Focus Target\n\nbody\n', 'utf8')
 
-  const app = await electron.launch({
+  const app = await launchElectronAppBase({
+    repoRoot,
     args: ['.', filePath],
-    cwd: repoRoot,
     env: {
-      ...process.env,
       MDV_FORCE_STATIC_RENDERER: '1',
       MDV_E2E_USER_DATA_DIR: userDataDir,
       MDV_E2E_DIALOG_RESPONSES: JSON.stringify({

@@ -10,7 +10,10 @@
     "verbatimModuleSyntax": false,
     "noEmit": false,
     "composite": true,
-    "declaration": true
+    "declaration": true,
+    "sourceMap": false,
+    "declarationMap": false,
+    "inlineSourceMap": false
   },
   "include": ["src/electron/**/*.cts"]
 }

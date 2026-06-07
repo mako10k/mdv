@@ -242,6 +242,14 @@ const {
   postServerJson,
   clearCommandPollTimer,
 } = managedClientController
+// Bridge for close/window controller ordering during the ENG-BL-001 extraction.
+// windowController is created early (to handle launch/open paths and title fixes).
+// closeController depends on fileController (save/collect paths) so must be created after it.
+// We wire a late-bound reference so the early window creation can call confirm without forward-ref issues.
+// The assignment below happens before any real windows or close flows are exercised.
+// Future extractions should consider a single init-order registry or explicit dependency graph
+// instead of this pattern.
+let confirmEditorWindowCloseBridge: (window: InstanceType<typeof BrowserWindow>) => Promise<void> = async () => {}
 
 const windowController = createWindowController({
   BrowserWindow,
@@ -265,7 +273,7 @@ const windowController = createWindowController({
   launchStateByWindowId,
   hiddenLaunchRevealTimerByWindowId,
   emitDebugChannelEvent,
-  confirmEditorWindowClose,
+  confirmEditorWindowClose: (window) => confirmEditorWindowCloseBridge(window),
   clearEditorRuntimeState,
   isManagedClient,
   registerManagedClient,
@@ -286,23 +294,6 @@ const {
   openSettingsWindow,
   queueOrDispatchOpenFile,
 } = windowController
-const closeController = createCloseController({
-  approvedWindowCloseIds,
-  getMainI18n,
-  showMessageBox,
-  requestEditorWindowData,
-  writeLog,
-  closeAuxiliaryWindowsForEditor,
-  cleanupDraftWorkspace,
-  saveContentToPath,
-  collectReferencedDraftAssetPaths,
-  cleanupImportedAssetFiles,
-  clearAutosaveRecovery,
-})
-const {
-  confirmEditorWindowClose,
-  showUnsavedChangesDialog,
-} = closeController
 const fileController = createFileController({
   fs,
   fsPromises,
@@ -328,6 +319,24 @@ const {
   saveContentToPath,
   saveHtmlExportToPath,
 } = fileController
+const closeController = createCloseController({
+  approvedWindowCloseIds,
+  getMainI18n,
+  showMessageBox,
+  requestEditorWindowData,
+  writeLog,
+  closeAuxiliaryWindowsForEditor,
+  cleanupDraftWorkspace,
+  saveContentToPath,
+  collectReferencedDraftAssetPaths,
+  cleanupImportedAssetFiles,
+  clearAutosaveRecovery,
+})
+const {
+  confirmEditorWindowClose,
+  showUnsavedChangesDialog,
+} = closeController
+confirmEditorWindowCloseBridge = confirmEditorWindowClose
 const updaterController = createUpdaterController({
   app,
   autoUpdater,

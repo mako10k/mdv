@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { _electron as electron } from 'playwright'
 import fs from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { waitForDebugEvent } from '../support/debug-channel'
+import { launchElectronApp as launchElectronAppBase } from './support/electron-launch'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const primaryModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -43,11 +43,10 @@ async function reserveDebugPort() {
 }
 
 async function launchElectronApp(userDataDir: string, debugPort: number) {
-  return electron.launch({
+  return launchElectronAppBase({
+    repoRoot,
     args: ['.'],
-    cwd: repoRoot,
     env: {
-      ...process.env,
       MDV_FORCE_STATIC_RENDERER: '1',
       MDV_E2E_USER_DATA_DIR: userDataDir,
       MDV_E2E_DIALOG_RESPONSES: JSON.stringify({}),
