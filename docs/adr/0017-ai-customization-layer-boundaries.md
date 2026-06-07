@@ -16,7 +16,8 @@ MDV の AI backlog では prompt file、skill、model registry、将来の custo
 - hook が soft guidance の代替として誤用される
 - diagnostics がないため、どの layer が効いたか追えない
 
-外部プラクティスとしても、VS Code / Copilot は instructions、prompt files、custom agents、skills、hooks を別種の customization として案内している。
+外部プラクティスとしても、Codex / VS Code / Copilot は instructions、prompt files、custom agents、skills、hooks を別種の customization として案内している。
+Codex は `AGENTS.md`、repo skill、project-scoped custom agent、hook を別 surface として扱い、repo 共有の repeatable workflow には prompt file より skill を使う。
 
 ## Decision
 
@@ -32,6 +33,8 @@ MDV は AI customization を次の 6 layer に分ける。
 追加ルール:
 
 - repo-wide invariants の正本は `AGENTS.md` とする
+- Codex 向け role mode は `.codex/agents`、Codex 向け repo skill は `.agents/skills` に置く
+- Copilot 互換の custom agents と prompt files は `.github` 配下に残す
 - path-specific conventions は `.instructions.md` に置く
 - prompt file editor の first slice は prompt file だけを編集対象にする
 - skill surface は capability package と diagnostics を扱い、repo-wide rules と混ぜない

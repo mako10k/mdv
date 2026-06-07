@@ -114,8 +114,9 @@ MDV での適用:
 
 ### Layer 3: Review Entry Points
 
-- 専門家レビューは既存の [consistency-review.agent.md](../.github/agents/consistency-review.agent.md) を使う。
-- plain-eye review は別 agent に分け、結論順、飛躍、読みやすさ、素人目線の違和感を点検する。
+- 専門家レビューは Codex では [consistency-review.toml](../.codex/agents/consistency-review.toml)、Copilot 互換では [consistency-review.agent.md](../.github/agents/consistency-review.agent.md) を使う。
+- plain-eye review は別 agent に分け、Codex では [plain-eye-review.toml](../.codex/agents/plain-eye-review.toml)、Copilot 互換では [plain-eye-review.agent.md](../.github/agents/plain-eye-review.agent.md) を使う。結論順、飛躍、読みやすさ、素人目線の違和感を点検する。
+- packaging review は packaging / release / Windows host build の差分に限り、Codex では [packaging-review.toml](../.codex/agents/packaging-review.toml)、Copilot 互換では [packaging-review.agent.md](../.github/agents/packaging-review.agent.md) を使う。
 
 ### Layer 4: Examples And Retro
 

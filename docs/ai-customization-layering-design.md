@@ -30,11 +30,11 @@ quick mental model は次の通り。
 
 ## Current Practice Alignment
 
-この整理は、2026-06 時点の VS Code / Copilot customization docs の一般的なプラクティスに合わせる。
+この整理は、2026-06 時点の Codex / VS Code / Copilot customization docs の一般的なプラクティスに合わせる。
 
 - always-on instructions は project-wide rules と conventions に使う
 - file-scoped `*.instructions.md` は file type や folder ごとの限定ルールに使う
-- prompt files は手動起動の repeatable task に使う
+- prompt files は手動起動の repeatable task に使う。Codex では repo 共有 prompt より skill を優先する
 - custom agents は persona、tool restrictions、model preferences、handoffs を持つ role mode に使う
 - skills は instructions だけでなく scripts / examples / resources を同梱する portable capability に使う
 - hooks は deterministic、code-driven lifecycle automation と policy enforcement に使う
@@ -109,6 +109,7 @@ MDV rule:
 対象:
 
 - `.prompt.md`
+- Copilot 互換の `.github/prompts/*.prompt.md`
 
 責務:
 
@@ -126,12 +127,15 @@ MDV rule:
 
 - prompt は task entrypoint であり、rule storage ではない
 - prompt body で instructions や skills を参照して再利用し、同じ guidance をコピーしない
+- Codex で repo 共有する repeatable workflow は prompt file ではなく skill に寄せる
 
 ### 4. Custom Agents
 
 対象:
 
 - `.agent.md`
+- Copilot 互換の `.github/agents/*.agent.md`
+- Codex の `.codex/agents/*.toml`
 
 責務:
 
@@ -157,6 +161,7 @@ MDV rule:
 対象:
 
 - `SKILL.md` と付随 resources
+- Codex repo skill の `.agents/skills/*/SKILL.md`
 
 責務:
 
@@ -210,7 +215,7 @@ MDV rule:
 | --- | --- | --- |
 | Repo-wide coding rules | Always-on instructions | Every requestに効くべき baseline だから |
 | File/folder-specific rule | File-scoped instructions | applyTo / path で narrow に効かせるべきだから |
-| Reusable slash command | Prompt file | Manual task entrypoint だから |
+| Reusable manual command | Prompt file or Codex skill | Copilot / VS Code 互換の one-shot entrypoint は prompt file、Codex で repo 共有する workflow は skill が primary だから |
 | Persistent specialist mode | Custom agent | Tool/model/handoff を束ねる role だから |
 | Portable workflow with resources | Skill | instructions + resources を package 化できるから |
 | Deterministic approval / formatting / logging | Hook | guaranteed execution が必要だから |
@@ -243,6 +248,7 @@ conflict policy:
 - repo-wide invariants は `AGENTS.md` を正本にする
 - path-specific conventions は `.instructions.md` に切り出す
 - prompt file editor は prompt file を編集対象にし、always-on instructions は直接の first-slice 編集対象にしない
+- Codex 共有 workflow は `.agents/skills`、Codex role mode は `.codex/agents`、Copilot 互換 workflow は `.github` 配下に残す
 - skill manager は SKILL metadata と invocation policy を扱い、repo-wide rule editor にはしない
 - future custom agent support は role mode と tool/model envelope を主対象にし、repo-wide rule store と混ぜない
 - hook support は deterministic enforcement / automation として扱い、prompt file や skill と同じ編集面に雑に混ぜない

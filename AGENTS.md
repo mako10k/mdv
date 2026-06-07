@@ -67,7 +67,7 @@
 - Update the ADR in the same turn as the code or doc change that depends on it.
 - When a new ADR replaces an older decision, mark the older ADR as superseded and cross-link both files.
 - Small local refactors that do not change shared rules do not need an ADR.
-- Use the `/write-adr` prompt when you need the agent to draft or update an ADR from the current change.
+- Use the `$write-adr` Codex skill, or the `/write-adr` Copilot prompt for compatibility, when you need the agent to draft or update an ADR from the current change.
 
 ## Review Anchors
 

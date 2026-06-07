@@ -78,8 +78,8 @@ const areaRules = [
   },
   {
     name: 'Agent and workflow guidance',
-    docs: ['AGENTS.md', 'docs/agent-judgment-hardening.md', '.github/agents/consistency-review.agent.md', '.github/agents/plain-eye-review.agent.md', '.github/prompts/write-adr.prompt.md'],
-    patterns: [/^AGENTS\.md$/, /^docs\/agent-judgment-hardening\.md$/, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
+    docs: ['AGENTS.md', 'docs/agent-judgment-hardening.md', '.codex/agents/consistency-review.toml', '.codex/agents/plain-eye-review.toml', '.codex/agents/packaging-review.toml', '.agents/skills/write-adr/SKILL.md', '.github/agents/consistency-review.agent.md', '.github/agents/plain-eye-review.agent.md', '.github/agents/packaging-review.agent.md', '.github/prompts/write-adr.prompt.md'],
+    patterns: [/^AGENTS\.md$/, /^docs\/agent-judgment-hardening\.md$/, /^\.codex\//, /^\.agents\//, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
     validations: ['npm run lint', 'npm run build'],
     reviewAgents: ['plain-eye-review'],
   },
@@ -298,6 +298,7 @@ function printWorkspaceMap() {
     'Run consistency-review on the exact diff before commit.',
     'Run plain-eye-review too when the diff changes RCA guidance, architecture or workflow policy, agent instructions, major countermeasure comparisons, or important user-facing reasoning.',
     'Run packaging-review too when packaging, release artifacts, or Windows host scripts changed.',
+    'Codex project custom agents live in .codex/agents; Copilot-compatible review agents remain in .github/agents.',
     'Create or update an ADR for long-lived architecture, contract, packaging, or workflow decisions.',
   ])
 

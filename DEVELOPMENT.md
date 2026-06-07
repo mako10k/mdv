@@ -4,7 +4,7 @@
 
 正式な 6 層モデルと置き場所の判断は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) を参照してください。実装状況や今後の追加予定は [docs/current-backlog.md](docs/current-backlog.md) を参照してください。
 
-現時点で MDV 本体トップレベルにある主な入口は 3 つです。repo-wide rule は [AGENTS.md](AGENTS.md)、prompt file は [.github/prompts](.github/prompts)、custom agent は [.github/agents](.github/agents) です。MDV 本体トップレベルの file-scoped instructions はまだ未配置で、skills と hooks もまだ未実装です。
+現時点で MDV 本体トップレベルにある主な入口は 5 つです。repo-wide rule は [AGENTS.md](AGENTS.md)、Codex custom agent は [.codex/agents](.codex/agents)、Codex skill は [.agents/skills](.agents/skills)、Copilot 互換の prompt file は [.github/prompts](.github/prompts)、Copilot 互換の custom agent は [.github/agents](.github/agents) です。MDV 本体トップレベルの file-scoped instructions と hooks はまだ未配置です。
 
 ## 前提
 
