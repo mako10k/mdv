@@ -1,6 +1,28 @@
 // @ts-nocheck
 const path = require('node:path') as typeof import('node:path')
 
+function buildEmbeddingCacheEntry(key, model, text, embedding, createdAt = new Date().toISOString(), lastUsedAt = createdAt) {
+  return {
+    key,
+    model,
+    text,
+    embedding,
+    textLength: typeof text === 'string' ? text.length : 0,
+    createdAt,
+    lastUsedAt,
+    usingCount: 0,
+    byteSize: estimateEmbeddingCacheEntryBytes(key, model, text, embedding),
+  }
+}
+
+function estimateEmbeddingCacheEntryBytes(key, model, text, embedding) {
+  const keyBytes = Buffer.byteLength(typeof key === 'string' ? key : '', 'utf8')
+  const modelBytes = Buffer.byteLength(typeof model === 'string' ? model : '', 'utf8')
+  const textBytes = Buffer.byteLength(typeof text === 'string' ? text : '', 'utf8')
+  const embeddingBytes = Array.isArray(embedding) ? embedding.length * 4 : 0
+  return keyBytes + modelBytes + textBytes + embeddingBytes + 128
+}
+
 function createSemanticCacheController({
   semanticCachePath,
   fs,
@@ -25,28 +47,6 @@ function createSemanticCacheController({
   const MAX_SEMANTIC_RUNTIME_AGE_MS = 15 * 60_000
   const SEMANTIC_RUNTIME_TOUCH_INTERVAL_MS = 15_000
   const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
-
-  function estimateEmbeddingCacheEntryBytes(key, model, text, embedding) {
-    const keyBytes = Buffer.byteLength(typeof key === 'string' ? key : '', 'utf8')
-    const modelBytes = Buffer.byteLength(typeof model === 'string' ? model : '', 'utf8')
-    const textBytes = Buffer.byteLength(typeof text === 'string' ? text : '', 'utf8')
-    const embeddingBytes = Array.isArray(embedding) ? embedding.length * 4 : 0
-    return keyBytes + modelBytes + textBytes + embeddingBytes + 128
-  }
-
-  function buildEmbeddingCacheEntry(key, model, text, embedding, createdAt = new Date().toISOString(), lastUsedAt = createdAt) {
-    return {
-      key,
-      model,
-      text,
-      embedding,
-      textLength: typeof text === 'string' ? text.length : 0,
-      createdAt,
-      lastUsedAt,
-      usingCount: 0,
-      byteSize: estimateEmbeddingCacheEntryBytes(key, model, text, embedding),
-    }
-  }
 
   function upsertEmbeddingCacheEntry(entry) {
     const existingEntry = embeddingCacheByKey.get(entry.key)
