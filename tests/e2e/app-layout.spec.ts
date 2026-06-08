@@ -329,6 +329,107 @@ test('preview H3 and H4 headings keep reset chrome while the active heading is h
   expect(headingStyles.h4Code?.paddingLeft).toBe('0px')
 })
 
+test('preview and WYSIWYG body inline code stay scoped to editor typography', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    'Paragraph with `inline code` text.\n\n```txt\nblock code\n```\n',
+  )
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+  await expect(page.locator('.preview-panel .markdown-fragment p code')).toBeVisible()
+
+  const previewInlineCode = await page.evaluate(() => {
+    const paragraph = document.querySelector<HTMLElement>('.preview-panel .markdown-fragment p')
+    const code = document.querySelector<HTMLElement>('.preview-panel .markdown-fragment p code')
+
+    if (!paragraph || !code) {
+      return null
+    }
+
+    const paragraphStyles = getComputedStyle(paragraph)
+    const codeStyles = getComputedStyle(code)
+
+    const codeBlock = document.querySelector<HTMLElement>('.preview-panel .code-block-shell pre code')
+    const codeBlockStyles = codeBlock ? getComputedStyle(codeBlock) : null
+
+    return {
+      paragraphFontSize: paragraphStyles.fontSize,
+      codeBackgroundColor: codeStyles.backgroundColor,
+      codeBorderTopStyle: codeStyles.borderTopStyle,
+      codeBorderTopWidth: codeStyles.borderTopWidth,
+      codeBorderRadius: codeStyles.borderRadius,
+      codeFontFamily: codeStyles.fontFamily,
+      codeFontSize: codeStyles.fontSize,
+      codeLineHeight: codeStyles.lineHeight,
+      codePaddingLeft: codeStyles.paddingLeft,
+      codePaddingRight: codeStyles.paddingRight,
+      codeBlockBackgroundColor: codeBlockStyles?.backgroundColor ?? null,
+      codeBlockBorderTopStyle: codeBlockStyles?.borderTopStyle ?? null,
+      codeBlockFontSize: codeBlockStyles?.fontSize ?? null,
+      codeBlockPaddingLeft: codeBlockStyles?.paddingLeft ?? null,
+    }
+  })
+
+  expect(previewInlineCode).not.toBeNull()
+  expect(previewInlineCode?.paragraphFontSize).toBe('13px')
+  expect(previewInlineCode?.codeBackgroundColor).toBe('rgb(244, 234, 219)')
+  expect(previewInlineCode?.codeBorderTopStyle).toBe('solid')
+  expect(previewInlineCode?.codeBorderTopWidth).toBe('1px')
+  expect(parseFloat(previewInlineCode?.codeBorderRadius ?? '0')).toBeCloseTo(4.5448, 2)
+  expect(previewInlineCode?.codeFontFamily).toContain('Cascadia Code')
+  expect(parseFloat(previewInlineCode?.codeFontSize ?? '0')).toBeCloseTo(11.96, 2)
+  expect(parseFloat(previewInlineCode?.codeLineHeight ?? '0')).toBeCloseTo(16.744, 2)
+  expect(parseFloat(previewInlineCode?.codePaddingLeft ?? '0')).toBeCloseTo(4.3056, 2)
+  expect(parseFloat(previewInlineCode?.codePaddingRight ?? '0')).toBeCloseTo(4.3056, 2)
+  expect(previewInlineCode?.codeBlockBackgroundColor).toBe('rgba(0, 0, 0, 0)')
+  expect(previewInlineCode?.codeBlockBorderTopStyle).toBe('none')
+  expect(previewInlineCode?.codeBlockFontSize).toBe('12px')
+  expect(previewInlineCode?.codeBlockPaddingLeft).toBe('0px')
+
+  await openWritePanel(page)
+  await switchToastEditorMode(page, 'wysiwyg')
+  await expect(page.locator('.toastui-editor-ww-container .ProseMirror p code')).toBeVisible()
+
+  const wysiwygInlineCode = await page.evaluate(() => {
+    const paragraph = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror p')
+    const code = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror p code')
+
+    if (!paragraph || !code) {
+      return null
+    }
+
+    const paragraphStyles = getComputedStyle(paragraph)
+    const codeStyles = getComputedStyle(code)
+
+    return {
+      paragraphFontSize: paragraphStyles.fontSize,
+      codeBackgroundColor: codeStyles.backgroundColor,
+      codeBorderTopStyle: codeStyles.borderTopStyle,
+      codeBorderTopWidth: codeStyles.borderTopWidth,
+      codeBorderRadius: codeStyles.borderRadius,
+      codeFontFamily: codeStyles.fontFamily,
+      codeFontSize: codeStyles.fontSize,
+      codeLineHeight: codeStyles.lineHeight,
+      codePaddingLeft: codeStyles.paddingLeft,
+      codePaddingRight: codeStyles.paddingRight,
+    }
+  })
+
+  expect(wysiwygInlineCode).not.toBeNull()
+  expect(wysiwygInlineCode?.paragraphFontSize).toBe('13px')
+  expect(wysiwygInlineCode?.codeBackgroundColor).toBe('rgb(244, 234, 219)')
+  expect(wysiwygInlineCode?.codeBorderTopStyle).toBe('solid')
+  expect(wysiwygInlineCode?.codeBorderTopWidth).toBe('1px')
+  expect(parseFloat(wysiwygInlineCode?.codeBorderRadius ?? '0')).toBeCloseTo(4.5448, 2)
+  expect(wysiwygInlineCode?.codeFontFamily).toContain('Cascadia Code')
+  expect(parseFloat(wysiwygInlineCode?.codeFontSize ?? '0')).toBeCloseTo(11.96, 2)
+  expect(parseFloat(wysiwygInlineCode?.codeLineHeight ?? '0')).toBeCloseTo(16.744, 2)
+  expect(parseFloat(wysiwygInlineCode?.codePaddingLeft ?? '0')).toBeCloseTo(4.3056, 2)
+  expect(parseFloat(wysiwygInlineCode?.codePaddingRight ?? '0')).toBeCloseTo(4.3056, 2)
+})
+
 test('wysiwyg-focused H3 and H4 headings keep heading and inline-code reset chrome', async ({ page }) => {
   await openWritePanel(page)
   await replaceMarkdownDocument(

@@ -1771,8 +1771,12 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
       .markdown-fragment code {
         background: ${codeBg};
         border: 1px solid ${codeBorder};
-        padding: 0.1em 0.35em;
-        border-radius: 6px;
+        border-radius: 0.38em;
+        color: ${text};
+        font-family: ${mono};
+        font-size: 0.92em;
+        line-height: 1.4;
+        padding: 0.12em 0.36em;
       }
       .markdown-fragment h1 code,
       .markdown-fragment h2 code,
@@ -1811,6 +1815,8 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
         border: none;
         padding: 0;
         border-radius: 0;
+        color: inherit;
+        font: inherit;
       }
       .mermaid-block {
         border-radius: 12px;
