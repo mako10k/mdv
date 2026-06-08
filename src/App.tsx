@@ -6,8 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
 } from 'react'
@@ -52,6 +55,10 @@ type StatusToast = {
   id: number
   message: string
 }
+
+const DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT = 32
+const MIN_ASSISTANT_DOCK_WIDTH_PERCENT = 24
+const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
 
 const INLINE_DATA_IMAGE_WIDGET_PATTERN = /!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+\)/
 
@@ -1890,6 +1897,7 @@ function App() {
   const [isStartupRecoveryResolved, setIsStartupRecoveryResolved] = useState(false)
   const [isAssistantDockOpen, setIsAssistantDockOpen] = useState(false)
   const [assistantFocusNonce, setAssistantFocusNonce] = useState(0)
+  const [assistantDockWidthPercent, setAssistantDockWidthPercent] = useState(DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
@@ -1915,6 +1923,7 @@ function App() {
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
   const editorRef = useRef<ToastUiEditor | null>(null)
+  const workspaceBodyRef = useRef<HTMLDivElement | null>(null)
   const previewRootRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const currentFilePathRef = useRef<string | null>(null)
@@ -2034,6 +2043,55 @@ function App() {
     if (editor) {
       focusEditorAnchorTarget(getActiveEditorRoot(editor))
     }
+  }
+
+  const updateAssistantDockWidthFromClientX = (clientX: number) => {
+    const workspaceBody = workspaceBodyRef.current
+
+    if (!workspaceBody) {
+      return
+    }
+
+    const bounds = workspaceBody.getBoundingClientRect()
+
+    if (bounds.width <= 0) {
+      return
+    }
+
+    const nextPercent = ((bounds.right - clientX) / bounds.width) * 100
+    setAssistantDockWidthPercent(Math.min(
+      MAX_ASSISTANT_DOCK_WIDTH_PERCENT,
+      Math.max(MIN_ASSISTANT_DOCK_WIDTH_PERCENT, nextPercent),
+    ))
+  }
+
+  const handleAssistantDockResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    updateAssistantDockWidthFromClientX(event.clientX)
+  }
+
+  const handleAssistantDockResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      return
+    }
+
+    updateAssistantDockWidthFromClientX(event.clientX)
+  }
+
+  const handleAssistantDockResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+      return
+    }
+
+    event.preventDefault()
+    setAssistantDockWidthPercent((currentWidth) => Math.min(
+      MAX_ASSISTANT_DOCK_WIDTH_PERCENT,
+      Math.max(
+        MIN_ASSISTANT_DOCK_WIDTH_PERCENT,
+        currentWidth + (event.key === 'ArrowLeft' ? 2 : -2),
+      ),
+    ))
   }
 
   const replaceLoadedDocument = (nextMarkdown: string) => {
@@ -2730,6 +2788,14 @@ function App() {
   }
 
   const handleCreateNewDocument = async () => {
+    if (window.mdvDesktop?.newDocumentWindow) {
+      const result = await window.mdvDesktop.newDocumentWindow()
+
+      if (result?.status === 'opened') {
+        return
+      }
+    }
+
     if (!await confirmUnsavedChangesBeforeProceed(t.app.createNewDocument)) {
       setStatusText(t.app.status.newDocumentCancelled)
       return
@@ -3598,6 +3664,11 @@ function App() {
         return
       }
 
+      if (isAssistantDockOpen) {
+        closeAssistantDock()
+        return
+      }
+
       openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
       return
     }
@@ -4040,14 +4111,7 @@ function App() {
                     <ToolbarButton
                       label={`${t.chat.title} (Ctrl/Cmd+I)`}
                       active={isAssistantDockOpen}
-                      onClick={() => {
-                        if (isAssistantDockOpen) {
-                          closeAssistantDock()
-                          return
-                        }
-
-                        openAssistantDock({ focus: true, statusMessage: t.app.status.openedAiChat })
-                      }}
+                      onClick={() => runDesktopAction('open-ai-chat')}
                     >
                       <span className="toolbar-text-icon" aria-hidden="true">AI</span>
                     </ToolbarButton>
@@ -4069,7 +4133,11 @@ function App() {
             </div>
           </div>
         ) : (
-          <div className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}>
+          <div
+            ref={workspaceBodyRef}
+            className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}
+            style={{ '--assistant-dock-width': `${assistantDockWidthPercent}%` } as CSSProperties}
+          >
             <div className="workspace-main-column">
               {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
                 <section className="editor-search-results" aria-label={t.app.searchResults}>
@@ -4189,6 +4257,18 @@ function App() {
               </div>
             </div>
 
+            {isAssistantDockOpen ? (
+              <button
+                type="button"
+                className="assistant-dock-resize-handle"
+                aria-label="Resize AI Chat dock"
+                title="Resize AI Chat dock"
+                onPointerDown={handleAssistantDockResizePointerDown}
+                onPointerMove={handleAssistantDockResizePointerMove}
+                onKeyDown={handleAssistantDockResizeKeyDown}
+              />
+            ) : null}
+
             <aside
               className={isAssistantDockOpen ? 'assistant-dock panel' : 'assistant-dock panel assistant-dock-hidden'}
               aria-label={t.chat.title}
@@ -4198,11 +4278,6 @@ function App() {
               <ChatApp
                 variant="dock"
                 autoFocusNonce={assistantFocusNonce}
-                defaultTargetContext={{
-                  title: displayTitle,
-                  currentFilePath,
-                  activePanel,
-                }}
                 onRequestClose={() => {
                   closeAssistantDock()
                 }}

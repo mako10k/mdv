@@ -535,6 +535,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
   }, [variant, autoFocusNonce])
 
   const refreshHeaderContext = useEffectEvent(async () => {
+    if (variant !== 'window') {
+      return
+    }
+
     if (defaultTargetContext) {
       return
     }
@@ -548,6 +552,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
   })
 
   useEffect(() => {
+    if (variant !== 'window') {
+      return
+    }
+
     if (defaultTargetContext) {
       return
     }
@@ -579,9 +587,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [defaultTargetContext])
+  }, [defaultTargetContext, variant])
 
   const resolvedHeaderContext = defaultTargetContext ?? headerContext
+  const shouldShowHeaderTarget = variant === 'window'
 
   useEffect(() => {
     let active = true
@@ -1180,11 +1189,13 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
           <p className="ai-chat-eyebrow">{t.chat.eyebrow}</p>
           <h1>{t.chat.title}</h1>
           <p className="ai-chat-subtitle">{t.chat.subtitle}</p>
-          <div className="ai-chat-target-card" aria-live="polite">
-            <p className="ai-chat-target-label">{t.chat.currentTargetLabel}</p>
-            <p className="ai-chat-target-title">{resolvedHeaderContext?.title ?? t.chat.currentTargetMissing}</p>
-            <p className="ai-chat-target-path">{formatHeaderTargetPath(resolvedHeaderContext, t.chat)}</p>
-          </div>
+          {shouldShowHeaderTarget ? (
+            <div className="ai-chat-target-card" aria-live="polite">
+              <p className="ai-chat-target-label">{t.chat.currentTargetLabel}</p>
+              <p className="ai-chat-target-title">{resolvedHeaderContext?.title ?? t.chat.currentTargetMissing}</p>
+              <p className="ai-chat-target-path">{formatHeaderTargetPath(resolvedHeaderContext, t.chat)}</p>
+            </div>
+          ) : null}
         </div>
         <div className="ai-chat-header-actions">
           <div className="ai-chat-toast-stack" aria-live="polite" aria-relevant="additions text">

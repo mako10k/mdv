@@ -59,6 +59,7 @@ function createContext(overrides = {}) {
     showOpenDialog: async () => ({ canceled: false, filePaths: ['/tmp/doc.md'] }),
     findEditorWindowByTrackedFilePath: () => null,
     focusWindow: () => {},
+    createWindow: async () => ({ id: 2, isDestroyed: () => false, isVisible: () => true, show: () => {} }),
     readUtf8File: async (filePath) => ({ path: filePath, content: '# Doc\n' }),
     emitDebugChannelEvent: () => {},
     upsertAutosaveRecovery: (snapshot) => snapshot,
@@ -156,6 +157,37 @@ test('open-file delegates to readUtf8File when no existing editor exists', async
     path: '/tmp/doc.md',
     content: '# Doc\n',
   })
+})
+
+test('new-document-window creates and focuses a fresh editor window outside managed-client mode', async () => {
+  const focusedWindowIds = []
+  const { handles } = createContext({
+    createWindow: async () => ({ id: 42, isDestroyed: () => false, isVisible: () => true, show: () => {} }),
+    focusWindow: (window) => {
+      focusedWindowIds.push(window.id)
+    },
+  })
+
+  const result = await handles.get('mdv:new-document-window')()
+
+  assert.deepEqual(result, { status: 'opened', windowId: 42 })
+  assert.deepEqual(focusedWindowIds, [42])
+})
+
+test('new-document-window reports unavailable instead of creating windows in managed-client mode', async () => {
+  let createWindowCalls = 0
+  const { handles } = createContext({
+    isManagedClient: () => true,
+    createWindow: async () => {
+      createWindowCalls += 1
+      return { id: 42, isDestroyed: () => false, isVisible: () => true, show: () => {} }
+    },
+  })
+
+  const result = await handles.get('mdv:new-document-window')()
+
+  assert.deepEqual(result, { status: 'unavailable', reason: 'managed-client' })
+  assert.equal(createWindowCalls, 0)
 })
 
 test('open-external-link blocks invalid href payloads', async () => {

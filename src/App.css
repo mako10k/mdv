@@ -26,6 +26,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  --assistant-dock-width: 32%;
 }
 
 .workspace-main-column {
@@ -38,11 +39,44 @@
 }
 
 .assistant-dock {
-  flex: 0 0 400px;
-  min-width: 340px;
-  max-width: 460px;
+  flex: 0 0 clamp(340px, var(--assistant-dock-width), 55%);
+  min-width: 320px;
+  max-width: 55%;
   min-height: 0;
   margin: 10px 10px 10px 0;
+}
+
+.assistant-dock-resize-handle {
+  flex: 0 0 10px;
+  align-self: stretch;
+  margin: 10px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+}
+
+.assistant-dock-resize-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 60%, transparent);
+  opacity: 0.55;
+  transition: opacity 140ms ease, background-color 140ms ease;
+}
+
+.assistant-dock-resize-handle:hover::before,
+.assistant-dock-resize-handle:focus-visible::before {
+  background: var(--link);
+  opacity: 1;
+}
+
+.assistant-dock-resize-handle:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: -2px;
 }
 
 .assistant-dock[hidden] {
@@ -1160,5 +1194,9 @@
     min-width: 0;
     max-width: none;
     margin: 0 8px 8px;
+  }
+
+  .assistant-dock-resize-handle {
+    display: none;
   }
 }

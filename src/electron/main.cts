@@ -5377,6 +5377,7 @@ registerMainIpcHandlers({
   showOpenDialog,
   findEditorWindowByTrackedFilePath,
   focusWindow,
+  createWindow,
   readUtf8File,
   emitDebugChannelEvent,
   upsertAutosaveRecovery,

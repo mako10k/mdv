@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
       }
     },
   },
+  newDocumentWindow: () => ipcRenderer.invoke('mdv:new-document-window'),
   openFile: () => ipcRenderer.invoke('mdv:open-file'),
   readFile: (filePath) => ipcRenderer.invoke('mdv:read-file', filePath),
   getMdastCapabilities: () => ipcRenderer.invoke('mdv:mdast-get-capabilities'),

@@ -564,6 +564,7 @@ interface Window {
       installUpdate: () => Promise<{ started: boolean }>
       onStateChanged: (callback: (state: MdvUpdaterState) => void) => () => void
     }
+    newDocumentWindow: () => Promise<{ status: 'opened'; windowId: number } | { status: 'unavailable'; reason: string } | null>
     openFile: () => Promise<MdvFilePayload | null>
     readFile: (filePath: string) => Promise<MdvFilePayload | null>
     getMdastCapabilities: () => Promise<MdvJsonValue>

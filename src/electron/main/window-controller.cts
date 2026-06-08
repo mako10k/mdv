@@ -416,7 +416,16 @@ function createWindowController({
           {
             label: messages.newDocument,
             accelerator: 'CmdOrCtrl+N',
-            click: () => sendMenuAction('new-document'),
+            click: () => {
+              if (isManagedClient()) {
+                sendMenuAction('new-document')
+                return
+              }
+
+              void createWindow().then((nextWindow) => {
+                focusWindow(nextWindow)
+              })
+            },
           },
           { type: 'separator' },
           {

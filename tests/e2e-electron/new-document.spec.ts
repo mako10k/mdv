@@ -85,7 +85,7 @@ async function expectFreshUntitledDocument(page: import('@playwright/test').Page
   await expect(page.locator('.outline-empty')).toHaveCount(1)
 }
 
-test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {
+test('Ctrl/Cmd+N opens a fresh untitled editor window', async () => {
   const tempRoot = await makeTempDir('mdv-electron-new-document-')
   const userDataDir = path.join(tempRoot, 'user-data')
 
@@ -104,9 +104,12 @@ test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Existing\n\ntext to replace\n')
 
+    const nextWindowPromise = app.waitForEvent('window')
     await triggerPrimaryShortcut(page, 'n')
+    const nextPage = await nextWindowPromise
 
-    await expectFreshUntitledDocument(page)
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('text to replace')
+    await expectFreshUntitledDocument(nextPage)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
@@ -114,7 +117,7 @@ test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {
   }
 })
 
-test('File menu click opens a fresh untitled editor document', async () => {
+test('File menu click opens a fresh untitled editor window', async () => {
   const tempRoot = await makeTempDir('mdv-electron-new-document-')
   const userDataDir = path.join(tempRoot, 'user-data')
 
@@ -133,6 +136,7 @@ test('File menu click opens a fresh untitled editor document', async () => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Existing\n\ntext to replace\n')
 
+    const nextWindowPromise = app.waitForEvent('window')
     await app.evaluate(({ BrowserWindow, Menu }) => {
       const targetWindow = BrowserWindow.getAllWindows()[0]
       const fileMenuIndex = process.platform === 'darwin' ? 1 : 0
@@ -140,8 +144,10 @@ test('File menu click opens a fresh untitled editor document', async () => {
 
       menuItem?.click?.(menuItem, targetWindow, undefined)
     })
+    const nextPage = await nextWindowPromise
 
-    await expectFreshUntitledDocument(page)
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('text to replace')
+    await expectFreshUntitledDocument(nextPage)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

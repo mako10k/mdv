@@ -143,6 +143,7 @@ type MainIpcContext = {
   }>
   findEditorWindowByTrackedFilePath: (filePath: string) => BrowserWindowLike | null
   focusWindow: (window: BrowserWindowLike) => void
+  createWindow: () => Promise<BrowserWindowLike>
   readUtf8File: (filePath: string) => Promise<unknown>
   emitDebugChannelEvent: (type: string, payload?: unknown) => void
   upsertAutosaveRecovery: (snapshot: object) => Promise<unknown> | unknown
@@ -224,6 +225,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     showOpenDialog,
     findEditorWindowByTrackedFilePath,
     focusWindow,
+    createWindow,
     readUtf8File,
     emitDebugChannelEvent,
     upsertAutosaveRecovery,
@@ -316,6 +318,18 @@ function registerMainIpcHandlers(context: MainIpcContext) {
 
     writeLog('INFO', 'ipc', 'open-file selected', selectedPath)
     return readUtf8File(selectedPath)
+  })
+
+  ipcMain.handle('mdv:new-document-window', async () => {
+    if (isManagedClient()) {
+      writeLog('INFO', 'ipc', 'new-document-window unavailable in managed-client mode')
+      return { status: 'unavailable', reason: 'managed-client' }
+    }
+
+    const nextWindow = await createWindow()
+    focusWindow(nextWindow)
+    writeLog('INFO', 'ipc', 'new-document-window opened', { windowId: nextWindow.id })
+    return { status: 'opened', windowId: nextWindow.id }
   })
 
   ipcMain.handle('mdv:read-file', async (_event: unknown, filePath: unknown) => {
