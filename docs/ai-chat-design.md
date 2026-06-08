@@ -70,7 +70,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 ## Current Constraints
 
-- Electron main process は [electron/main.cjs](electron/main.cjs) で管理されている
+- Electron の runtime entrypoint は [electron/main.cjs](electron/main.cjs) だが、main process 実装を読む入口は [src/electron/main.cts](src/electron/main.cts) で、責務別の本体は [src/electron/main](src/electron/main) 配下に分かれている
 - renderer への安全な API 公開は [electron/preload.cjs](electron/preload.cjs) で行っている
 - editor UI は [src/App.tsx](src/App.tsx) に集中している
 - editor は現在単一文書前提だが、Electron 側は multi-window を扱える
@@ -1089,7 +1089,7 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 
 ## Recommended File Layout
 
-- electron/main.cjs
+- src/electron/main.cts / src/electron/main/*
   AI orchestrator、assistant dock routing、menu action、IPC routing
 - electron/preload.cjs
   editor/assistant 用 bridge 拡張

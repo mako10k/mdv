@@ -129,7 +129,7 @@ write tool の canonical destination を Markdown 座標で持ち、実行直前
 
 - 現在の Vite 設定は [vite.config.ts](vite.config.ts#L1) の最小構成で、multi-entry を妨げる独自 build 制約はない
 - 現在の renderer entry は [index.html](index.html#L10) から [src/main.tsx](src/main.tsx) を読む単一構成
-- Electron main process は現在 [electron/main.cjs](electron/main.cjs#L448) で dev 時に単一 URL を、[electron/main.cjs](electron/main.cjs#L453) で prod 時に単一 HTML を開いている
+- Electron main process は現在 [src/electron/main/window-controller.cts](src/electron/main/window-controller.cts) の `loadRendererWindow()` を renderer window の共通 loader として使い、dev 時に URL を、prod 時に HTML を開いている
 
 ### Implication
 

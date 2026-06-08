@@ -11,7 +11,7 @@ const areaRules = [
   {
     name: 'Renderer UI',
     docs: ['README.md', 'src/App.tsx'],
-    patterns: [/^src\/(?!ai-chat\/|settings\/|fetch-permissions\/)/, /^index\.html$/, /^vite\.config\.ts$/],
+    patterns: [/^src\/(?!ai-chat\/|settings\/|fetch-permissions\/|electron\/)/, /^index\.html$/, /^vite\.config\.ts$/],
     validations: ['npm run lint', 'npm run build'],
   },
   {
@@ -22,8 +22,8 @@ const areaRules = [
   },
   {
     name: 'Electron bridge and IPC',
-    docs: ['electron/main.cjs', 'electron/preload.cjs', 'src/shims.d.ts'],
-    patterns: [/^electron\//, /^src\/shims\.d\.ts$/],
+    docs: ['src/electron/main.cts', 'electron/main.cjs', 'electron/preload.cjs', 'src/shims.d.ts'],
+    patterns: [/^electron\//, /^src\/electron\//, /^src\/shims\.d\.ts$/],
     validations: ['npm run lint', 'npm run build'],
   },
   {
@@ -40,8 +40,8 @@ const areaRules = [
   },
   {
     name: 'mdast submodule adapter',
-    docs: ['docs/mdast-integration-design.md', 'electron/mdast-adapter.cjs', 'vendor/mdast-control/AGENTS.md'],
-    patterns: [/^electron\/mdast-adapter\.cjs$/, /^vendor\/mdast-control/],
+    docs: ['docs/mdast-integration-design.md', 'src/electron/mdast-adapter.cts', 'electron/mdast-adapter.cjs', 'vendor/mdast-control/AGENTS.md'],
+    patterns: [/^src\/electron\/mdast-adapter\.cts$/, /^electron\/mdast-adapter\.cjs$/, /^vendor\/mdast-control/],
     validations: ['npm run mdast:check', 'npm run build'],
   },
   {

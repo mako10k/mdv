@@ -22,7 +22,8 @@ You are a code review specialist for this repository. Review the current diff be
 ## Expected Paired Surfaces
 
 - `electron/preload.cjs` and `src/shims.d.ts`
-- `electron/main.cjs` and renderer callers in `src/` or `src/ai-chat/`
+- `src/electron/main.cts` or `src/electron/main/*` and renderer callers in `src/` or `src/ai-chat/`
+- `electron/main.cjs` only when the diff affects the compiled-entry wrapper itself
 - AI tool behavior and the design notes in `docs/ai-chat-design.md` or `docs/ai-chat-feasibility.md`
 - Build or packaging changes and the operational notes in `DEVELOPMENT.md` and `docs/release-workflow.md`
 

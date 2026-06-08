@@ -28,7 +28,7 @@
 
 制限されている点:
 
-- 外部リンクは [src/App.tsx](src/App.tsx#L2273) の document click hook で横取りし、[electron/main.cjs](electron/main.cjs#L4662) の `openExternalLink()` に送っている
+- 外部リンクは renderer から直接開かれず、main process 管理の許可フローへ送られる。[src/App.tsx](src/App.tsx#L2273) の document click hook で横取りしたあと、[electron/preload.cjs](electron/preload.cjs#L149) と [src/electron/main/main-ipc.cts](src/electron/main/main-ipc.cts#L603) を経由して [src/electron/main/file-controller.cts](src/electron/main/file-controller.cts#L273) の `openExternalLink()` に送っている
 - `http:` / `https:` 以外の protocol は [src/App.tsx](src/App.tsx#L612) で弾かれる
 
 不足している点:
@@ -65,10 +65,10 @@
 ### 4. 外部リンク遷移は main process で制御される
 
 - editor は [src/App.tsx](src/App.tsx#L2273)、AI chat は [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx#L474) でクリックを横取りする
-- 実際の遷移は [electron/main.cjs](electron/main.cjs#L4662) で扱う
+- 外部リンク遷移は renderer 直開きではなく、main process 管理で扱う。[electron/preload.cjs](electron/preload.cjs#L149) と [src/electron/main/main-ipc.cts](src/electron/main/main-ipc.cts#L603) を経由して [src/electron/main/file-controller.cts](src/electron/main/file-controller.cts#L273) で扱う
 - `block-untrusted` 設定や confirmation dialog があり、許可済みルールも管理する
 
-これは良い境界だが、HTML 自体のサニタイズと混同してはいけない。リンク遷移制御は「クリック後の防御」であり、DOM 注入面の防御ではない。
+これは良い境界だが、HTML 自体のサニタイズと混同してはいけない。main process 管理のリンク遷移制御は「クリック後の防御」であり、DOM 注入面の防御ではない。
 
 ## Current UI Inventory
 
@@ -81,7 +81,7 @@
 
 ### Current entry points and shortcuts
 
-実装上のショートカットは [src/App.tsx](src/App.tsx#L574) と [electron/main.cjs](electron/main.cjs#L5283) に分散している。
+実装上のショートカットは [src/App.tsx](src/App.tsx#L574) と [src/electron/main/window-controller.cts](src/electron/main/window-controller.cts#L407) に分散している。
 
 現在の主なショートカット:
 

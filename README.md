@@ -46,7 +46,8 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 ## 主要ファイル
 
 - [src/App.tsx](src/App.tsx): UI、本体ロジック、renderer registry
-- [electron/main.cjs](electron/main.cjs): Electron メインプロセス、ファイルダイアログ、保存処理
+- [electron/main.cjs](electron/main.cjs): Electron の起動入口。compiled main を読む薄い wrapper
+- [src/electron/main.cts](src/electron/main.cts): Electron メインプロセス実装を読む入口。controller 初期化と依存配線を持つ
 - [electron/mdast-adapter.cjs](electron/mdast-adapter.cjs): mdast submodule を main process から読む adapter
 - [electron/preload.cjs](electron/preload.cjs): renderer へ公開する desktop API
 - [server/mdv-server.cjs](server/mdv-server.cjs): MDV-Server。multi-window 母艦、client suspend/resume、server handoff の入口

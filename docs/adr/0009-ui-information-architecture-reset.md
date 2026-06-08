@@ -24,6 +24,6 @@ Without an explicit reset, the product keeps three kinds of drift:
 ## Consequences
 
 - A future implementation can remove backward-compatibility constraints and optimize for clearer task flow, but should not trade away the core viewer/editor ergonomics just to make more surfaces visible at once.
-- The application will need coordinated updates across [src/App.tsx](src/App.tsx), [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx), [src/settings/SettingsApp.tsx](src/settings/SettingsApp.tsx), [src/fetch-permissions/FetchPermissionsApp.tsx](src/fetch-permissions/FetchPermissionsApp.tsx), and the desktop menu/shortcut surface in [electron/main.cjs](electron/main.cjs).
+- The application will need coordinated updates across [src/App.tsx](src/App.tsx), [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx), [src/settings/SettingsApp.tsx](src/settings/SettingsApp.tsx), [src/fetch-permissions/FetchPermissionsApp.tsx](src/fetch-permissions/FetchPermissionsApp.tsx), and the desktop menu/shortcut surface in [src/electron/main/window-controller.cts](src/electron/main/window-controller.cts).
 - HTML safety work is no longer an export-only concern; it becomes a shared rendering contract.
 - Documentation and release notes should describe this as a UI reset rather than incremental polish.
