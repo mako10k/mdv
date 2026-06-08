@@ -721,20 +721,6 @@
   min-height: 0;
 }
 
-.editor-sample-placeholder {
-  position: absolute;
-  inset: 42px 0 0;
-  padding: 22px 24px;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: var(--editor-line-height);
-  opacity: 0.82;
-  pointer-events: none;
-  user-select: none;
-  overflow: hidden;
-}
-
 .editor-panel .ProseMirror .placeholder {
   pointer-events: none;
   user-select: none;
@@ -755,16 +741,6 @@
 
 .compact-preview {
   font-size: var(--editor-font-size);
-}
-
-.preview-scroll-placeholder {
-  color: var(--text-muted);
-}
-
-.preview-scroll-placeholder .markdown-fragment,
-.preview-scroll-placeholder .code-block-shell,
-.preview-scroll-placeholder .mermaid-block {
-  opacity: 0.82;
 }
 
 .outline-item-disabled {

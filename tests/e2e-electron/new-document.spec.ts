@@ -79,9 +79,10 @@ async function expectFreshUntitledDocument(page: import('@playwright/test').Page
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
   await expect.poll(async () => page.title()).toMatch(/(無題\.md|Untitled\.md) - MDV/i)
   await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('text to replace')
-  await expect(page.locator('.editor-sample-placeholder').first()).toContainText('MarkDownViewer')
-  await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(1)
-  await expect.poll(async () => page.locator('.outline-item[disabled]').count()).toBeGreaterThan(0)
+  await expect(page.locator('.editor-sample-placeholder')).toHaveCount(0)
+  await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(0)
+  await expect(page.locator('.outline-item[disabled]')).toHaveCount(0)
+  await expect(page.locator('.outline-empty')).toHaveCount(1)
 }
 
 test('Ctrl/Cmd+N opens a fresh untitled editor document', async () => {
@@ -168,7 +169,6 @@ test('typing into a fresh untitled document clears placeholder-only outline stat
     await editor.click()
     await page.keyboard.insertText('# Real heading\n')
 
-    await expect.poll(async () => page.locator('.editor-sample-placeholder').count()).toBe(0)
     await expect(editor).toContainText('Real heading')
     await expect.poll(async () => page.title()).toMatch(/(無題\.md\*|Untitled\.md\*) - MDV/i)
     await expect(page.locator('.preview-scroll-placeholder')).toHaveCount(0)

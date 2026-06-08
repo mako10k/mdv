@@ -433,7 +433,6 @@ type EditorSurfaceProps = {
   value: string
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
-  placeholder?: string
   onReady?: (editor: ToastUiEditor) => void
   onSelectionChange?: (editor: ToastUiEditor) => void
 }
@@ -442,7 +441,6 @@ function EditorSurface({
   value,
   onChange,
   editorRef,
-  placeholder,
   onReady,
   onSelectionChange,
 }: EditorSurfaceProps) {
@@ -553,23 +551,9 @@ function EditorSurface({
     }
   }, [value])
 
-  useEffect(() => {
-    const instance = editorInstanceRef.current
-    if (!instance) {
-      return
-    }
-
-    instance.setPlaceholder('')
-  }, [placeholder])
-
   return (
     <div className="toast-editor-shell">
       <div className="toast-editor-host" ref={hostRef} />
-      {placeholder && value.length === 0 ? (
-        <div className="editor-sample-placeholder" aria-hidden="true">
-          {placeholder}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -1933,10 +1917,10 @@ function App() {
     && livePersistedMarkdown === EMPTY_UNTITLED_DOCUMENT, [currentFilePath, isUntouchedUntitledBuffer, markdownText])
   const isPlaceholderOutline = isPlaceholderDocument || headingOutlineMode === 'placeholder'
   const visibleHeadingOutline = useMemo(
-    () => (isPlaceholderDocument || headingOutlineMode === 'document' ? headingOutline : []),
-    [headingOutline, headingOutlineMode, isPlaceholderDocument],
+    () => (headingOutlineMode === 'document' ? headingOutline : []),
+    [headingOutline, headingOutlineMode],
   )
-  const outlineMarkdownText = isPlaceholderDocument ? t.app.initialDocument : markdownText
+  const outlineMarkdownText = markdownText
   const displaySegments = useMemo(() => splitMarkdownSegments(outlineMarkdownText), [outlineMarkdownText])
   const previewHeadingLines = useMemo(() => extractMarkdownHeadingLines(outlineMarkdownText), [outlineMarkdownText])
 
@@ -4082,7 +4066,6 @@ function App() {
                     <EditorSurface
                       key={editorSessionKey}
                       value={markdownText}
-                      placeholder={isPlaceholderDocument ? t.app.initialDocument : undefined}
                       onChange={(nextMarkdown) => {
                         invalidateEditorSearch()
                         updateMarkdownText(nextMarkdown)
@@ -4112,7 +4095,7 @@ function App() {
                   <div className={activePanel === 'preview' ? 'panel preview-panel panel-stack-item panel-stack-item-active' : 'panel preview-panel panel-stack-item panel-stack-item-inactive'}>
                     <div
                       ref={previewRootRef}
-                      className={isPlaceholderDocument ? 'preview-scroll compact-preview preview-scroll-placeholder' : 'preview-scroll compact-preview'}
+                      className="preview-scroll compact-preview"
                     >
                       {displaySegments.map((segment, index) => {
                         if (segment.type === 'markdown') {
