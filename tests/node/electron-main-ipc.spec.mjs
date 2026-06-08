@@ -166,3 +166,52 @@ test('open-external-link blocks invalid href payloads', async () => {
 
   assert.deepEqual(result, { status: 'blocked' })
 })
+
+test('ai chat read handlers abbreviate inline data image payload text', async () => {
+  const { handles, focusedWindow } = createContext({
+    ensureEditorRuntimeState: () => ({ editorId: 'editor:1' }),
+    readAiTargetForWindow: async () => ({
+      editorId: 'editor:1',
+      span: {
+        start: { line: 1, column: 1 },
+        end: { line: 1, column: 40 },
+        isEmpty: false,
+      },
+      text: '![logo](data:image/png;base64,QUJDRA==)',
+      estimatedTokens: 1,
+      truncated: false,
+    }),
+  })
+  const event = { sender: { __window: focusedWindow } }
+
+  const activeDocument = await handles.get('mdv:ai-chat-read-active-document')(event)
+  const directTarget = await handles.get('mdv:ai-chat-read-target')(event, {
+    target: { editorId: 'editor:1', span: { kind: 'document' } },
+  })
+
+  assert.equal(activeDocument.text, '![logo](data:image/png;base64,<4 B omitted>)')
+  assert.equal(directTarget.text, '![logo](data:image/png;base64,<4 B omitted>)')
+})
+
+test('ai chat grep handler abbreviates previews for public display', async () => {
+  const { handles, focusedWindow } = createContext({
+    exactSearchForWindow: async () => ({
+      matches: [
+        {
+          line: 1,
+          column: 1,
+          preview: '![logo](data:image/png;base64,QUJDRA==)',
+        },
+      ],
+      truncated: false,
+    }),
+  })
+  const event = { sender: { __window: focusedWindow } }
+
+  const result = await handles.get('mdv:ai-chat-grep-slice')(event, {
+    target: { editorId: 'editor:1', span: { kind: 'document' } },
+    query: 'logo',
+  })
+
+  assert.equal(result.matches[0].preview, '![logo](data:image/png;base64,<4 B omitted>)')
+})

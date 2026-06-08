@@ -1,3 +1,5 @@
+const { abbreviateInlineDataImageMarkdownInText } = require('./inline-data-url-display.cjs')
+
 type WebContentsLike = {
   id: number
 }
@@ -28,6 +30,37 @@ type MainI18n = {
   fileDialog: {
     markdownFilter: string
     allFilesFilter: string
+  }
+}
+
+function formatAiReadPayloadForExternalDisplay(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || typeof (payload as { text?: unknown }).text !== 'string') {
+    return payload
+  }
+
+  return {
+    ...(payload as Record<string, unknown>),
+    text: abbreviateInlineDataImageMarkdownInText((payload as { text: string }).text),
+  }
+}
+
+function formatAiExactSearchPayloadForExternalDisplay(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { matches?: unknown[] }).matches)) {
+    return payload
+  }
+
+  return {
+    ...(payload as Record<string, unknown>),
+    matches: (payload as { matches: unknown[] }).matches.map((match) => {
+      if (!match || typeof match !== 'object' || typeof (match as { preview?: unknown }).preview !== 'string') {
+        return match
+      }
+
+      return {
+        ...(match as Record<string, unknown>),
+        preview: abbreviateInlineDataImageMarkdownInText((match as { preview: string }).preview),
+      }
+    }),
   }
 }
 
@@ -503,23 +536,23 @@ function registerMainIpcHandlers(context: MainIpcContext) {
   ipcMain.handle('mdv:ai-chat-read-active-document', async (event: unknown) => {
     const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
-    return readAiTargetForWindow(editorWindow, {
+    return formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'document' } },
       cursor: null,
-    })
+    }))
   })
 
   ipcMain.handle('mdv:ai-chat-read-active-selection', async (event: unknown) => {
     const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))
     const runtimeState = ensureEditorRuntimeState(editorWindow)
-    return readAiTargetForWindow(editorWindow, {
+    return formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'selection' } },
       cursor: null,
-    })
+    }))
   })
 
-  ipcMain.handle('mdv:ai-chat-read-target', async (event: unknown, payload: unknown) => readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
-  ipcMain.handle('mdv:ai-chat-grep-slice', async (event: unknown, payload: unknown) => exactSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
+  ipcMain.handle('mdv:ai-chat-read-target', async (event: unknown, payload: unknown) => formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload)))
+  ipcMain.handle('mdv:ai-chat-grep-slice', async (event: unknown, payload: unknown) => formatAiExactSearchPayloadForExternalDisplay(await exactSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload)))
   ipcMain.handle('mdv:ai-chat-stats-slice', async (event: unknown, payload: unknown) => statsAiSliceForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
   ipcMain.handle('mdv:ai-chat-semantic-search', async (event: unknown, payload: unknown) => semanticSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
 

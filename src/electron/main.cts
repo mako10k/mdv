@@ -46,6 +46,7 @@ const { createCloseController } = require('./main/close-controller.cjs')
 const { createSettingsController } = require('./main/settings-controller.cjs')
 const { createUpdaterController } = require('./main/updater-controller.cjs')
 const { createWindowController } = require('./main/window-controller.cjs')
+const { abbreviateInlineDataImageMarkdownInText } = require('./main/inline-data-url-display.cjs')
 
 const runtime = createMainProcessRuntime(app)
 const {
@@ -1430,6 +1431,37 @@ function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens) {
   }
 }
 
+function formatAiReadPayloadForExternalDisplay(payload) {
+  if (!payload || typeof payload !== 'object' || typeof payload.text !== 'string') {
+    return payload
+  }
+
+  return {
+    ...payload,
+    text: abbreviateInlineDataImageMarkdownInText(payload.text),
+  }
+}
+
+function formatAiExactSearchPayloadForExternalDisplay(payload) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.matches)) {
+    return payload
+  }
+
+  return {
+    ...payload,
+    matches: payload.matches.map((match) => {
+      if (!match || typeof match !== 'object' || typeof match.preview !== 'string') {
+        return match
+      }
+
+      return {
+        ...match,
+        preview: abbreviateInlineDataImageMarkdownInText(match.preview),
+      }
+    }),
+  }
+}
+
 async function readFullTargetTextForWindow(editorWindow, payload) {
   let cursor = payload?.cursor ?? null
   let text = ''
@@ -1620,7 +1652,6 @@ async function grepAiSliceForWindow(editorWindow, payload) {
 
       const columnOffset = lineIndex === 0 ? Math.max(0, targetText.span.start.column - 1) : 0
       const absoluteColumn = columnOffset + (match.index || 0) + 1
-
       const result = {
         line: absoluteLine,
         column: absoluteColumn,
@@ -1635,7 +1666,7 @@ async function grepAiSliceForWindow(editorWindow, payload) {
       }
 
       matches.push(result)
-      bufferLines.push(`${result.line}:${result.column}\t${result.preview}`)
+      bufferLines.push(`${result.line}:${result.column}\t${lineText}`)
 
       if (match[0] === '') {
         regexp.lastIndex += 1
@@ -4535,11 +4566,11 @@ async function executeAiToolCall(editorWindow, toolName, args) {
     } else if (toolName === 'list_buffers') {
       result = listAiBuffersForWindow(editorWindow)
     } else if (toolName === 'read_target') {
-      result = readAiTargetForWindow(editorWindow, {
+      result = formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(editorWindow, {
         target: normalizeToolTarget({ target: requireObjectArg(toolName, args, 'target', '{"editorId":"editor:active","span":{"kind":"document"}}') }),
         cursor: args?.cursor ?? null,
         maxTokens: args?.maxTokens,
-      })
+      }))
     } else if (toolName === 'write_target') {
       const destination = requireObjectArg(toolName, args, 'destination', '{"editorId":"editor:active","span":{"kind":"selection"}}')
       const sources = requireArrayArg(toolName, args, 'sources', '[{"type":"literal","text":"..."}]')
@@ -4555,13 +4586,13 @@ async function executeAiToolCall(editorWindow, toolName, args) {
         title: typeof args?.title === 'string' ? args.title : undefined,
       })
     } else if (toolName === 'exact_search') {
-      result = exactSearchForWindow(editorWindow, {
+      result = formatAiExactSearchPayloadForExternalDisplay(await exactSearchForWindow(editorWindow, {
         target: normalizeToolTarget({ target: requireObjectArg(toolName, args, 'target', '{"editorId":"editor:active","span":{"kind":"document"}}') }),
         query: requireStringArg(toolName, args, 'query', 'a non-empty search string or regexp pattern'),
         isRegexp: args?.isRegexp === true,
         caseSensitive: args?.caseSensitive === true,
         maxResults: args?.maxResults,
-      })
+      }))
     } else if (toolName === 'stats_slice') {
       result = statsAiSliceForWindow(editorWindow, {
         target: normalizeToolTarget({ target: requireObjectArg(toolName, args, 'target', '{"editorId":"editor:active","span":{"kind":"document"}}') }),

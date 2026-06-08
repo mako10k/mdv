@@ -748,6 +748,23 @@
   color: var(--text-muted);
 }
 
+.editor-panel .inline-data-image-widget {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: baseline;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel-strong);
+  color: var(--text-muted);
+  font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
 .outline-item-disabled:hover,
 .outline-item-disabled:focus-visible {
   border-color: transparent;

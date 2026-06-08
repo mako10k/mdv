@@ -53,6 +53,58 @@ type StatusToast = {
   message: string
 }
 
+const INLINE_DATA_IMAGE_WIDGET_PATTERN = /!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+\)/
+
+function estimateInlineDataImageBytes(base64Text: string): number {
+  if (base64Text.length === 0) {
+    return 0
+  }
+
+  let padding = 0
+
+  if (base64Text.endsWith('==')) {
+    padding = 2
+  } else if (base64Text.endsWith('=')) {
+    padding = 1
+  }
+
+  return Math.max(0, Math.floor((base64Text.length * 3) / 4) - padding)
+}
+
+function formatInlineDataImageBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function abbreviateInlineDataImageMarkdown(markdownImage: string): string {
+  const match = markdownImage.match(/^!\[([^\]]*)\]\(data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)\)$/)
+
+  if (!match) {
+    return markdownImage
+  }
+
+  const [, altText, mimeType, base64Text] = match
+  const byteSizeLabel = formatInlineDataImageBytes(estimateInlineDataImageBytes(base64Text))
+
+  return `![${altText}](data:${mimeType};base64,<${byteSizeLabel} omitted>)`
+}
+
+function createInlineDataImageWidget(text: string): HTMLElement {
+  const element = document.createElement('span')
+  element.className = 'inline-data-image-widget'
+  element.textContent = abbreviateInlineDataImageMarkdown(text)
+  element.title = 'Inline image data URL omitted from source view'
+  element.setAttribute('contenteditable', 'false')
+  return element
+}
+
 function getOutlineHeadingLabel(item: MdvMdastHeadingOutlineItem, fallbackLabel: (line: number) => string) {
   return item.text.trim() || fallbackLabel(item.position.line)
 }
@@ -498,6 +550,12 @@ function EditorSurface({
       previewStyle: 'tab',
       usageStatistics: false,
       hideModeSwitch: false,
+      widgetRules: [
+        {
+          rule: INLINE_DATA_IMAGE_WIDGET_PATTERN,
+          toDOM: createInlineDataImageWidget,
+        },
+      ],
       events: {
         change: () => {
           onChangeRef.current(instance.getMarkdown())
@@ -546,7 +604,10 @@ function EditorSurface({
       return
     }
 
-    if (instance.getMarkdown() !== value) {
+    const widgetMissing =
+      INLINE_DATA_IMAGE_WIDGET_PATTERN.test(value) && !hostRef.current?.querySelector('.inline-data-image-widget')
+
+    if (instance.getMarkdown() !== value || widgetMissing) {
       instance.setMarkdown(value)
     }
   }, [value])

@@ -1017,6 +1017,21 @@ test.describe('markdown insert commands', () => {
     await expect(page.locator('.preview-panel img')).toHaveAttribute('src', /image\.png$/)
   })
 
+  test('editor source view abbreviates inline data image markdown', async ({ page }) => {
+    await openWritePanel(page)
+
+    const editor = page.locator('.toastui-editor-md-container .ProseMirror').first()
+    const markdown = '![logo](data:image/png;base64,QUJDRA==)'
+
+    await editor.click()
+    await page.keyboard.press(selectAllShortcut)
+    await page.keyboard.press('Backspace')
+    await editor.pressSequentially(markdown)
+
+    await expect(page.locator('.inline-data-image-widget').first()).toHaveText('![logo](data:image/png;base64,<4 B omitted>)')
+    await expect(editor).not.toContainText('QUJDRA==')
+  })
+
   test('code block command still inserts fenced Markdown after switching to WYSIWYG mode', async ({ page }) => {
     await openWritePanel(page)
     await replaceMarkdownDocument(page, '# Insert\n\nParagraph\n')

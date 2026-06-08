@@ -10,6 +10,11 @@ declare module '@toast-ui/editor' {
     wwEditor: HTMLElement
   }
 
+  export type WidgetRule = {
+    rule: RegExp
+    toDOM: (text: string) => HTMLElement
+  }
+
   export type EditorOptions = {
     el: HTMLElement
     minHeight?: string
@@ -20,6 +25,7 @@ declare module '@toast-ui/editor' {
     initialEditType?: 'markdown' | 'wysiwyg'
     usageStatistics?: boolean
     hideModeSwitch?: boolean
+    widgetRules?: WidgetRule[]
     events?: {
       change?: () => void
     }
