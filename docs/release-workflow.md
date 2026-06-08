@@ -4,16 +4,19 @@
 
 この文書は、MDV の外向け binary release を切るときの詳細 runbook である。日常的な運用入口と要約手順は [../DEVELOPMENT.md](../DEVELOPMENT.md) を正本とし、この文書は release 実務の詳細、preview / publish の差分、内部 packaging refresh の扱いを補足する。
 
+今回の現行方針では、`release/windows-host` の heavy artifact は local canonical cache であり、git 正本ではない。既存 clone を履歴書き換え後に修復する必要がある場合は [git-history-rewrite-recovery.md](git-history-rewrite-recovery.md) を参照する。
+
 内部 packaging refresh と正式 release を混ぜないことを目的にする。
 
 ## Invariants
 
-- 外向け release は 1 つの release commit、1 つの annotated tag `vX.Y.Z`、その commit から生成した配布物の 1 組で扱う
+- 外向け release は 1 つの release commit、1 つの annotated tag `vX.Y.Z`、その commit から生成して GitHub Release へ publish する配布物の 1 組で扱う
 - tag を先に切らない
 - 既存 tag のまま binary だけ差し替えない
-- 配布する Windows artifact は `release/windows-host` 配下の version 一致成果物だけを使う
-- `release/windows-host` と、promote 対象になる full candidate の `release/windows-host-candidate` では `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持し、artifact file 名、updater manifest、updater config、`win-unpacked/resources/app.asar` の存在と整合を version と一緒に検証する
+- 配布する Windows artifact は release commit と同じ source から生成した version 一致成果物だけを使う
+- `release/windows-host` と、promote 対象になる full candidate の `release/windows-host-candidate` では local workspace 上に `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持し、artifact file 名、updater manifest、updater config、`win-unpacked/resources/app.asar` の存在と整合を version と一緒に検証する
 - Windows packaging の candidate 生成、local deploy、canonical release artifact 更新は別操作として扱う
+- `release/windows-host` 配下の heavy artifact は local canonical cache であり、git 正本ではない
 
 ## Public Release Checklist
 
@@ -27,8 +30,9 @@
 6. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
 7. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
 8. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
-9. version bump と artifact と release notes を同じ release commit として commit する
+9. version bump と release notes と、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata だけを同じ release commit として commit する。`release/windows-host` の binary 本体は commit しない
 10. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
+	clean worktree は git status 基準であり、ignored な local heavy artifact cache は dirty 扱いしない
 11. `secdat exec git push origin main` で `main` へ push する
 12. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
 13. `secdat exec git push origin vX.Y.Z` を実行する
@@ -128,3 +132,10 @@ https://github.com/<owner>/<repo>/releases/latest/download
 ```
 
 この URL 配下に公開される `latest.yml` と installer asset を electron-updater が参照する。
+
+## Repository Policy
+
+- `release/windows-host` は local validation と GitHub Release publish のための canonical cache として使うが、heavy artifact は git に commit しない
+- current clone で `release/windows-host` に binary が残っていても、それは local generated state として扱う
+- release artifact を配布・再取得したい場合は GitHub Release asset を正本とする
+- `npm run release:check` の clean worktree は git status 基準であり、ignored な local heavy artifact cache は dirty 扱いしない

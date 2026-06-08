@@ -46,8 +46,8 @@ const areaRules = [
   },
   {
     name: 'Packaging and release',
-    docs: ['DEVELOPMENT.md', 'docs/release-workflow.md', 'docs/adr/0013-windows-host-generate-deploy-promote-split.md'],
-    patterns: [/^\.gitignore$/, /^package(-lock)?\.json$/, /^scripts\/build-win-host\./, /^scripts\/prepare-github-release\.mjs$/, /^scripts\/check-release-candidate\.mjs$/, /^scripts\/release-utils\.mjs$/, /^release\//, /^build\//],
+    docs: ['DEVELOPMENT.md', 'docs/release-workflow.md', 'docs/adr/0018-untracked-windows-release-artifacts-and-history-rewrite.md', 'docs/git-history-rewrite-recovery.md'],
+    patterns: [/^\.gitattributes$/, /^\.gitignore$/, /^package(-lock)?\.json$/, /^DEVELOPMENT\.md$/, /^docs\/release-workflow\.md$/, /^docs\/git-history-rewrite-recovery\.md$/, /^docs\/adr\/0018-untracked-windows-release-artifacts-and-history-rewrite\.md$/, /^scripts\/build-win-host\./, /^scripts\/prepare-github-release\.mjs$/, /^scripts\/check-release-candidate\.mjs$/, /^scripts\/release-utils\.mjs$/, /^release\//, /^build\//],
     validations: ['npm run lint', 'npm run build', 'npm run test:release'],
     reviewAgents: ['packaging-review'],
   },

@@ -23,7 +23,7 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 
 ## はじめて使うとき
 
-セットアップ、起動、ビルド、E2E 回帰確認、AI runtime 前提、Windows packaging の正本と、release の運用入口は [DEVELOPMENT.md](DEVELOPMENT.md) にまとめています。release 実務の詳細 runbook は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。
+セットアップ、起動、ビルド、E2E 回帰確認、AI runtime 前提、Windows packaging の正本と、release の運用入口は [DEVELOPMENT.md](DEVELOPMENT.md) にまとめています。release 実務の詳細 runbook は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。すでに古い clone を持っていて履歴書き換え後の修復が必要な場合だけ [docs/git-history-rewrite-recovery.md](docs/git-history-rewrite-recovery.md) を参照してください。
 
 初回セットアップ後に参照することが多い設計・補足資料は、この README の後半から辿れます。AI customization は、まず [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) で使い分けを見てください。境界を固定した理由が必要なときだけ [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を見れば足ります。
 

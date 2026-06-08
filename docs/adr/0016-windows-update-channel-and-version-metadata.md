@@ -1,6 +1,6 @@
 # 0016 Windows Update Channel And Version Metadata
 
-- Status: Accepted
+- Status: Superseded in part by [0018 Untracked Windows Release Artifacts And History Rewrite](0018-untracked-windows-release-artifacts-and-history-rewrite.md)
 
 ## Context
 
@@ -19,7 +19,7 @@ MDV は package.json version を正本とする version rule をすでに持っ�
 - portable 配布は継続するが、自動自己更新の対象にはしない。portable は manual update とし、updater runtime も有効化しない。
 - package.json version を引き続き唯一の正本とする。
 - main process は shared app metadata surface を持ち、renderer の help/about・settings と AI metadata tool はそこから同じ version facts を読む。
-- Windows artifact には canonical release と、promote 対象になる full candidate で artifact-metadata.json と installer/latest.yml を保持し、release validation は artifact file 名、updater manifest、metadata の一致、および app.asar の存在を確認する。
+- Windows artifact には local canonical release cache と、promote 対象になる full candidate で artifact-metadata.json と installer/latest.yml を保持し、release validation は artifact file 名、updater manifest、metadata の一致、および app.asar の存在を確認する。
 - updater runtime は main process に置き、Windows installer build だけで起動時 check、download、restart-install を扱う。
 
 ## Consequences

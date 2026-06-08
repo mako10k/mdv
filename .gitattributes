@@ -1,4 +1,0 @@
-release/windows-host/win-unpacked/MarkDownViewer.exe filter=lfs diff=lfs merge=lfs -text
-release/windows-host/win-unpacked/resources/app.asar filter=lfs diff=lfs merge=lfs -text
-release/windows-host/portable/*.exe filter=lfs diff=lfs merge=lfs -text
-release/windows-host/installer/*.exe filter=lfs diff=lfs merge=lfs -text

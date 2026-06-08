@@ -263,7 +263,7 @@ npm run dist:win:dir
 - バージョニングは SemVer ベースですが、`1.0.0` までは `0.y.z` を使います。
 - `0.y.0` は user-visible な機能追加、大きな UX 変更、互換性に影響しうる挙動変更、永続 workflow や契約変更に使います。
 - `0.y.z` の patch はバグ修正、UI 調整、配布物再生成、packaging/runtime 修正など、同じ feature line の中で閉じる変更に使います。
-- 同じ source commit 系列を再 packaging しただけで tracked binary だけが更新された場合は、意図した配布ラインが変わらない限り version は据え置きにします。
+- 同じ source commit 系列を再 packaging しただけで release artifact だけが更新された場合は、意図した配布ラインが変わらない限り version は据え置きにします。
 - 外向けの binary release は、1 つの release commit、同じ version の annotated tag `vX.Y.Z`、その commit から生成した配布物を 1 組として扱います。
 - tag だけを先に切ったり、既存 tag のまま配布物だけ差し替えたりしません。tag がない build は検証用または内部 packaging refresh であり、正式 release とは扱いません。
 - `1.0.0` は、設定保存、ファイル入出力、AI tool contract など主要な互換性ルールを明示して守る段階に入るまで予約します。
@@ -278,17 +278,18 @@ npm run dist:win:dir
 6. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
 7. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
 8. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
-9. version bump、対応する Windows artifact、release notes を同じ release slice として commit する。
+9. version bump、release notes、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata 更新だけを同じ release slice として commit する。Windows binary 本体は git に commit しない。
 10. tag 作成直前は `npm run release:check` を通す。
+	ignored な `release/windows-host` binary cache は clean worktree 判定を汚さない。
 11. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
 12. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
 13. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
 14. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
-15. 配布する binary は必ずその tag が指す commit の生成物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+15. 配布する binary は必ずその tag が指す commit からローカル生成した成果物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
 
 installer auto-update を GitHub Release asset で使う場合の feed URL は、通常 `https://github.com/<owner>/<repo>/releases/latest/download` を設定します。
 
-通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0008-version-source-and-release-numbering.md` と `docs/release-workflow.md` を参照してください。
+通常の開発 commit やローカル確認用の packaging refresh は、配布対象として切り出さない限り version bump を必須にしません。詳細な判断理由は `docs/adr/0018-untracked-windows-release-artifacts-and-history-rewrite.md` と `docs/release-workflow.md` を参照してください。履歴書き換え後の既存 clone 修復が必要な場合は `docs/git-history-rewrite-recovery.md` を参照してください。
 
 ## CodeBlock 拡張
 

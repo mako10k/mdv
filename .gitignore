@@ -31,6 +31,13 @@ release/**/builder-debug.yml
 release/**/builder-effective-config.yaml
 release/.github-upload/
 release/win-unpacked/
+release/windows-host/portable/*.exe
+release/windows-host/installer/*.exe
+release/windows-host/installer/*.blockmap
+release/windows-host/win-unpacked/**
+!release/windows-host/win-unpacked/
+!release/windows-host/win-unpacked/resources/
+!release/windows-host/win-unpacked/resources/app-update.yml
 release/windows-host-candidate/
 release/windows-host-*/
 playwright-report/
