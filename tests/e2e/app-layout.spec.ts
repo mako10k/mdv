@@ -138,9 +138,18 @@ test('editor mode keeps the outline and a non-zero Toast UI surface', async ({ p
   await openWritePanel(page)
   await expect(page.locator('.outline-panel')).toHaveCount(1)
   await expect(computedStyle(page, '.toastui-editor-md-tab-container', 'display')).resolves.toBe('none')
+  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toHaveAttribute('spellcheck', 'false')
 
   const toastRect = await rect(page, '.toastui-editor-defaultUI')
   expect(toastRect.height).toBeGreaterThan(300)
+})
+
+test('editor disables browser spellcheck in Markdown and WYSIWYG modes', async ({ page }) => {
+  await openWritePanel(page)
+  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toHaveAttribute('spellcheck', 'false')
+
+  await switchToastEditorMode(page, 'wysiwyg')
+  await expect(page.locator('.toastui-editor-ww-container .ProseMirror').first()).toHaveAttribute('spellcheck', 'false')
 })
 
 test('editor mode uses denser outline and editor typography', async ({ page }) => {

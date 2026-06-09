@@ -112,6 +112,22 @@ function createInlineDataImageWidget(text: string): HTMLElement {
   return element
 }
 
+function disableEditorSpellcheck(root: HTMLElement) {
+  const targets = [
+    root,
+    ...Array.from(root.querySelectorAll<HTMLElement>(
+      'textarea, [contenteditable="true"], .toastui-editor, .toastui-editor-md-container .ProseMirror, .toastui-editor-ww-container .ProseMirror, .cm-content, .CodeMirror-code'
+    )),
+  ]
+
+  for (const target of targets) {
+    target.spellcheck = false
+    target.setAttribute('spellcheck', 'false')
+    target.setAttribute('autocorrect', 'off')
+    target.setAttribute('autocapitalize', 'off')
+  }
+}
+
 function getOutlineHeadingLabel(item: MdvMdastHeadingOutlineItem, fallbackLabel: (line: number) => string) {
   return item.text.trim() || fallbackLabel(item.position.line)
 }
@@ -572,6 +588,8 @@ function EditorSurface({
     })
 
     const host = hostRef.current
+    disableEditorSpellcheck(host)
+
     const selectionChangeHandler = () => {
       const activeElement = document.activeElement
 
@@ -580,9 +598,19 @@ function EditorSurface({
       }
     }
 
+    const refreshEditorSpellcheck = () => {
+      if (host) {
+        disableEditorSpellcheck(host)
+      }
+    }
+
+    const editorMutationObserver = new MutationObserver(refreshEditorSpellcheck)
+    editorMutationObserver.observe(host, { childList: true, subtree: true })
+
     host?.addEventListener('keyup', emitSelectionChange)
     host?.addEventListener('mouseup', emitSelectionChange)
     host?.addEventListener('focusin', emitSelectionChange)
+    host?.addEventListener('focusin', refreshEditorSpellcheck)
     document.addEventListener('selectionchange', selectionChangeHandler)
 
     editorInstanceRef.current = instance
@@ -594,7 +622,9 @@ function EditorSurface({
       host?.removeEventListener('keyup', emitSelectionChange)
       host?.removeEventListener('mouseup', emitSelectionChange)
       host?.removeEventListener('focusin', emitSelectionChange)
+      host?.removeEventListener('focusin', refreshEditorSpellcheck)
       document.removeEventListener('selectionchange', selectionChangeHandler)
+      editorMutationObserver.disconnect()
       if (selectionFrameRef.current !== null) {
         window.cancelAnimationFrame(selectionFrameRef.current)
         selectionFrameRef.current = null
