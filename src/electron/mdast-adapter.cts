@@ -87,16 +87,14 @@ type GetMarkdownStructureOptions = {
 }
 
 type StructureInsertPosition = 'before' | 'after' | 'prepend' | 'append'
-type StructureReplaceOverflowBehavior = 'break' | 'error'
-type StructureMutationOperation = 'insert' | 'delete' | 'replace' | 'wrap' | 'unwrap' | 'move'
+type StructureMutationOperation = 'insert' | 'delete' | 'replace' | 'replaceAll' | 'wrap' | 'unwrap' | 'move'
 
 type StructureMutationPayload = {
   selector: QuerySelector
   markdown?: string
   position?: StructureInsertPosition
   targetSelector?: QuerySelector
-  maxReplacements?: number
-  onMaxExceeded?: StructureReplaceOverflowBehavior
+  expectedMatchCount?: number
 }
 
 type StructureMutationResult = {
@@ -105,8 +103,6 @@ type StructureMutationResult = {
   inserted?: number
   changed?: number
   targetMatched?: number
-  effectiveMatched?: number
-  maxExceeded?: boolean
 }
 
 type MdastControlModule = {
@@ -409,27 +405,19 @@ function applyDelete(tree: MdastNode, matches: QueryMatch[]) {
   return { tree, changed }
 }
 
-function applyReplace(
-  tree: MdastNode,
-  matches: QueryMatch[],
-  snippetNodes: MdastNode[],
-  options: {
-    maxReplacements?: number
-    onMaxExceeded?: StructureReplaceOverflowBehavior
-  } = {},
-) {
+function applyReplaceExactlyOne(tree: MdastNode, matches: QueryMatch[], snippetNodes: MdastNode[]) {
   const normalizedMatches = normalizeNonOverlappingMatches(matches)
-  const maxReplacements = Number.isInteger(options.maxReplacements) && Number(options.maxReplacements) > 0 ? Number(options.maxReplacements) : 1
-  const onMaxExceeded = options.onMaxExceeded === 'break' ? 'break' : 'error'
 
-  if (normalizedMatches.length > maxReplacements && onMaxExceeded === 'error') {
-    throw new Error(`Replace exceeds maxReplacements=${String(maxReplacements)} with ${String(normalizedMatches.length)} effective matches`)
+  if (normalizedMatches.length === 0) {
+    throw new Error('StructureHandleNotFound:\nThe specified handle was not found.\nRun query_structure or list_structure_map again and retry with a valid handle.')
   }
 
-  const selectedMatches = normalizedMatches.slice(0, maxReplacements)
+  if (normalizedMatches.length !== 1) {
+    throw new Error('AmbiguousStructureHandle:\nThe specified handle does not resolve to exactly one structure node.\nRun query_structure or list_structure_map again and retry with a unique handle.')
+  }
 
   let changed = 0
-  const orderedMatches = [...selectedMatches].sort((left, right) => comparePath(right.path, left.path))
+  const orderedMatches = [...normalizedMatches].sort((left, right) => comparePath(right.path, left.path))
 
   for (const match of orderedMatches) {
     if (!Array.isArray(match.parent?.children) || match.index < 0) {
@@ -443,8 +431,45 @@ function applyReplace(
   return {
     tree,
     changed,
-    effectiveMatched: normalizedMatches.length,
-    maxExceeded: normalizedMatches.length > maxReplacements,
+  }
+}
+
+function applyReplaceAll(
+  tree: MdastNode,
+  matches: QueryMatch[],
+  snippetNodes: MdastNode[],
+  expectedMatchCount: number,
+) {
+  const normalizedMatches = normalizeNonOverlappingMatches(matches)
+
+  if (normalizedMatches.length === 0) {
+    throw new Error('NoStructureMatches:\nThe query matched no structure nodes.\nInspect the file with query_structure or list_structure_map and retry with a valid query.')
+  }
+
+  if (!Number.isInteger(expectedMatchCount) || expectedMatchCount < 1) {
+    throw new Error('expectedMatchCount must be a positive integer')
+  }
+
+  if (normalizedMatches.length !== expectedMatchCount) {
+    throw new Error(`UnexpectedMatchCount:\nExpected exactly ${String(expectedMatchCount)} matches, but found ${String(normalizedMatches.length)}.\nThis is not a replacement-limit error.\nInspect matches with query_structure and retry only after confirming the intended target set.`)
+  }
+
+  let changed = 0
+  const orderedMatches = [...normalizedMatches].sort((left, right) => comparePath(right.path, left.path))
+
+  for (const match of orderedMatches) {
+    if (!Array.isArray(match.parent?.children) || match.index < 0) {
+      throw new Error('Cannot replace root node')
+    }
+
+    match.parent.children.splice(match.index, 1, ...snippetNodes.map(cloneNode))
+    changed += 1
+  }
+
+  return {
+    tree,
+    changed,
+    matched: normalizedMatches.length,
   }
 }
 
@@ -535,12 +560,13 @@ async function getMarkdownStructure(markdown: string, selector: QuerySelector, o
   const mdast = await loadMdastModule()
   const tree = mdast.parseMarkdown(markdown)
   const matches = resolveSelectorMatches(tree, selector, mdast.queryAst)
-  const maxMatches = Number.isInteger(options.maxMatches) && Number(options.maxMatches) > 0 ? Number(options.maxMatches) : matches.length
-  const slicedMatches = matches.slice(0, maxMatches)
+  const normalizedMatches = normalizeNonOverlappingMatches(matches)
+  const maxMatches = Number.isInteger(options.maxMatches) && Number(options.maxMatches) > 0 ? Number(options.maxMatches) : normalizedMatches.length
+  const slicedMatches = normalizedMatches.slice(0, maxMatches)
 
   return {
-    totalMatches: matches.length,
-    truncated: slicedMatches.length < matches.length,
+    totalMatches: normalizedMatches.length,
+    truncated: slicedMatches.length < normalizedMatches.length,
     matches: slicedMatches.map((match) => summarizeNode(
       markdown,
       match.node,
@@ -577,16 +603,21 @@ async function mutateMarkdownStructure(markdown: string, operation: StructureMut
 
   if (operation === 'replace') {
     const snippetTree = mdast.parseMarkdown(typeof payload.markdown === 'string' ? payload.markdown : '')
-    const result = applyReplace(tree, matches, snippetTree.children ?? [], {
-      maxReplacements: payload.maxReplacements,
-      onMaxExceeded: payload.onMaxExceeded,
-    })
+    const result = applyReplaceExactlyOne(tree, matches, snippetTree.children ?? [])
     return {
       markdown: mdast.stringifyAst(result.tree),
       changed: result.changed,
       matched: matches.length,
-      effectiveMatched: result.effectiveMatched,
-      maxExceeded: result.maxExceeded,
+    }
+  }
+
+  if (operation === 'replaceAll') {
+    const snippetTree = mdast.parseMarkdown(typeof payload.markdown === 'string' ? payload.markdown : '')
+    const result = applyReplaceAll(tree, matches, snippetTree.children ?? [], Number(payload.expectedMatchCount))
+    return {
+      markdown: mdast.stringifyAst(result.tree),
+      changed: result.changed,
+      matched: result.matched,
     }
   }
 

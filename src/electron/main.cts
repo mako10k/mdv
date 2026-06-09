@@ -1930,9 +1930,29 @@ function resolveStructureSelectorInput(editorWindow, toolName, payload, options 
   const query = typeof payload?.query === 'string' ? payload.query.trim() : ''
   const handle = typeof payload?.handle === 'string' ? payload.handle.trim() : ''
   const allowNone = options.allowNone === true
+  const requireQuery = options.requireQuery === true
+  const requireHandle = options.requireHandle === true
+  const disallowQuery = options.disallowQuery === true
+  const disallowHandle = options.disallowHandle === true
 
   if (query && handle) {
     throw new AiToolUserError(toolName, 'Provide either query or handle, not both.', 'Choose one structure selector mode and retry.')
+  }
+
+  if (query && disallowQuery) {
+    throw new AiToolUserError(toolName, 'query is not supported for this tool.', 'Run query_structure or list_structure_map first, choose one exact handle, and retry with handle only.', 'invalid_query')
+  }
+
+  if (handle && disallowHandle) {
+    throw new AiToolUserError(toolName, 'handle is not supported for this tool.', 'Use query_structure to inspect the target set and retry with query only.', 'invalid_handle')
+  }
+
+  if (requireHandle && !handle) {
+    throw new AiToolUserError(toolName, 'handle is required.', 'Run query_structure or list_structure_map first, choose one exact handle, and retry.', 'invalid_handle')
+  }
+
+  if (requireQuery && !query) {
+    throw new AiToolUserError(toolName, 'query is required.', 'Run query_structure first, confirm the intended target set, and retry with query only.', 'invalid_query')
   }
 
   if (!query && !handle && !allowNone) {
@@ -1960,6 +1980,10 @@ function resolveStructureSelectorInput(editorWindow, toolName, payload, options 
   const handleRecord = getStructureHandleRecord(editorWindow, handle)
 
   if (!handleRecord) {
+    if (toolName === 'replace_structure') {
+      throw new AiToolUserError(toolName, 'The specified handle was not found.', 'Run query_structure or list_structure_map again and retry with a valid handle.', 'invalid_handle')
+    }
+
     throw new AiToolUserError(toolName, `Unknown structure handle: ${handle}`, 'Call query_structure or list_structure_map again and reuse one returned handle.', 'invalid_handle')
   }
 
@@ -2024,8 +2048,22 @@ function normalizeStructureMutationError(toolName, error) {
   }
 
   if (toolName === 'replace_structure') {
-    if (message.startsWith('Replace exceeds maxReplacements=')) {
-      return new AiToolUserError(toolName, 'The replace selector exceeded maxReplacements.', 'Narrow the query, use an exact handle, raise maxReplacements, or set onMaxExceeded="break" to stop after the configured limit.', 'too_many_matches')
+    if (message.startsWith('StructureHandleNotFound:')) {
+      return new AiToolUserError(toolName, 'The specified handle was not found.', 'Run query_structure or list_structure_map again and retry with a valid handle.', 'invalid_handle')
+    }
+
+    if (message.startsWith('AmbiguousStructureHandle:')) {
+      return new AiToolUserError(toolName, 'The specified handle does not resolve to exactly one structure node.', 'Run query_structure or list_structure_map again and retry with a unique handle.', 'invalid_handle')
+    }
+  }
+
+  if (toolName === 'replace_all_structures') {
+    if (message.startsWith('NoStructureMatches:')) {
+      return new AiToolUserError(toolName, 'The query matched no structure nodes.', 'Inspect the document with query_structure or list_structure_map and retry with a valid query.', 'no_match')
+    }
+
+    if (message.startsWith('UnexpectedMatchCount:')) {
+      return new AiToolUserError(toolName, message, 'Inspect matches with query_structure and retry only after confirming the intended target set.', 'unexpected_match_count')
     }
   }
 
@@ -2110,51 +2148,33 @@ function requireStructureInsertPositionArg(toolName, payload, fieldName = 'posit
   return position
 }
 
-function requireStructureMaxReplacementsArg(toolName, payload) {
-  if (payload?.maxReplacements === undefined || payload?.maxReplacements === null) {
-    return 1
+function requireStructureExpectedMatchCountArg(toolName, payload) {
+  const expectedMatchCount = Number(payload?.expectedMatchCount)
+
+  if (!Number.isInteger(expectedMatchCount) || expectedMatchCount < 1) {
+    throw new AiToolUserError(toolName, 'expectedMatchCount must be a positive integer.', 'Set expectedMatchCount to the exact confirmed query match count before retrying.', 'invalid_argument')
   }
 
-  const maxReplacements = Number(payload.maxReplacements)
-
-  if (!Number.isInteger(maxReplacements) || maxReplacements < 1) {
-    throw new AiToolUserError(toolName, 'maxReplacements must be a positive integer.', 'Omit maxReplacements for the safe default of 1, or pass 1 or greater.', 'invalid_argument')
-  }
-
-  return maxReplacements
+  return expectedMatchCount
 }
 
-function requireStructureReplaceOverflowBehaviorArg(toolName, payload) {
-  if (payload?.onMaxExceeded === undefined || payload?.onMaxExceeded === null || payload.onMaxExceeded === '') {
-    return 'error'
-  }
-
-  const behavior = requireStringArg(toolName, payload, 'onMaxExceeded', 'one of break or error')
-
-  if (behavior !== 'break' && behavior !== 'error') {
-    throw new AiToolUserError(toolName, `Unsupported onMaxExceeded value "${behavior}".`, 'Use break to stop after maxReplacements or error to reject the operation when the limit would be exceeded.', 'invalid_argument')
-  }
-
-  return behavior
-}
-
-async function applyStructureMutationForWindow(editorWindow, toolName, operation, payload) {
-  const selectorInput = resolveStructureSelectorInput(editorWindow, toolName, payload)
+async function applyStructureMutationForWindow(editorWindow, toolName, operation, payload, options = {}) {
+  const selectorInput = resolveStructureSelectorInput(editorWindow, toolName, payload, options.selectorOptions)
   await validateStructureSelectorQuery(toolName, selectorInput)
   const document = await readStructureDocumentForEditor(editorWindow, selectorInput.editorId)
   ensureFreshStructureHandle(toolName, selectorInput.handle, document.fingerprint)
+  const dryRun = payload?.dryRun === true
 
   const mutationPayload = {
     selector: selectorInput.selector,
   }
 
-  if (operation === 'insert' || operation === 'replace' || operation === 'wrap') {
+  if (operation === 'insert' || operation === 'replace' || operation === 'replaceAll' || operation === 'wrap') {
     mutationPayload.markdown = requireStructureMarkdownArg(toolName, payload, 'markdown')
   }
 
-  if (operation === 'replace') {
-    mutationPayload.maxReplacements = requireStructureMaxReplacementsArg(toolName, payload)
-    mutationPayload.onMaxExceeded = requireStructureReplaceOverflowBehaviorArg(toolName, payload)
+  if (operation === 'replaceAll') {
+    mutationPayload.expectedMatchCount = requireStructureExpectedMatchCountArg(toolName, payload)
   }
 
   if (operation === 'insert') {
@@ -2188,6 +2208,26 @@ async function applyStructureMutationForWindow(editorWindow, toolName, operation
     throw new AiToolUserError(toolName, 'The structure selector matched no nodes.', 'Run query_structure first to inspect the current structure map and then retry with a narrower selector.', 'no_match')
   }
 
+  const baseResult = {
+    editorId: document.editorId,
+    fingerprintBefore: document.fingerprint,
+    fingerprintAfter: fingerprintMarkdown(mutationResult.markdown),
+    dryRun,
+    matched: Number.isFinite(Number(mutationResult.matched)) ? Number(mutationResult.matched) : undefined,
+    expectedMatchCount: Number.isFinite(Number(mutationPayload.expectedMatchCount)) ? Number(mutationPayload.expectedMatchCount) : undefined,
+    targetMatched: Number.isFinite(Number(mutationResult.targetMatched)) ? Number(mutationResult.targetMatched) : undefined,
+    changed: Number.isFinite(Number(mutationResult.changed)) ? Number(mutationResult.changed) : undefined,
+    inserted: Number.isFinite(Number(mutationResult.inserted)) ? Number(mutationResult.inserted) : undefined,
+    markdownPreview: dryRun ? mutationResult.markdown : undefined,
+  }
+
+  if (dryRun) {
+    return {
+      ...baseResult,
+      bytesWritten: 0,
+    }
+  }
+
   const writeResult = await writeAiTargetForWindow(editorWindow, {
     destination: {
       editorId: document.editorId,
@@ -2203,15 +2243,7 @@ async function applyStructureMutationForWindow(editorWindow, toolName, operation
   })
 
   return {
-    editorId: document.editorId,
-    fingerprintBefore: document.fingerprint,
-    fingerprintAfter: fingerprintMarkdown(mutationResult.markdown),
-    matched: Number.isFinite(Number(mutationResult.matched)) ? Number(mutationResult.matched) : undefined,
-    effectiveMatched: Number.isFinite(Number(mutationResult.effectiveMatched)) ? Number(mutationResult.effectiveMatched) : undefined,
-    maxExceeded: mutationResult?.maxExceeded === true,
-    targetMatched: Number.isFinite(Number(mutationResult.targetMatched)) ? Number(mutationResult.targetMatched) : undefined,
-    changed: Number.isFinite(Number(mutationResult.changed)) ? Number(mutationResult.changed) : undefined,
-    inserted: Number.isFinite(Number(mutationResult.inserted)) ? Number(mutationResult.inserted) : undefined,
+    ...baseResult,
     bytesWritten: writeResult?.bytesWritten || Buffer.byteLength(mutationResult.markdown, 'utf8'),
     documentTarget: buildAiTargetRef(document.editorId, { kind: 'document' }),
     target: writeResult?.target,
@@ -2576,14 +2608,24 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'replace_structure',
-    description: 'Replace matched structure nodes selected by query or handle with markdown parsed through mdast, capped by maxReplacements.',
+    description: 'Replace exactly one structure node selected by handle with markdown parsed through mdast.',
     parameters: buildAiToolParameters({
         editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor or the handle document.' },
-        query: { type: 'string', description: aiStructureSelectorDescription },
-        handle: { type: 'string', description: 'Exact structure handle from a previous structure result.' },
+        handle: buildRequiredAiToolParameter({ type: 'string', description: 'Exact structure handle from a previous structure result.' }),
+        dryRun: { type: 'boolean', description: 'Optional. When true, do not write changes and return the planned replacement result only.' },
         markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Replacement markdown snippet.' }),
-      maxReplacements: { type: 'integer', description: 'Optional positive integer cap. Defaults to 1.' },
-      onMaxExceeded: { type: 'string', enum: ['break', 'error'], description: 'Optional overflow behavior when effective matches exceed maxReplacements. Defaults to error.' },
+      }),
+  },
+  {
+    type: 'function',
+    name: 'replace_all_structures',
+    description: 'Replace all structure nodes matched by one query after verifying the exact expected match count.',
+    parameters: buildAiToolParameters({
+        editorId: { type: 'string', description: 'Optional editor or buffer ID. Defaults to the active editor.' },
+        query: buildRequiredAiToolParameter({ type: 'string', description: aiStructureSelectorDescription }),
+        expectedMatchCount: buildRequiredAiToolParameter({ type: 'integer', description: 'Exact confirmed number of structure matches that must be replaced.' }),
+        dryRun: { type: 'boolean', description: 'Optional. When true, do not write changes and return the planned replacement result only.' },
+        markdown: buildRequiredAiToolParameter({ type: 'string', description: 'Replacement markdown snippet.' }),
       }),
   },
   {
@@ -2864,19 +2906,30 @@ const aiToolHelpDocs = {
     ],
   },
   replace_structure: {
-    summary: 'By default, replace_structure replaces one effective match and returns an error as soon as a second effective match would be touched. effectiveMatched means the overlap-normalized match count used for cap decisions. Use maxReplacements to raise the cap. On a successful call, maxExceeded=false means full success and maxExceeded=true means a cap-limited partial success.',
+    summary: 'replace_structure replaces exactly one structure node and requires one exact handle from a prior structure read. It does not accept query, and it never broadens into multi-node replacement.',
     parameters: [
       { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
-      { name: 'query', required: false, type: 'string', description: 'mdast selector query.' },
-      { name: 'handle', required: false, type: 'string', description: 'Exact structure handle.' },
+      { name: 'handle', required: true, type: 'string', description: 'Exact structure handle.' },
       { name: 'markdown', required: true, type: 'string', description: 'Replacement markdown snippet.' },
-      { name: 'maxReplacements', required: false, type: 'integer', description: 'Optional positive integer cap. Defaults to 1.' },
-      { name: 'onMaxExceeded', required: false, type: 'string', description: 'Optional. break stops after maxReplacements and succeeds. error rejects the operation if the effective match count exceeds the cap. Defaults to error.' },
+      { name: 'dryRun', required: false, type: 'boolean', description: 'Optional. When true, preview the planned replacement without writing it.' },
     ],
     examples: [
-      { description: 'Replace one exact paragraph', args: { query: 'paragraph[text*=Draft]', markdown: 'Final paragraph' } },
-      { description: 'Replace two matches and still fail if a third would be touched', args: { query: 'paragraph[text*=TODO]', markdown: 'Resolved paragraph', maxReplacements: 2 } },
-      { description: 'Replace up to three matches and stop successfully. If maxExceeded is true in the result, the replace stopped at the cap and did not touch every effective match.', args: { query: 'paragraph[text*=TODO]', markdown: 'Resolved paragraph', maxReplacements: 3, onMaxExceeded: 'break' } },
+      { description: 'Replace one exact paragraph handle', args: { handle: 'mdast:example', markdown: 'Final paragraph' } },
+      { description: 'Preview one exact handle replacement', args: { handle: 'mdast:example', markdown: 'Final paragraph', dryRun: true } },
+    ],
+  },
+  replace_all_structures: {
+    summary: 'replace_all_structures replaces every node matched by one query only when the actual normalized match count equals expectedMatchCount exactly. Use it only for intentional multi-node replacement.',
+    parameters: [
+      { name: 'editorId', required: false, type: 'string', description: 'Optional editor or buffer ID.' },
+      { name: 'query', required: true, type: 'string', description: 'mdast selector query.' },
+      { name: 'markdown', required: true, type: 'string', description: 'Replacement markdown snippet.' },
+      { name: 'expectedMatchCount', required: true, type: 'integer', description: 'Exact confirmed number of matched nodes that must be replaced.' },
+      { name: 'dryRun', required: false, type: 'boolean', description: 'Optional. When true, preview the planned replacement without writing it.' },
+    ],
+    examples: [
+      { description: 'Replace exactly three TODO paragraphs', args: { query: 'paragraph[text*=TODO]', markdown: 'Resolved paragraph', expectedMatchCount: 3 } },
+      { description: 'Preview a multi-node replacement after confirming the count', args: { query: 'listItem text[value*=TODO]', markdown: '- done', expectedMatchCount: 2, dryRun: true } },
     ],
   },
   delete_structure: {
@@ -3165,7 +3218,8 @@ function buildStructureHelpResult(topic) {
       notes: [
         'Start with list_structure_map for a broad map or query_structure for selector-based discovery.',
         'Use handles for exact follow-up operations. Handles are session-scoped and become stale after the document changes.',
-        'Use insert_structure, replace_structure, delete_structure, wrap_structure, unwrap_structure, move_structure, or copy_structure for DOM-like mutations.',
+        'Use replace_structure only for one exact handle, and use replace_all_structures only for deliberate multi-node query replacements with a confirmed expectedMatchCount.',
+        'Use insert_structure, delete_structure, wrap_structure, unwrap_structure, move_structure, or copy_structure for the other DOM-like mutations.',
       ],
     },
     'query-language': {
@@ -3191,9 +3245,8 @@ function buildStructureHelpResult(topic) {
         'invalid_query: the selector syntax is wrong. Call get_structure_help with {"topic":"query-language"}.',
         'no_match: the selector matched nothing. Inspect the current document with list_structure_map or query_structure.',
         'invalid_handle or stale_handle: rerun a structure read tool and reuse one returned handle.',
-        'too_many_matches on replace_structure: the effective match count exceeded maxReplacements. Narrow the query, use a handle, raise maxReplacements, or set onMaxExceeded to break.',
-        'When onMaxExceeded is break, inspect maxExceeded and effectiveMatched in the result. maxExceeded=true means the replace stopped at the configured cap instead of touching every effective match.',
-        'matched is the raw selector match count before overlap normalization. effectiveMatched is the normalized count used for maxReplacements and overflow decisions. changed is the number of replacements actually applied.',
+        'replace_structure requires one exact handle. If the handle is missing, stale, or no longer unique, rerun query_structure or list_structure_map and retry with one fresh handle.',
+        'replace_all_structures fails when expectedMatchCount does not match the actual normalized query match count. Confirm the target set with query_structure before retrying.',
         'Move target queries must resolve to exactly one node. Use a handle when you need exact targeting.',
       ],
     },
@@ -3201,7 +3254,8 @@ function buildStructureHelpResult(topic) {
       summary: 'Typical structure tool flow examples.',
       notes: [
         'Map headings: list_structure_map {} then query_structure {"query":"heading[depth=2]"}.',
-        'Insert after one heading: query_structure {"query":"heading[text=Overview]"} then insert_structure {"handle":"mdast:...","position":"after","markdown":"New paragraph"}.',
+        'Replace one exact node: query_structure {"query":"heading[text=Overview]"} then replace_structure {"handle":"mdast:...","markdown":"# Overview"}.',
+        'Replace all confirmed TODO paragraphs: query_structure {"query":"paragraph[text*=TODO]"} then replace_all_structures {"query":"paragraph[text*=TODO]","markdown":"Resolved paragraph","expectedMatchCount":2}.',
         'Copy one heading node: copy_structure {"sourceQuery":"heading[text=Template]","targetQuery":"heading[text=Appendix]","position":"after"}.',
       ],
     },
@@ -3233,7 +3287,7 @@ function buildAiToolErrorResult(toolName, error) {
           : 'errors',
     },
   }
-  const isStructureTool = toolName === 'get_structure_help' || toolName === 'list_structure_map' || toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure'
+  const isStructureTool = toolName === 'get_structure_help' || toolName === 'list_structure_map' || toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'replace_all_structures' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure'
 
   if (error instanceof AiToolUserError) {
     return {
@@ -3290,6 +3344,16 @@ function requireStringArg(toolName, args, fieldName, description) {
   return value
 }
 
+function requirePositiveIntegerArg(toolName, args, fieldName, description) {
+  const value = Number(args?.[fieldName])
+
+  if (!Number.isInteger(value) || value < 1) {
+    throw new AiToolUserError(toolName, `${fieldName} must be a positive integer.`, `Provide ${fieldName} as ${description}.`)
+  }
+
+  return value
+}
+
 function requireArrayArg(toolName, args, fieldName, description) {
   const value = args?.[fieldName]
 
@@ -3326,7 +3390,20 @@ function validateAiToolArgs(toolName, args) {
     return
   }
 
-  if (toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'wrap_structure') {
+  if (toolName === 'replace_structure') {
+    requireStringArg(toolName, args, 'handle', 'an exact structure handle from a previous structure result')
+    requireStringArg(toolName, args, 'markdown', 'a non-empty markdown string')
+    return
+  }
+
+  if (toolName === 'replace_all_structures') {
+    requireStringArg(toolName, args, 'query', 'a mdast selector query string')
+    requireStringArg(toolName, args, 'markdown', 'a non-empty markdown string')
+    requirePositiveIntegerArg(toolName, args, 'expectedMatchCount', 'the exact confirmed query match count')
+    return
+  }
+
+  if (toolName === 'insert_structure' || toolName === 'wrap_structure') {
     if (toolName === 'insert_structure') {
       requireStringArg(toolName, args, 'position', 'one of before, after, prepend, or append')
     }
@@ -4191,13 +4268,15 @@ function summarizeAiToolArgsForLog(toolName, args) {
     }
   }
 
-  if (toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'delete_structure' || toolName === 'unwrap_structure' || toolName === 'replace_structure' || toolName === 'wrap_structure' || toolName === 'insert_structure') {
+  if (toolName === 'query_structure' || toolName === 'get_structure_content' || toolName === 'delete_structure' || toolName === 'unwrap_structure' || toolName === 'replace_structure' || toolName === 'replace_all_structures' || toolName === 'wrap_structure' || toolName === 'insert_structure') {
     return {
       editorId: typeof args?.editorId === 'string' ? args.editorId : null,
       query: typeof args?.query === 'string' ? args.query.slice(0, 160) : null,
       handle: typeof args?.handle === 'string' ? args.handle : null,
       position: typeof args?.position === 'string' ? args.position : undefined,
       markdownBytes: typeof args?.markdown === 'string' ? Buffer.byteLength(args.markdown, 'utf8') : undefined,
+      expectedMatchCount: Number.isFinite(Number(args?.expectedMatchCount)) ? Number(args.expectedMatchCount) : undefined,
+      dryRun: args?.dryRun === true,
       maxResults: Number.isFinite(Number(args?.maxResults)) ? Number(args.maxResults) : undefined,
       includeMarkdown: args?.includeMarkdown === true,
     }
@@ -4355,12 +4434,12 @@ function summarizeAiToolResultForLog(toolName, result) {
     }
   }
 
-  if (toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure') {
+  if (toolName === 'insert_structure' || toolName === 'replace_structure' || toolName === 'replace_all_structures' || toolName === 'delete_structure' || toolName === 'wrap_structure' || toolName === 'unwrap_structure' || toolName === 'move_structure' || toolName === 'copy_structure') {
     return {
       editorId: typeof result?.editorId === 'string' ? result.editorId : null,
       matched: Number.isFinite(Number(result?.matched)) ? Number(result.matched) : null,
-      effectiveMatched: Number.isFinite(Number(result?.effectiveMatched)) ? Number(result.effectiveMatched) : null,
-      maxExceeded: result?.maxExceeded === true,
+      expectedMatchCount: Number.isFinite(Number(result?.expectedMatchCount)) ? Number(result.expectedMatchCount) : null,
+      dryRun: result?.dryRun === true,
       targetMatched: Number.isFinite(Number(result?.targetMatched)) ? Number(result.targetMatched) : null,
       changed: Number.isFinite(Number(result?.changed)) ? Number(result.changed) : null,
       inserted: Number.isFinite(Number(result?.inserted)) ? Number(result.inserted) : null,
@@ -4527,7 +4606,19 @@ async function executeAiToolCall(editorWindow, toolName, args) {
     } else if (toolName === 'insert_structure') {
       result = applyStructureMutationForWindow(editorWindow, toolName, 'insert', args)
     } else if (toolName === 'replace_structure') {
-      result = applyStructureMutationForWindow(editorWindow, toolName, 'replace', args)
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'replace', args, {
+        selectorOptions: {
+          requireHandle: true,
+          disallowQuery: true,
+        },
+      })
+    } else if (toolName === 'replace_all_structures') {
+      result = applyStructureMutationForWindow(editorWindow, toolName, 'replaceAll', args, {
+        selectorOptions: {
+          requireQuery: true,
+          disallowHandle: true,
+        },
+      })
     } else if (toolName === 'delete_structure') {
       result = applyStructureMutationForWindow(editorWindow, toolName, 'delete', args)
     } else if (toolName === 'wrap_structure') {

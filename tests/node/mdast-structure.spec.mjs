@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { mutateMarkdownStructure } = require('../../electron/mdast-adapter.cjs')
+const { getMarkdownStructure, mutateMarkdownStructure } = require('../../electron/mdast-adapter.cjs')
 
 test('move adjusts a target path after removing an earlier source node', async () => {
   const result = await mutateMarkdownStructure('# A\n\n# B\n', 'move', {
@@ -49,27 +49,64 @@ test('wrap rejects wrapper markdown that yields multiple top-level nodes', async
   )
 })
 
-test('replace rejects selectors that exceed the default maxReplacements', async () => {
+test('replace requires exactly one normalized target', async () => {
   await assert.rejects(
     mutateMarkdownStructure('# A\n\n# B\n', 'replace', {
       selector: { query: 'heading[depth=1]' },
       markdown: '## Replacement\n',
     }),
-    /Replace exceeds maxReplacements=1 with 2 effective matches/,
+    /AmbiguousStructureHandle:/,
   )
 })
 
-test('replace can stop after maxReplacements when onMaxExceeded is break', async () => {
+test('replace swaps one exact node', async () => {
   const result = await mutateMarkdownStructure('# A\n\n# B\n', 'replace', {
-    selector: { query: 'heading[depth=1]' },
+    selector: { path: [0] },
     markdown: '## Replacement\n',
-    maxReplacements: 1,
-    onMaxExceeded: 'break',
   })
 
   assert.equal(result.markdown, '## Replacement\n\n# B\n')
-  assert.equal(result.matched, 2)
-  assert.equal(result.effectiveMatched, 2)
+  assert.equal(result.matched, 1)
   assert.equal(result.changed, 1)
-  assert.equal(result.maxExceeded, true)
+})
+
+test('replace_all requires the exact expected match count', async () => {
+  await assert.rejects(
+    mutateMarkdownStructure('# A\n\n# B\n', 'replaceAll', {
+      selector: { query: 'heading[depth=1]' },
+      markdown: '## Replacement\n',
+      expectedMatchCount: 1,
+    }),
+    /UnexpectedMatchCount:/,
+  )
+})
+
+test('replace_all replaces every confirmed match', async () => {
+  const result = await mutateMarkdownStructure('# A\n\n# B\n', 'replaceAll', {
+    selector: { query: 'heading[depth=1]' },
+    markdown: '## Replacement\n',
+    expectedMatchCount: 2,
+  })
+
+  assert.equal(result.markdown, '## Replacement\n\n## Replacement\n')
+  assert.equal(result.matched, 2)
+  assert.equal(result.changed, 2)
+})
+
+test('replace_all reports the normalized confirmed match count', async () => {
+  const result = await mutateMarkdownStructure('> outer\n>\n> > inner\n', 'replaceAll', {
+    selector: { query: 'blockquote' },
+    markdown: '> replacement\n',
+    expectedMatchCount: 1,
+  })
+
+  assert.equal(result.matched, 1)
+  assert.equal(result.changed, 1)
+})
+
+test('query_structure helper reports normalized match counts for overlapping selectors', async () => {
+  const result = await getMarkdownStructure('> outer\n>\n> > inner\n', { query: 'blockquote' })
+
+  assert.equal(result.totalMatches, 1)
+  assert.equal(result.matches.length, 1)
 })

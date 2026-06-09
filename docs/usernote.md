@@ -41,7 +41,7 @@
 
 - [ ] 13. バグ: replace structure call で複数位置の情報が入れ替わる
   2026-06-03 13:16 JST 頃の Windows ホストアプリログでは、`replace_structure` が `query="paragraph"` で実行され、`matched=79 changed=79` で完了している。直前には `query="line[25]"` の selector エラーと、`query + handle` 同時指定エラーも出ている。少なくともこの時点では、単一ノードの exact replace ではなく broad query による multi-match replace が実行されている。
-  対策として `replace_structure` には `maxReplacements` と `onMaxExceeded=break|error` を追加し、既定値は `maxReplacements=1` かつ `error` にした。これにより、単数 replace を既定安全値に戻しつつ、batch replace は明示 opt-in の契約へ分離した。
+  対策として、`replace_structure` は handle 必須の exact single replace に絞り、query ベースの batch replace は `replace_all_structures` に分離した。`replace_all_structures` は `expectedMatchCount` 必須にして、query_structure などで確認した件数と一致した場合にのみ実行する。これにより、単一置換の失敗をその場で多件置換へ広げる逃げ道を tool surface から除去した。
 
 - [ ] 14. バグ: write target=":new" の時にコンテンツがプレースフォルダ内容のまま
   2026-06-03 13:17-13:19 JST 頃の Windows ホストアプリログでは、`write_target` の `destination.editorId=":new"` は複数回 `created=true` かつ `bytesWritten>0` で完了している。したがって main process の tool write 自体は成功している。コード上でも `createNewEditorWindowFromContent -> requestEditorContext -> requestEditorWindowData(type="write")` の順で write は投げられている。一方 renderer 側は editor instance 未生成の段階でも write request を受けられるが、`EditorSurface` は初回 render の `initialValue` を固定して editor を作るため、pre-mount write が placeholder 初期値に負ける競合があり得た。対策として pre-mount の最新 value を editor 初期化へ反映し、untitled の既定 state も空文書へ変更して、プレースホルダ注入は前提値ではなく最終フォールバック寄りに後退させた。

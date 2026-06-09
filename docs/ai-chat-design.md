@@ -12,17 +12,19 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
 
+今回の structure-tool hardening では、exact single replace を broad query の multi replace に広げないことを最優先にする。
+
 注記:
 
 - 現在の実装は editor window 右 dock の assistant surface / settings 導線 / explicit context 添付 UI、OpenAI Responses API 経由の live reply、get_app_metadata / list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice / web_search / fetch_url / dispose_buffer のモデル主導 tool orchestration を含む
-- 現在の実装は mdast ベースの structure tool surface として get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure も含む
+- 現在の実装は mdast ベースの structure tool surface として get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / replace_all_structures / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure も含む
 - 現在の実装は latest turn 優先の budget-aware context reconstruction と、save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item による session-local protected context も含む
 - tool help は専用の `get_tool_help` で取得し、action tool schema には help 分岐を混ぜない
 - mdast Query 言語、handle、エラー回復の導線は専用の `get_structure_help` で取得し、structure action tool schema には help 分岐を混ぜない
-- `replace_structure` は既定で `maxReplacements=1` と `onMaxExceeded=error` を使う安全契約とし、複数件を置換しうる query を使う場合は caller が上限と overflow 動作を明示する
-- `replace_structure` の結果では `effectiveMatched` と `maxExceeded` を見て partial success を判別する。`matched` は raw selector 件数、`changed` は実際に置換した件数。
-- 既定動作では 1 件だけ置換し、2 件目の effective match が見えた時点で error になる。`onMaxExceeded=break` を明示したときだけ、上限で止まった partial success が返りうる。
-- `effectiveMatched` は overlap 正規化後の、実際に cap 判定へ使う件数を指す。成功時は `maxExceeded=false` が full success、`maxExceeded=true` が cap-limited partial success を意味する。
+- `replace_structure` / `replace_all_structures` の分離は、2026-06-03 の Windows ホストアプリログで観測された、single replace 失敗後に broad query のまま再試行されて 79 ノード置換まで広がった失敗様式を tool 契約で封じるためのものとする
+- `replace_structure` は単一置換専用で、必ず handle を要求する。query は受け付けず、1 ノード以外を置換してはならない。
+- `replace_all_structures` は複数置換専用で、必ず query と `expectedMatchCount` を要求する。実マッチ数が一致しない場合は失敗する。
+- `replace_structure` / `replace_all_structures` はどちらも `dryRun=true` を受け付け、実ファイルを書き換えずに置換予定結果を返せる。
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 
@@ -46,7 +48,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - OpenAI が settings で enabled かつ API key で configured されている環境では、下部入力欄から main process 経由で Responses API を呼び、assistant reply を transcript に描画できること
 - list_buffers / read_target / write_target / exact_search / semantic_search / stats_slice を main process の tool loop から呼べること
 - get_app_metadata を main process の tool loop から呼べること
-- get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure を main process の tool loop から呼べること
+- get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / replace_all_structures / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
 - latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
@@ -133,6 +135,7 @@ AI が使う操作面。
 - write_target
 - insert_structure
 - replace_structure
+- replace_all_structures
 - delete_structure
 - wrap_structure
 - unwrap_structure
