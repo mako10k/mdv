@@ -883,6 +883,10 @@
 .editor-panel .ProseMirror h2 code,
 .editor-panel .ProseMirror h3 code,
 .editor-panel .ProseMirror h4 code,
+.preview-panel .markdown-fragment h1 code,
+.preview-panel .markdown-fragment h2 code,
+.preview-panel .markdown-fragment h3 code,
+.preview-panel .markdown-fragment h4 code,
 .markdown-fragment h1 code,
 .markdown-fragment h2 code,
 .markdown-fragment h3 code,
@@ -985,6 +989,27 @@
   padding: 0.12em 0.36em;
 }
 
+.editor-panel .toastui-editor-contents pre,
+.editor-panel .toastui-editor-contents pre code,
+.editor-panel .toastui-editor-md-code,
+.editor-panel .toastui-editor-md-code-block,
+.editor-panel .toastui-editor-md-code-block-line-background,
+.editor-panel .toastui-editor-ww-code-block,
+.editor-panel .toastui-editor-ww-code-block code,
+.editor-panel .toastui-editor-ww-code-block-language,
+.editor-panel .toastui-editor-ww-code-block-language input,
+.editor-panel .ProseMirror pre,
+.editor-panel .ProseMirror pre code {
+  font-family: var(--mono);
+}
+
+.editor-panel .toastui-editor-contents pre,
+.editor-panel .toastui-editor-md-preview pre,
+.editor-panel .ProseMirror pre {
+  font-size: var(--editor-font-size);
+  line-height: 1.6;
+}
+
 .editor-panel .toastui-editor-contents pre code,
 .editor-panel .toastui-editor-md-preview pre code,
 .editor-panel .ProseMirror pre code,
@@ -1001,7 +1026,7 @@
   display: none;
 }
 
-.code-block-shell {
+.preview-panel .code-block-shell {
   display: flex;
   flex-direction: column;
   border-radius: 12px;
@@ -1011,7 +1036,7 @@
   border: 1px solid var(--border);
 }
 
-.code-block-header {
+.preview-panel .code-block-header {
   padding: 6px 8px;
   font-size: 11px;
   text-transform: uppercase;
@@ -1019,29 +1044,37 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-.code-block-shell pre {
+.preview-panel .code-block-shell pre {
   display: block;
   margin: 0;
-  padding: 10px;
+  padding: 12px 14px;
   overflow: auto;
-  font: 12px/1.6 var(--mono);
+  font: var(--editor-font-size)/1.6 var(--mono);
   background: transparent;
 }
 
-.code-block-shell pre code {
+.preview-panel .code-block-shell pre code {
   display: block;
   padding: 0;
+  border: none;
   border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
 }
 
-.mermaid-block {
+.preview-panel .mermaid-block {
   border-radius: 12px;
   background: var(--bg-panel);
   padding: 14px;
   border: 1px solid var(--border);
+  overflow: visible;
+}
+
+.preview-panel .mermaid-block svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 .statusbar {

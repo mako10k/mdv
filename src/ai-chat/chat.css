@@ -378,14 +378,16 @@ body,
   padding: 0;
 }
 
-.code-block-shell {
+.chat-bubble .code-block-shell,
+.chat-tool-content .code-block-shell {
   border: 1px solid var(--border);
   border-radius: 9px;
   overflow: hidden;
   background: var(--code-shell-bg);
 }
 
-.code-block-header {
+.chat-bubble .code-block-header,
+.chat-tool-content .code-block-header {
   padding: 6px 9px;
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -394,20 +396,23 @@ body,
   background: color-mix(in srgb, var(--code-shell-bg) 82%, #ffffff 18%);
 }
 
-.code-block-shell pre {
+.chat-bubble .code-block-shell pre,
+.chat-tool-content .code-block-shell pre {
   margin: 0;
   padding: 10px;
   overflow: auto;
 }
 
-.code-block-shell pre code {
+.chat-bubble .code-block-shell pre code,
+.chat-tool-content .code-block-shell pre code {
   border: none;
   background: transparent;
   color: var(--code-shell-text);
   padding: 0;
 }
 
-.mermaid-block {
+.chat-bubble .mermaid-block,
+.chat-tool-content .mermaid-block {
   overflow: auto;
 }
 

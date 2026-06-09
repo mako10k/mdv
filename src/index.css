@@ -23,7 +23,7 @@
   --selection: rgba(217, 119, 6, 0.18);
   --sans: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
   --heading: 'BIZ UDPGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, sans-serif;
-  --mono: 'Cascadia Code', 'Consolas', monospace;
+  --mono: 'Cascadia Code', 'Cascadia Mono', 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', 'Noto Sans Mono CJK JP', 'Noto Sans Mono', 'BIZ UDGothic', 'Yu Gothic UI', 'Yu Gothic', Meiryo, monospace;
   --editor-font-size: 13px;
   --editor-line-height: 1.68;
   --chat-font-size: 12px;

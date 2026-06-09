@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 const selectAllShortcut = process.platform === 'darwin' ? 'Meta+A' : 'Control+A'
 const moveEditorCursorToStartShortcut = process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home'
+const saveButtonName = /^(保存|Save) \(Ctrl\/Cmd\+S\)$/
 
 async function computedStyle(page: Page, selector: string, property: keyof CSSStyleDeclaration) {
   return page.locator(selector).evaluate((element, styleProperty) => {
@@ -206,12 +207,13 @@ test('editor mode groups topbar commands and hides the Toast UI toolbar', async 
 test('editor search button opens a dialog and save stays disabled until dirty', async ({ page }) => {
   await openWritePanel(page)
 
-  await expect(page.getByRole('button', { name: /(保存|Save)/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: saveButtonName })).toBeDisabled()
   await page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ }).click()
   await expect(page.getByRole('dialog', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
+  await closeEditorSearchDialog(page)
 
   await replaceMarkdownDocument(page, 'alpha beta\n')
-  await expect(page.getByRole('button', { name: /(保存|Save)/ })).toBeEnabled()
+  await expect(page.getByRole('button', { name: saveButtonName })).toBeEnabled()
 })
 
 test('new document button opens an untitled editor document', async ({ page }) => {
@@ -377,6 +379,7 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
       codeBlockBackgroundColor: codeBlockStyles?.backgroundColor ?? null,
       codeBlockBorderTopStyle: codeBlockStyles?.borderTopStyle ?? null,
       codeBlockFontSize: codeBlockStyles?.fontSize ?? null,
+      codeBlockLineHeight: codeBlockStyles?.lineHeight ?? null,
       codeBlockPaddingLeft: codeBlockStyles?.paddingLeft ?? null,
     }
   })
@@ -394,7 +397,8 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
   expect(parseFloat(previewInlineCode?.codePaddingRight ?? '0')).toBeCloseTo(4.3056, 2)
   expect(previewInlineCode?.codeBlockBackgroundColor).toBe('rgba(0, 0, 0, 0)')
   expect(previewInlineCode?.codeBlockBorderTopStyle).toBe('none')
-  expect(previewInlineCode?.codeBlockFontSize).toBe('12px')
+  expect(previewInlineCode?.codeBlockFontSize).toBe('13px')
+  expect(previewInlineCode?.codeBlockLineHeight).toBe('20.8px')
   expect(previewInlineCode?.codeBlockPaddingLeft).toBe('0px')
 
   await openWritePanel(page)
@@ -404,13 +408,16 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
   const wysiwygInlineCode = await page.evaluate(() => {
     const paragraph = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror p')
     const code = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror p code')
+    const codeBlock = document.querySelector<HTMLElement>('.toastui-editor-ww-container .ProseMirror pre')
 
-    if (!paragraph || !code) {
+    if (!paragraph || !code || !codeBlock) {
       return null
     }
 
     const paragraphStyles = getComputedStyle(paragraph)
     const codeStyles = getComputedStyle(code)
+    const codeBlockStyles = getComputedStyle(codeBlock)
+    const codeBlockRect = codeBlock.getBoundingClientRect()
 
     return {
       paragraphFontSize: paragraphStyles.fontSize,
@@ -423,6 +430,10 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
       codeLineHeight: codeStyles.lineHeight,
       codePaddingLeft: codeStyles.paddingLeft,
       codePaddingRight: codeStyles.paddingRight,
+      codeBlockFontFamily: codeBlockStyles.fontFamily,
+      codeBlockFontSize: codeBlockStyles.fontSize,
+      codeBlockLineHeight: codeBlockStyles.lineHeight,
+      codeBlockHeight: codeBlockRect.height,
     }
   })
 
@@ -437,6 +448,77 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
   expect(parseFloat(wysiwygInlineCode?.codeLineHeight ?? '0')).toBeCloseTo(16.744, 2)
   expect(parseFloat(wysiwygInlineCode?.codePaddingLeft ?? '0')).toBeCloseTo(4.3056, 2)
   expect(parseFloat(wysiwygInlineCode?.codePaddingRight ?? '0')).toBeCloseTo(4.3056, 2)
+  expect(wysiwygInlineCode?.codeBlockFontFamily).toContain('Cascadia Code')
+  expect(wysiwygInlineCode?.codeBlockFontSize).toBe('13px')
+  expect(wysiwygInlineCode?.codeBlockLineHeight).toBe('20.8px')
+  expect(wysiwygInlineCode?.codeBlockHeight).toBeGreaterThan(40)
+})
+
+test('preview code fence and Mermaid blocks keep rendered content height', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    [
+      '# Rendered blocks',
+      '',
+      '```ts',
+      'const alpha = 1',
+      'const beta = 2',
+      'console.log(alpha + beta)',
+      '```',
+      '',
+      '```mermaid',
+      'flowchart TD',
+      '  A[Start] --> B{Choice}',
+      '  B --> C[One]',
+      '  B --> D[Two]',
+      '```',
+      '',
+    ].join('\n'),
+  )
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+  await expect(page.locator('.preview-panel .code-block-shell pre code')).toBeVisible()
+  await expect(page.locator('.preview-panel .mermaid-block')).toHaveAttribute('data-render-state', 'ready')
+
+  const renderedBlockMetrics = await page.evaluate(() => {
+    const codeBlock = document.querySelector<HTMLElement>('.preview-panel .code-block-shell pre code')
+    const mermaidBlock = document.querySelector<HTMLElement>('.preview-panel .mermaid-block')
+    const mermaidSvg = document.querySelector<SVGElement>('.preview-panel .mermaid-block svg')
+
+    if (!codeBlock || !mermaidBlock || !mermaidSvg) {
+      return null
+    }
+
+    const codeBlockRect = codeBlock.getBoundingClientRect()
+    const mermaidBlockRect = mermaidBlock.getBoundingClientRect()
+    const mermaidSvgRect = mermaidSvg.getBoundingClientRect()
+    const codeBlockStyles = getComputedStyle(codeBlock)
+    const mermaidBlockStyles = getComputedStyle(mermaidBlock)
+    const mermaidSvgStyles = getComputedStyle(mermaidSvg)
+
+    return {
+      codeBlockHeight: codeBlockRect.height,
+      codeBlockFontFamily: codeBlockStyles.fontFamily,
+      codeBlockFontSize: codeBlockStyles.fontSize,
+      codeBlockLineHeight: codeBlockStyles.lineHeight,
+      mermaidBlockHeight: mermaidBlockRect.height,
+      mermaidBlockOverflow: mermaidBlockStyles.overflow,
+      mermaidSvgDisplay: mermaidSvgStyles.display,
+      mermaidSvgHeight: mermaidSvgRect.height,
+    }
+  })
+
+  expect(renderedBlockMetrics).not.toBeNull()
+  expect(renderedBlockMetrics?.codeBlockFontFamily).toContain('Cascadia Code')
+  expect(renderedBlockMetrics?.codeBlockFontSize).toBe('13px')
+  expect(renderedBlockMetrics?.codeBlockLineHeight).toBe('20.8px')
+  expect(renderedBlockMetrics?.codeBlockHeight).toBeGreaterThan(60)
+  expect(renderedBlockMetrics?.mermaidBlockOverflow).toBe('visible')
+  expect(renderedBlockMetrics?.mermaidSvgDisplay).toBe('block')
+  expect(renderedBlockMetrics?.mermaidSvgHeight).toBeGreaterThan(200)
+  expect(renderedBlockMetrics?.mermaidBlockHeight).toBeGreaterThan(renderedBlockMetrics?.mermaidSvgHeight ?? 0)
 })
 
 test('wysiwyg-focused H3 and H4 headings keep heading and inline-code reset chrome', async ({ page }) => {
