@@ -122,6 +122,185 @@ async function switchToastEditorMode(page: Page, mode: 'markdown' | 'wysiwyg') {
   await expect(modeTab).toHaveClass(/active/)
 }
 
+async function triggerPrimaryShortcut(page: Page, key: string) {
+  await page.evaluate(({ shortcutKey, isMac }) => {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: shortcutKey,
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: !isMac,
+      metaKey: isMac,
+    }))
+  }, { shortcutKey: key, isMac: process.platform === 'darwin' })
+}
+
+async function installDesktopImageResolutionStub(page: Page, options: {
+  openFilePayload?: {
+    path: string
+    content: string
+    snapshot: {
+      path: string
+      contentHash: string
+      size: number
+      mtimeMs: number | null
+    }
+  } | null
+  draftWorkspace?: {
+    workspaceId: string
+    rootDir: string
+    markdownFilePath: string
+    assetDir: string
+    manifestPath: string
+  } | null
+  dataUrlMap: Record<string, string>
+}) {
+  await page.addInitScript((config) => {
+    const baseSettings: MdvSettings = {
+      version: 3,
+      general: {
+        locale: 'ja',
+        themeMode: 'system',
+        defaultStartPanel: 'preview',
+        openLinksBehavior: 'confirm-if-untrusted',
+      },
+      editor: {
+        initialEditType: 'markdown',
+        showModeSwitch: true,
+        previewStyle: 'vertical',
+        fontSizePx: 15,
+      },
+      ai: {
+        defaultWriteMode: 'direct',
+        chatFontSizePx: 14,
+        toolPermissions: {
+          readActiveDocument: true,
+          readActiveSelection: true,
+          writeActiveDocument: true,
+          writeActiveSelection: true,
+          writeNewDocument: true,
+          sliceSearch: true,
+          workspaceGrep: true,
+          tavilyWebSearch: false,
+          fetchUrl: false,
+        },
+        openai: {
+          enabled: true,
+          baseUrl: null,
+          model: 'gpt-5.4',
+        },
+        tavily: {
+          enabled: false,
+          defaultSearchDepth: 'basic',
+          defaultMaxResults: 5,
+        },
+        fetch: {
+          aclText: '',
+          requestTimeoutMs: 15_000,
+          idleTimeoutMs: 5_000,
+          autoDisposeAfterMs: 60_000,
+          maxResponseBytes: 1_000_000,
+        },
+      },
+      safety: {
+        confirmBeforeFullDocumentOverwrite: true,
+        confirmBeforeNewDocumentFromAi: true,
+        confirmBeforeExternalUrlOpen: true,
+      },
+      updates: {
+        enabled: false,
+        autoCheckOnLaunch: false,
+        feedUrl: null,
+      },
+    }
+
+    type DesktopApi = NonNullable<Window['mdvDesktop']>
+
+    const testWindow = window as Window
+    const existingDesktop = testWindow.mdvDesktop as Partial<DesktopApi> | undefined
+
+    const nextDesktop = {
+      ...existingDesktop,
+      platform: existingDesktop?.platform ?? 'test',
+      e2e: {
+        recoveryPromptMode: 'interactive',
+        startupRecoveryDelayMs: 0,
+      },
+      debug: {
+        notify: () => {},
+      },
+      settings: {
+        getBootstrapSettings: () => ({
+          hasPersistedSettings: false,
+          hasReadableSettings: false,
+          hasInitialLaunchRequest: false,
+          initialPanel: 'preview',
+          settings: baseSettings,
+        }),
+        getSettings: async () => baseSettings,
+        onSettingsChanged: () => () => {},
+        updateSettings: async () => baseSettings,
+        migrateLegacyTheme: async () => baseSettings,
+        saveOpenAiApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
+        clearOpenAiApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
+        saveTavilyApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
+        clearTavilyApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
+        getProviderStatus: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
+      },
+      openFile: async () => config.openFilePayload ?? null,
+      readFile: async (filePath: string) => {
+        return config.openFilePayload?.path === filePath ? config.openFilePayload : null
+      },
+      readRelativeAssetAsDataUrl: async (payload: { baseFilePath: string; source: string }) => {
+        const key = `${payload.baseFilePath}\u0000${payload.source}`
+        const dataUrl = config.dataUrlMap[key]
+
+        return dataUrl
+          ? { path: key, dataUrl }
+          : null
+      },
+      trackCurrentFile: async () => {},
+      onCurrentFileChanged: () => () => {},
+      ensureDraftWorkspace: async () => config.draftWorkspace ?? null,
+      cleanupDraftWorkspace: async () => {},
+      cleanupImportedAssets: async () => {},
+      getLatestAutosaveRecovery: async () => null,
+      getAutosaveRecoveryForFile: async () => null,
+      clearAutosaveRecovery: async () => {},
+      autosaveRecoveryUpsert: async () => null,
+      confirmUnsavedChanges: async () => ({ action: 'discard' }),
+      extractMdastHeadingOutline: async () => [],
+      exportHtml: async () => null,
+      openSettingsWindow: async () => null,
+      onWindowCloseApproved: () => () => {},
+      onServerCommand: () => () => {},
+      sendServerCommandResult: () => {},
+      onOpenFileRequested: () => () => {},
+      notifyInitialLaunchOpenHandled: () => {},
+      onMenuAction: () => () => {},
+      sendAiChatMessage: async () => ({ status: 'started', requestId: 'test-request' }),
+      onAiChatStreamEvent: () => () => {},
+      getAiChatContext: async () => null,
+      readAiActiveDocument: async () => null,
+      readAiActiveSelection: async () => null,
+      readAiTarget: async () => null,
+      grepAiSlice: async () => null,
+      statsAiSlice: async () => null,
+      semanticSearchAiSlice: async () => null,
+      writeAiActiveDocument: async () => null,
+      writeAiActiveSelection: async () => null,
+      writeAiTarget: async () => null,
+      listAiBuffers: async () => null,
+      onAiEditorRequest: () => () => {},
+      sendAiEditorResponse: () => {},
+      openExternalLink: async () => ({ status: 'opened' }),
+      log: () => {},
+      getLogPath: async () => '',
+    } satisfies Partial<DesktopApi>
+
+    testWindow.mdvDesktop = nextDesktop as DesktopApi
+  }, options)
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
@@ -1222,6 +1401,68 @@ test.describe('markdown insert commands', () => {
 
     await expect(page.locator('.inline-data-image-widget').first()).toHaveText('![logo](data:image/png;base64,<4 B omitted>)')
     await expect(editor).not.toContainText('QUJDRA==')
+  })
+
+  test('WYSIWYG resolves saved relative images to actual image sources', async ({ page }) => {
+    const filePath = '/workspace/docs/example.md'
+    const source = './assets/diagram.png'
+
+    await installDesktopImageResolutionStub(page, {
+      openFilePayload: {
+        path: filePath,
+        content: `![diagram](${source})`,
+        snapshot: {
+          path: filePath,
+          contentHash: 'saved-image-hash',
+          size: 24,
+          mtimeMs: 1718000000000,
+        },
+      },
+      draftWorkspace: null,
+      dataUrlMap: {
+        [`${filePath}\u0000${source}`]: 'data:image/png;base64,QUJDRA==',
+      },
+    })
+
+    await page.reload()
+    await triggerPrimaryShortcut(page, 'o')
+    await expect(page.locator('.title-strip h1')).toContainText('example.md')
+    await triggerPrimaryShortcut(page, '1')
+    await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
+    await switchToastEditorMode(page, 'wysiwyg')
+
+    const image = page.locator('.toastui-editor-ww-container img').first()
+    await expect(image).toHaveAttribute('alt', 'diagram')
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,QUJDRA==$/)
+  })
+
+  test('WYSIWYG resolves draft-workspace relative images for unsaved documents', async ({ page }) => {
+    const draftMarkdownPath = '/tmp/mdv-draft/workspace-1/untitled.md'
+    const source = './assets/draft-image.png'
+
+    await installDesktopImageResolutionStub(page, {
+      openFilePayload: null,
+      draftWorkspace: {
+        workspaceId: 'workspace-1',
+        rootDir: '/tmp/mdv-draft/workspace-1',
+        markdownFilePath: draftMarkdownPath,
+        assetDir: '/tmp/mdv-draft/workspace-1/assets',
+        manifestPath: '/tmp/mdv-draft/workspace-1/manifest.json',
+      },
+      dataUrlMap: {
+        [`${draftMarkdownPath}\u0000${source}`]: 'data:image/png;base64,RFJBRlQ=',
+      },
+    })
+
+    await page.reload()
+    await triggerPrimaryShortcut(page, '1')
+    await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
+    await replaceMarkdownDocument(page, `![draft image](${source})`)
+    await switchToastEditorMode(page, 'wysiwyg')
+
+    const image = page.locator('.toastui-editor-ww-container img').first()
+    await expect(image).toHaveAttribute('alt', 'draft image')
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,RFJBRlQ=$/)
   })
 
   test('code block command still inserts fenced Markdown after switching to WYSIWYG mode', async ({ page }) => {
