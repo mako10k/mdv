@@ -1090,6 +1090,22 @@
   color: var(--text-muted);
 }
 
+.statusbar-help-button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.statusbar-help-button:hover,
+.statusbar-help-button:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
 .statusbar-status {
   flex: 1;
   min-width: 0;

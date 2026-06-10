@@ -1,4 +1,4 @@
-const INLINE_DATA_IMAGE_MARKDOWN_PATTERN = /!\[([^\]]*)\]\(data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)\)/g
+const INLINE_DATA_IMAGE_DATA_URL_PATTERN = /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g
 
 function estimateBase64DecodedBytes(base64Text: string): number {
   const normalized = base64Text.replace(/\s+/g, '')
@@ -30,17 +30,17 @@ function formatInlineDataImageByteSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function abbreviateInlineDataImageMarkdown(markdownImage: string): string {
-  const match = markdownImage.match(/^!\[([^\]]*)\]\(data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)\)$/)
+function abbreviateInlineDataImageDataUrl(dataUrl: string): string {
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/)
 
   if (!match) {
-    return markdownImage
+    return dataUrl
   }
 
-  const [, altText, mimeType, base64Text] = match
+  const [, mimeType, base64Text] = match
   const byteSizeLabel = formatInlineDataImageByteSize(estimateBase64DecodedBytes(base64Text))
 
-  return `![${altText}](data:${mimeType};base64,<${byteSizeLabel} omitted>)`
+  return `data:${mimeType};base64,<${byteSizeLabel} omitted>`
 }
 
 function abbreviateInlineDataImageMarkdownInText(text: string): string {
@@ -48,11 +48,11 @@ function abbreviateInlineDataImageMarkdownInText(text: string): string {
     return text
   }
 
-  return text.replace(INLINE_DATA_IMAGE_MARKDOWN_PATTERN, (fullMatch) => abbreviateInlineDataImageMarkdown(fullMatch))
+  return text.replace(INLINE_DATA_IMAGE_DATA_URL_PATTERN, (fullMatch) => abbreviateInlineDataImageDataUrl(fullMatch))
 }
 
 export {
-  INLINE_DATA_IMAGE_MARKDOWN_PATTERN,
-  abbreviateInlineDataImageMarkdown,
+  INLINE_DATA_IMAGE_DATA_URL_PATTERN,
+  abbreviateInlineDataImageDataUrl,
   abbreviateInlineDataImageMarkdownInText,
 }

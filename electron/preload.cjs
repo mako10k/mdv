@@ -107,6 +107,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   confirmUnsavedChanges: (payload) => ipcRenderer.invoke('mdv:confirm-unsaved-changes', payload),
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
+  openAboutWindow: () => ipcRenderer.invoke('mdv:open-about-window'),
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
   readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),

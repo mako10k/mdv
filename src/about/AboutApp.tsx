@@ -188,6 +188,35 @@ function AboutApp() {
           <p>{t.about.shortcutsValue}</p>
         </div>
 
+        <div className="about-guides" aria-label={t.about.guidesTitle}>
+          <section className="about-guide-card">
+            <h2>{t.about.basicsTitle}</h2>
+            <ul>
+              {t.about.basicsItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="about-guide-card">
+            <h2>{t.about.mediaTitle}</h2>
+            <ul>
+              {t.about.mediaItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="about-guide-card">
+            <h2>{t.about.aiTitle}</h2>
+            <ul>
+              {t.about.aiItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
         <p className="settings-note">{t.about.note}</p>
       </section>
     </main>

@@ -15,3 +15,28 @@
 .about-shortcuts p {
   margin: 0;
 }
+
+.about-guides {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.about-guide-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-panel);
+}
+
+.about-guide-card h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.about-guide-card ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}

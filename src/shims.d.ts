@@ -585,6 +585,7 @@ interface Window {
     confirmUnsavedChanges: (payload: { currentFilePath?: string | null; displayTitle?: string; proceedLabel: string }) => Promise<MdvUnsavedChangesDialogResult>
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
+    openAboutWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>

@@ -375,6 +375,11 @@ function createWindowController({
       approveWindowClose(fetchPermissionsWindow)
       fetchPermissionsWindow.close()
     }
+
+    if (aboutWindowOwnerEditorId === editorWindow.id && aboutWindow && !aboutWindow.isDestroyed()) {
+      approveWindowClose(aboutWindow)
+      aboutWindow.close()
+    }
   }
 
   function handleEditorWindowClosed(editorWindowId: number) {

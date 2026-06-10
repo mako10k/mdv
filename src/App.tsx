@@ -60,7 +60,7 @@ const DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT = 32
 const MIN_ASSISTANT_DOCK_WIDTH_PERCENT = 24
 const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
 
-const INLINE_DATA_IMAGE_WIDGET_PATTERN = /!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+\)/
+const INLINE_DATA_IMAGE_WIDGET_PATTERN = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/
 
 function estimateInlineDataImageBytes(base64Text: string): number {
   if (base64Text.length === 0) {
@@ -90,23 +90,23 @@ function formatInlineDataImageBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function abbreviateInlineDataImageMarkdown(markdownImage: string): string {
-  const match = markdownImage.match(/^!\[([^\]]*)\]\(data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)\)$/)
+function abbreviateInlineDataImageDataUrl(dataUrl: string): string {
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/)
 
   if (!match) {
-    return markdownImage
+    return dataUrl
   }
 
-  const [, altText, mimeType, base64Text] = match
+  const [, mimeType, base64Text] = match
   const byteSizeLabel = formatInlineDataImageBytes(estimateInlineDataImageBytes(base64Text))
 
-  return `![${altText}](data:${mimeType};base64,<${byteSizeLabel} omitted>)`
+  return `data:${mimeType};base64,<${byteSizeLabel} omitted>`
 }
 
 function createInlineDataImageWidget(text: string): HTMLElement {
   const element = document.createElement('span')
   element.className = 'inline-data-image-widget'
-  element.textContent = abbreviateInlineDataImageMarkdown(text)
+  element.textContent = abbreviateInlineDataImageDataUrl(text)
   element.title = 'Inline image data URL omitted from source view'
   element.setAttribute('contenteditable', 'false')
   return element
@@ -4032,6 +4032,23 @@ function App() {
     loadDetachedFile(droppedFile.name, content)
   }
 
+  const handleOpenHelp = () => {
+    const openHelpWindow = window.mdvDesktop?.openAboutWindow
+
+    if (!openHelpWindow) {
+      setStatusText(t.common.unavailable)
+      return
+    }
+
+    void openHelpWindow()
+      .then(() => {
+        setStatusText(t.app.status.openedHelp)
+      })
+      .catch((error: unknown) => {
+        setStatusText(error instanceof Error ? error.message : String(error))
+      })
+  }
+
   const handleDragOver = (event: DragEvent<HTMLElement>) => {
     event.preventDefault()
     setIsDraggingFile(true)
@@ -4323,7 +4340,7 @@ function App() {
         )}
 
         <div className="statusbar">
-          <span>{t.app.statusbarHelp}</span>
+          <button type="button" className="statusbar-help-button" onClick={handleOpenHelp}>{t.app.openHelp}</button>
           <span className="statusbar-status">{statusText}</span>
           <span>{window.mdvDesktop?.platform ?? 'browser'}</span>
         </div>
