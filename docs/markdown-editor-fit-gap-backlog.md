@@ -149,6 +149,18 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
   - 既存 export 挙動と整合する
   - pasted / dropped image が data URL のまま残り続けない
 
+  次リリース向け first slice:
+
+  - untitled draft workspace と保存済み文書の両方で、貼り付け / drop 画像が相対 path を維持したまま first save 後も壊れない
+  - HTML export と WYSIWYG 表示が同じ base path 解決前提で動き、saved / draft の差で画像が見えなくならない
+  - 破損 / 未解決画像の fallback と、editor 上で孤立 asset が判別できる状態可視化を揃え、画像を入れたあとに「どこへ消えたか分からない」状態を避ける
+
+  次リリース後へ送ってよいもの:
+
+  - asset manager の本格一覧 UI
+  - rename / move / dedupe の高度な一括管理
+  - AI からの asset copy / rename mutation surface の一般化
+
 注記:
 
 - 詳細設計は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を正とする
@@ -166,6 +178,12 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
   - 正常なローカル画像や相対参照画像は WYSIWYG で実画像として見える
   - 破損 / 未解決画像は silent failure せず、fallback 表示で状態を判別できる
   - WYSIWYG 上の基本編集操作が実画像表示によって壊れない
+
+  次リリース向け扱い:
+
+  - MD-BL-023 は単独 polish ではなく、MD-BL-005 の first release slice とセットで「画像体験 bundle」として出す
+  - release readiness は saved file 経路だけでなく、untitled draft workspace 経路と browser 回帰まで含めて判断する
+  - asset 管理 UI 全体を先に完成させるのではなく、まず「見える」「保存後も切れない」「壊れたら分かる」を優先する
 
 #### MD-BL-006 表編集補助
 
@@ -305,7 +323,7 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
 ## Historical Execution Heuristic
 
-ここでの順序は editor fit/gap 観点の分析メモであり、正式な着手順と優先順位は [docs/current-backlog.md](docs/current-backlog.md) を正とする。
+ここでの順序は editor fit/gap 観点の分析メモであり、正式な着手順と優先順位は [docs/current-backlog.md](docs/current-backlog.md) を正とする。ここで bundle と書く箇所は、PBI を統合せずに同じ release で一緒に出すという意味である。
 
 1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 2. MD-BL-005 画像 / メディア asset workflow と参照管理
@@ -317,6 +335,8 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 8. MD-BL-014 検索 surface の再設計
 9. MD-BL-008 Preview 同期強化
 10. MD-BL-009 スペルチェック
+
+次リリースでは 2 と 3 を画像体験 bundle として同じ release で一緒に出す。
 11. MD-BL-010 最近使った文書 / クイックオープン
 12. MD-BL-011 PDF 出力
 

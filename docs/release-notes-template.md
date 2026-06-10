@@ -2,8 +2,8 @@
 
 ## Highlights
 
-- highlight 1
-- highlight 2
+- user-facing outcome 1
+- user-facing outcome 2
 
 ## Fixes
 
@@ -14,3 +14,4 @@
 
 - migration note if needed
 - known limitation if needed
+- if image improvements ship, summarize the user-visible outcome here only; keep detailed gate evidence in the release work memo instead

@@ -24,20 +24,29 @@
 
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
-3. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
-4. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
-5. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、その配置物を対象に model registry preflight を実施する
-6. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
-7. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
-8. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
-9. version bump と release notes と、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata だけを同じ release commit として commit する。`release/windows-host` の binary 本体は commit しない
-10. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
+3. `docs/release-work-memos/vX.Y.Z.md` を [release-work-memo-template.md](release-work-memo-template.md) から作成し、この release の作業メモ正本にする
+4. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、まず `npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG resolves saved relative images to actual image sources|WYSIWYG resolves draft-workspace relative images for unsaved documents"` を通し、saved file / draft workspace の browser 回帰を renderer 側 release gate として確認する。現時点では次リリースがこの条件に該当し、追加 gate を外す判定は [current-backlog.md](current-backlog.md) の P1 Editor Comfort からこの bundle の次リリース最小範囲が外れた時点を正本とする
+5. 同じ release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面を使って次の smoke を手動確認する
+	- paste / drop 画像が first save 後も切れない
+	- HTML export で相対画像が見える
+	- broken / unresolved image が fallback 表示になる
+	- editor 上で orphaned asset が状態として判別できる
+	この 4 項目はすべて必須確認とする。この bundle の合格観点は「見える」「保存後も切れない」「壊れたら分かる」の 3 つで、手順 4 が「見える」、手順 5 の first save / export が「保存後も切れない」、手順 5 の fallback / orphaned asset 確認が「壊れたら分かる」に対応する。手動 smoke の結果は `docs/release-work-memos/vX.Y.Z.md` に残し、最低でも command 名、確認した画面や出力断面、生成された export または配置先 path、失敗がなかったことを判別できる短い結果メモを含める。release notes には user-facing 要約だけを書く
+6. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
+7. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
+8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、その配置物を対象に model registry preflight を実施する
+9. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、手順 5 の 4 項目を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うための再確認である
+10. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
+11. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
+12. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する
+13. version bump と release notes と release work memo と、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata だけを同じ release commit として commit する。`release/windows-host` の binary 本体は commit しない
+14. `npm run release:check` を実行し、version 一致 artifact と clean worktree を確認する
 	clean worktree は git status 基準であり、ignored な local heavy artifact cache は dirty 扱いしない
-11. `secdat exec git push origin main` で `main` へ push する
-12. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
-13. `secdat exec git push origin vX.Y.Z` を実行する
-14. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
-15. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
+15. `secdat exec git push origin main` で `main` へ push する
+16. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` を release commit に作成する
+17. `secdat exec git push origin vX.Y.Z` を実行する
+18. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `secdat exec gh release create` の dry-run command を確認する
+19. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` を実行する
 
 model registry preflight の観点例:
 

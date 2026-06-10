@@ -57,6 +57,26 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
+次リリースでは、まず MD-BL-005 と MD-BL-023 を 1 つの「画像体験 bundle」としてまとめる。これは backlog 上の 2 PBI を 1 件へ統合する意味ではなく、次 release で同じ体験面として一緒に出すという意味である。
+
+bundle の狙い:
+
+- preview では見えている画像が、WYSIWYG でも見える
+- pasted / dropped image が、保存済み文書と untitled draft の両方で相対 asset として生き残る
+- 破損画像、未解決参照、orphaned asset が silent failure せず状態として判別できる
+
+次リリース前に閉じたい最小範囲:
+
+- MD-BL-023 の WYSIWYG 実画像優先表示を saved file と draft workspace の両経路で安定化し、browser 回帰を release gate として固定する
+- MD-BL-005 の first release slice として、paste / drop / first save / export の asset path continuity を release-ready にする
+- broken / unresolved image の fallback と、editor 上で orphaned asset が判別できる状態可視化を揃え、「画像を扱うと壊れる」印象を残さない
+
+次リリース後へ送ってよいもの:
+
+- asset manager の本格 UI
+- asset rename / continuity の高度な一括操作
+- AI asset tool surface や cross-workspace reusable blob の一般化
+
 注記:
 
 - MD-BL-004 には MDV topbar と Toast UI toolbar の責務重複整理、footnote を含む挿入コマンドの caret / selection anchor 安定化を含める
@@ -297,6 +317,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージとして扱う。
 
+- 画像体験 bundle として、MD-BL-005 / MD-BL-023 の「見える」「保存後も切れない」「壊れたら分かる」を先に揃える
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善

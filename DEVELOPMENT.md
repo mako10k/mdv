@@ -79,9 +79,14 @@ npm run test:e2e:electron
 
 # release workflow の node test
 npm run test:release
+
+# 画像体験 bundle (MD-BL-005 / MD-BL-023) の browser 回帰だけを見る
+npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG resolves saved relative images to actual image sources|WYSIWYG resolves draft-workspace relative images for unsaved documents"
 ```
 
 `npm test` は必要な Chromium を確認してから、この suite を実行します。suite 自体は毎回 production build を作ってから preview server を起動し、その renderer に対して回帰確認を行います。
+
+MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、上の targeted browser 回帰を renderer 側の release gate の最低線として扱います。現時点では次リリースがこの条件に該当します。追加 gate を外す判定は [docs/current-backlog.md](docs/current-backlog.md) の P1 Editor Comfort から bundle 宣言と次リリース前に閉じたい最小範囲が外れた時点を正本とします。これは「見える」を担保する確認です。これに加えて、Electron 実行面でも first save / HTML export で「保存後も切れない」ことと、broken image fallback / orphaned asset の状態可視化で「壊れたら分かる」ことを手動 smoke で確認してください。
 
 ブラウザを開いて確認したいとき:
 
@@ -272,20 +277,24 @@ npm run dist:win:dir
 
 1. `package.json` の `version` を bump する。
 2. `npm run lint && npm run build` を通す。
-3. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
-4. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
-5. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で配置した candidate を対象に、[docs/release-workflow.md](docs/release-workflow.md) の model registry preflight を実施する。
-6. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
-7. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
-8. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
-9. version bump、release notes、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata 更新だけを同じ release slice として commit する。Windows binary 本体は git に commit しない。
-10. tag 作成直前は `npm run release:check` を通す。
+3. `docs/release-work-memos/vX.Y.Z.md` を [docs/release-work-memo-template.md](docs/release-work-memo-template.md) から作り、この release の作業メモ正本にする。
+4. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、`npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG resolves saved relative images to actual image sources|WYSIWYG resolves draft-workspace relative images for unsaved documents"` を通し、画像体験 bundle の renderer 側 gate を確認する。
+5. 同じ release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面で、first save / HTML export / broken image fallback / orphaned asset の状態可視化を手動 smoke する。4 項目すべてを必須確認とし、結果は `docs/release-work-memos/vX.Y.Z.md` に残す。release notes にはその user-facing 要約だけを反映する。
+6. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
+7. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
+8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で配置した candidate を対象に、[docs/release-workflow.md](docs/release-workflow.md) の model registry preflight を実施する。
+9. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、`npm run win:host:deploy:candidate:noadmin` で candidate を Windows ローカルへ配置し、手順 5 の 4 項目を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うためである。
+10. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
+11. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
+12. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。
+13. version bump、release notes、release work memo、必要なら `release/windows-host/artifact-metadata.json` と `release/windows-host/installer/latest.yml` のような軽量 metadata 更新だけを同じ release slice として commit する。Windows binary 本体は git に commit しない。
+14. tag 作成直前は `npm run release:check` を通す。
 	ignored な `release/windows-host` binary cache は clean worktree 判定を汚さない。
-11. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
-12. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
-13. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
-14. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
-15. 配布する binary は必ずその tag が指す commit からローカル生成した成果物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
+15. その release commit を `secdat exec git push origin main` で `main` へ push したあと、同じ commit に annotated tag `vX.Y.Z` を作る。
+16. 作成した tag を `secdat exec git push origin vX.Y.Z` で remote へ push する。
+17. `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md` で `release/.github-upload` にupload用ファイルをstageし、`secdat exec gh release create` の preview を確認する。
+18. 問題なければ `npm run release:github -- --notes docs/release-notes/vX.Y.Z.md --execute` で `secdat exec gh` 経由で GitHub Release を publish する。
+19. 配布する binary は必ずその tag が指す commit からローカル生成した成果物だけを使う。差し替えが必要なら patch か minor を上げて新しい tag を切る。
 
 installer auto-update を GitHub Release asset で使う場合の feed URL は、通常 `https://github.com/<owner>/<repo>/releases/latest/download` を設定します。
 
