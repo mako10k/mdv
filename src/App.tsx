@@ -511,7 +511,7 @@ type RelativeImageResolutionCacheEntry = {
 
 type EditorSurfaceProps = {
   value: string
-  currentFilePath: string | null
+  contentBaseFilePath: string | null
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
   onReady?: (editor: ToastUiEditor) => void
@@ -520,7 +520,7 @@ type EditorSurfaceProps = {
 
 function EditorSurface({
   value,
-  currentFilePath,
+  contentBaseFilePath,
   onChange,
   editorRef,
   onReady,
@@ -588,7 +588,7 @@ function EditorSurface({
           return
         }
 
-        if (!currentFilePath) {
+        if (!contentBaseFilePath) {
           if (image.getAttribute('src') !== originalSource) {
             image.setAttribute('src', originalSource)
           }
@@ -598,13 +598,13 @@ function EditorSurface({
           return
         }
 
-        if (resolvedBasePath && resolvedBasePath !== currentFilePath && rememberedResolvedSource === liveSource && image.getAttribute('src') !== originalSource) {
+        if (resolvedBasePath && resolvedBasePath !== contentBaseFilePath && rememberedResolvedSource === liveSource && image.getAttribute('src') !== originalSource) {
           image.setAttribute('src', originalSource)
           image.removeAttribute('data-mdv-resolved-base-path')
           image.removeAttribute('data-mdv-resolved-src')
         }
 
-        const cacheKey = `${currentFilePath}\u0000${originalSource}`
+        const cacheKey = `${contentBaseFilePath}\u0000${originalSource}`
         const cachedEntry = relativeImageCacheRef.current.get(cacheKey)
         let resolvedSource = cachedEntry?.resolvedSource
 
@@ -613,7 +613,7 @@ function EditorSurface({
         } else if (cachedEntry === undefined || cachedEntry.resolvedSource === null) {
           try {
             const result = await window.mdvDesktop?.readRelativeAssetAsDataUrl({
-              baseFilePath: currentFilePath,
+              baseFilePath: contentBaseFilePath,
               source: originalSource,
             })
 
@@ -649,13 +649,13 @@ function EditorSurface({
 
         if (image.getAttribute('src') === resolvedSource) {
           image.setAttribute('data-mdv-source-src', originalSource)
-          image.setAttribute('data-mdv-resolved-base-path', currentFilePath)
+          image.setAttribute('data-mdv-resolved-base-path', contentBaseFilePath)
           image.setAttribute('data-mdv-resolved-src', resolvedSource)
           return
         }
 
         image.setAttribute('data-mdv-source-src', originalSource)
-        image.setAttribute('data-mdv-resolved-base-path', currentFilePath)
+        image.setAttribute('data-mdv-resolved-base-path', contentBaseFilePath)
         image.setAttribute('data-mdv-resolved-src', resolvedSource)
         image.setAttribute('src', resolvedSource)
       }))
@@ -685,7 +685,7 @@ function EditorSurface({
         relativeImageResolveFrameRef.current = null
       }
     }
-  }, [currentFilePath])
+  }, [contentBaseFilePath])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -2078,6 +2078,7 @@ function App() {
   const [assistantDockWidthPercent, setAssistantDockWidthPercent] = useState(DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT)
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [editorSearchMode, setEditorSearchMode] = useState<EditorSearchMode>('exact')
+  const contentBaseFilePath = currentFilePath ?? currentDraftWorkspace?.markdownFilePath ?? null
   const [editorSearchQuery, setEditorSearchQuery] = useState('')
   const [editorSearchReplacement, setEditorSearchReplacement] = useState('')
   const [isEditorSearchMatchCase, setIsEditorSearchMatchCase] = useState(false)
@@ -4390,7 +4391,7 @@ function App() {
                     <EditorSurface
                       key={editorSessionKey}
                       value={markdownText}
-                      currentFilePath={currentFilePath}
+                      contentBaseFilePath={contentBaseFilePath}
                       onChange={(nextMarkdown) => {
                         invalidateEditorSearch()
                         updateMarkdownText(nextMarkdown)
