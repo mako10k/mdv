@@ -504,8 +504,14 @@ function DefaultCodeBlock({ code, language }: CodeBlockProps) {
   )
 }
 
+type RelativeImageResolutionCacheEntry = {
+  resolvedSource: string | null
+  failedAt: number | null
+}
+
 type EditorSurfaceProps = {
   value: string
+  currentFilePath: string | null
   onChange: (nextMarkdown: string) => void
   editorRef: MutableRefObject<ToastUiEditor | null>
   onReady?: (editor: ToastUiEditor) => void
@@ -514,6 +520,7 @@ type EditorSurfaceProps = {
 
 function EditorSurface({
   value,
+  currentFilePath,
   onChange,
   editorRef,
   onReady,
@@ -526,6 +533,8 @@ function EditorSurface({
   const onReadyRef = useRef(onReady)
   const onSelectionChangeRef = useRef(onSelectionChange)
   const selectionFrameRef = useRef<number | null>(null)
+  const relativeImageCacheRef = useRef<Map<string, RelativeImageResolutionCacheEntry>>(new Map())
+  const relativeImageResolveFrameRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     if (editorInstanceRef.current === null) {
@@ -544,6 +553,139 @@ function EditorSurface({
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
   }, [onSelectionChange])
+
+  useEffect(() => {
+    if (!hostRef.current) {
+      return
+    }
+
+    let active = true
+
+    const resolveRelativeImages = async () => {
+      const host = hostRef.current
+
+      if (!active || !host) {
+        return
+      }
+
+      const images = Array.from(host.querySelectorAll<HTMLImageElement>('.toastui-editor-ww-container img[src]'))
+
+      await Promise.all(images.map(async (image) => {
+        const liveSource = image.getAttribute('src')?.trim() || ''
+        const rememberedSource = image.getAttribute('data-mdv-source-src')?.trim() || ''
+        const resolvedBasePath = image.getAttribute('data-mdv-resolved-base-path')?.trim() || ''
+        const rememberedResolvedSource = image.getAttribute('data-mdv-resolved-src')?.trim() || ''
+        const originalSource = isRelativeImageSource(liveSource)
+          ? liveSource
+          : rememberedSource && rememberedResolvedSource === liveSource
+            ? rememberedSource
+            : liveSource
+
+        if (!isRelativeImageSource(originalSource)) {
+          image.removeAttribute('data-mdv-source-src')
+          image.removeAttribute('data-mdv-resolved-base-path')
+          image.removeAttribute('data-mdv-resolved-src')
+          return
+        }
+
+        if (!currentFilePath) {
+          if (image.getAttribute('src') !== originalSource) {
+            image.setAttribute('src', originalSource)
+          }
+
+          image.removeAttribute('data-mdv-resolved-base-path')
+          image.removeAttribute('data-mdv-resolved-src')
+          return
+        }
+
+        if (resolvedBasePath && resolvedBasePath !== currentFilePath && rememberedResolvedSource === liveSource && image.getAttribute('src') !== originalSource) {
+          image.setAttribute('src', originalSource)
+          image.removeAttribute('data-mdv-resolved-base-path')
+          image.removeAttribute('data-mdv-resolved-src')
+        }
+
+        const cacheKey = `${currentFilePath}\u0000${originalSource}`
+        const cachedEntry = relativeImageCacheRef.current.get(cacheKey)
+        let resolvedSource = cachedEntry?.resolvedSource
+
+        if (cachedEntry?.resolvedSource === null && cachedEntry.failedAt && Date.now() - cachedEntry.failedAt < 3000) {
+          resolvedSource = null
+        } else if (cachedEntry === undefined || cachedEntry.resolvedSource === null) {
+          try {
+            const result = await window.mdvDesktop?.readRelativeAssetAsDataUrl({
+              baseFilePath: currentFilePath,
+              source: originalSource,
+            })
+
+            resolvedSource = result?.dataUrl
+              ? `${result.dataUrl}${getImageSourceTail(originalSource)}`
+              : null
+            relativeImageCacheRef.current.set(cacheKey, {
+              resolvedSource,
+              failedAt: resolvedSource ? null : Date.now(),
+            })
+          } catch {
+            resolvedSource = null
+            relativeImageCacheRef.current.set(cacheKey, {
+              resolvedSource: null,
+              failedAt: Date.now(),
+            })
+          }
+        }
+
+        if (!active) {
+          return
+        }
+
+        if (!resolvedSource) {
+          if (image.getAttribute('src') !== originalSource) {
+            image.setAttribute('src', originalSource)
+          }
+
+          image.removeAttribute('data-mdv-resolved-base-path')
+          image.removeAttribute('data-mdv-resolved-src')
+          return
+        }
+
+        if (image.getAttribute('src') === resolvedSource) {
+          image.setAttribute('data-mdv-source-src', originalSource)
+          image.setAttribute('data-mdv-resolved-base-path', currentFilePath)
+          image.setAttribute('data-mdv-resolved-src', resolvedSource)
+          return
+        }
+
+        image.setAttribute('data-mdv-source-src', originalSource)
+        image.setAttribute('data-mdv-resolved-base-path', currentFilePath)
+        image.setAttribute('data-mdv-resolved-src', resolvedSource)
+        image.setAttribute('src', resolvedSource)
+      }))
+    }
+
+    const scheduleRelativeImageResolution = () => {
+      if (relativeImageResolveFrameRef.current !== null) {
+        window.cancelAnimationFrame(relativeImageResolveFrameRef.current)
+      }
+
+      relativeImageResolveFrameRef.current = window.requestAnimationFrame(() => {
+        relativeImageResolveFrameRef.current = null
+        void resolveRelativeImages()
+      })
+    }
+
+    const observer = new MutationObserver(scheduleRelativeImageResolution)
+    observer.observe(hostRef.current, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] })
+    scheduleRelativeImageResolution()
+
+    return () => {
+      active = false
+      observer.disconnect()
+
+      if (relativeImageResolveFrameRef.current !== null) {
+        window.cancelAnimationFrame(relativeImageResolveFrameRef.current)
+        relativeImageResolveFrameRef.current = null
+      }
+    }
+  }, [currentFilePath])
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -4248,6 +4390,7 @@ function App() {
                     <EditorSurface
                       key={editorSessionKey}
                       value={markdownText}
+                      currentFilePath={currentFilePath}
                       onChange={(nextMarkdown) => {
                         invalidateEditorSearch()
                         updateMarkdownText(nextMarkdown)
