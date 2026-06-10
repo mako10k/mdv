@@ -4,6 +4,8 @@
 
 MDV を「Markdown 編集用途のモダンなデスクトップエディタ」として見たときに、現状機能がどこまで満たせているかを整理し、Markdown 編集に本当に必要な追加・変更だけをバックログ化する。
 
+この文書は editor 領域の詳細定義と背景整理を持つ補助 backlog 文書であり、正式な backlog 登録と優先順位の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。ここに残る完了済み ID や過去の分解は履歴アンカーであり、文書間で食い違った場合は current-backlog を優先する。
+
 この文書では AI 連携や fetch ACL のような周辺機能は主評価軸にしない。比較対象は、Typora、Obsidian、MarkText、VS Code + Markdown 拡張のような現代的 Markdown エディタ群の共通期待値とする。
 
 ## 評価スコープ
@@ -49,7 +51,7 @@ MDV は次の点ですでに強い。
 | 文内検索 | Fit | exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは未整理 |
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | Toast UI Editor 標準 toolbar と MDV topbar の挿入コマンドはある | command surface が二重化しており、役割分担、grouping、overflow、footnote を含む insert anchor 安定性が弱い |
-| 画像・添付資産 | Partial Fit | pasted / dropped image を assets/ に materialize する基盤は入った | media reference manager、base64 data URL の明示的な退避 / 正規化、asset rename / continuity の UX が未完 |
+| 画像・添付資産 | Partial Fit | pasted / dropped image を assets/ に materialize する基盤は入った | media reference manager、base64 data URL の明示的な退避 / 正規化、asset rename / continuity の UX に加え、WYSIWYG 上で画像がバッジ風 widget に見える表現差が未完 |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
@@ -150,6 +152,20 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 注記:
 
 - 詳細設計は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を正とする
+
+#### MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
+
+- 種別: 変更
+- 目的: WYSIWYG でも preview に近い感覚で画像を扱えるようにする
+- 内容:
+  - 解決可能な画像参照は、WYSIWYG 上で badge 風 widget より実画像表示を優先する
+  - 破損画像、未解決参照、未 materialize asset、読み込み不能画像では fallback widget または error 表示へ退避する
+  - 画像選択、caret 移動、削除、alt 編集など editor 操作が実画像表示で破綻しないようにする
+  - preview / source / WYSIWYG の見え方差を減らしつつ、編集 affordance が必要な箇所だけ最小限の chrome を残す
+- 完了条件:
+  - 正常なローカル画像や相対参照画像は WYSIWYG で実画像として見える
+  - 破損 / 未解決画像は silent failure せず、fallback 表示で状態を判別できる
+  - WYSIWYG 上の基本編集操作が実画像表示によって壊れない
 
 #### MD-BL-006 表編集補助
 
@@ -287,23 +303,28 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 - 完了条件:
   - 1 アクションで PDF を生成できる
 
-## 実装順の推奨
+## Historical Execution Heuristic
+
+ここでの順序は editor fit/gap 観点の分析メモであり、正式な着手順と優先順位は [docs/current-backlog.md](docs/current-backlog.md) を正とする。
 
 1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 2. MD-BL-005 画像 / メディア asset workflow と参照管理
-3. MD-BL-012 起動時 placeholder ちらつき抑制
-4. MD-BL-006 表編集補助
-5. MD-BL-007 リスト継続と task list 操作補助
-6. MD-BL-013 workspace topbar grouping / overflow 再設計
-7. MD-BL-014 検索 surface の再設計
-8. MD-BL-008 Preview 同期強化
-9. MD-BL-009 スペルチェック
-10. MD-BL-010 最近使った文書 / クイックオープン
-11. MD-BL-011 PDF 出力
+3. MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
+4. MD-BL-012 起動時 placeholder ちらつき抑制
+5. MD-BL-006 表編集補助
+6. MD-BL-007 リスト継続と task list 操作補助
+7. MD-BL-013 workspace topbar grouping / overflow 再設計
+8. MD-BL-014 検索 surface の再設計
+9. MD-BL-008 Preview 同期強化
+10. MD-BL-009 スペルチェック
+11. MD-BL-010 最近使った文書 / クイックオープン
+12. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
-2026-06-01 の usernote メモは次のように取り込んだ。
+この文書は editor backlog の詳細定義であり、優先順位と正式 backlog 登録の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。
+
+2026-06-01 の usernote メモは次のように intake され、正式 backlog への受理結果は [docs/current-backlog.md](docs/current-backlog.md) 側で管理する。
 
 1. 起動時 placeholder のちらつき: MD-BL-012
 2. topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
@@ -315,6 +336,13 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
 9. 破損画像や末尾添付の削除・整理導線: MD-BL-005
 
+2026-06-10 の追加 intake のうち editor 関連でこの文書に接続する項目:
+
+1. 変更プレビュー / マージ UI 基盤: MD-BL-020
+2. エディタ下部の細かい説明の削除: shipped UI slice としてクローズ
+3. ヘルプ導線の追加: shipped UI slice としてクローズ
+4. WYSIWYG の画像ウィジェットを実画像優先にする: MD-BL-023
+
 非 editor-fit-gap 項目:
 
 1. 公開 README と開発文書の責務分離は [docs/current-backlog.md](docs/current-backlog.md) の DOC-BL-001 で扱う
@@ -323,4 +351,4 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
 ## 補足
 
-README にある diff / patch 系機能は編集基盤として有用だが、Markdown エディタとしての第一優先ではない。この文書では「Markdown を日常的に書く人の体感価値」に効くかで優先度を決めている。
+README にある diff / patch 系機能は編集基盤として有用だが、Markdown エディタとしての第一優先ではない。この文書の並び順は「Markdown を日常的に書く人の体感価値」で見た分析メモであり、正式な優先度確定は [docs/current-backlog.md](docs/current-backlog.md) で行う。

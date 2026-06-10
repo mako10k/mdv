@@ -1,6 +1,12 @@
 # ユーザノート
 
-## バックログ候補
+この文書は user 要望、違和感、未整理アイデアの intake / triage 用メモであり、正式な PBI 正本ではない。
+
+正式な backlog の正本は [docs/current-backlog.md](docs/current-backlog.md) とし、この文書に書かれた項目は current-backlog へ受理されてはじめて正式 backlog になる。ここにある番号は usernote 内の整理番号であり、backlog ID ではない。
+
+## Intake 候補
+
+この節の checkbox は原メモ上の informal な印であり、受理、優先順位、進捗、完了の正本ではない。見た目は checklist 形式のまま残しているが、正式な状態判断は [docs/current-backlog.md](docs/current-backlog.md) を正とする。
 
 - [ ] 1. 起動時のプレースフォルダ表示を抑止する
   起動直後にプレースフォルダ内容が一瞬見える問題を解消する。初期表示の描画順やローディング手順を見直す。
@@ -59,7 +65,7 @@
   文書冒頭付近の H3/H4 heading がインラインコードのような枠で囲われる表示崩れを修正する。Markdown preview、editor、AI chat の Markdown fragment で CSS 競合がないか確認する。
 
 - [ ] 19. 変更プレビュー / マージ UI 基盤を追加する
-  保存前や AI 変更適用前に、byte 数だけでなく diff を見ながら確認できるようにする。inline diff や merge UI を使って hunk 単位の適用・破棄・編集を行える基盤を先に整備し、その上に変更プレビューを載せる。
+  保存前や AI 変更適用前に、byte 数だけでなく diff を見ながら確認できるようにする。inline diff や merge UI を使って hunk 単位の適用・破棄・編集を行える基盤を先に整備し、その上に変更プレビューを載せる。AI snapshot restore の preflight preview と merge / discard / cancel 判断も、この基盤の上に載せる。
 
 - [ ] 20. アップデート基盤とバージョンメタデータ基盤を整備する
   バージョンメタデータ取得と About/Help 画面への表示、インストール済み Windows release build 向けの auto-update 基盤は実装済み。残課題は、ワンクリック更新体験の仕上げと、AI 含む複数 surface へのメタデータ露出の統一。
@@ -71,6 +77,10 @@
   下部バーから Help ウィンドウを開けるようにした。Help ウィンドウには基本操作、画像の扱い、AI チャット導線、更新状態をまとめて表示する。
 
 - [ ] 23. AI tool 向け snapshot handle ベース Undo/Redo を追加する
-  任意の editor undo/redo をそのまま許可するのではなく、AI tool が編集したタイミングで before / after の snapshot handle を発行し、その handle 間を戻す / 進める操作として公開する。既存 renderer には live snapshot の build / apply と file snapshot 比較があるため、まずは generic な Src / Dst 転送 surface へ広げず、snapshot handle 専用の tool contract として切る。
-  Dirty 状態や file 差分が絡む場合は、現在 buffer、snapshot handle 側の before / after、必要なら disk file snapshot を並べて見せ、user 編集をつぶす結果になるときは merge / discard / undo-redo cancel を選べるようにする。少なくとも AI 側の restore 実行前に、「handle 生成時から現在までの user 編集有無」と「disk file snapshot との差分有無」を main / renderer 境界で判定できる必要がある。
-  代替案として、EditorID に対して編集時発行 handle、before / after snapshot、disk file data などを source / destination として各 tool から参照できる一般化 surface も考えられる。ただし read / write / temp-buffer / structure handle と責務が混ざりやすいので、第一段階では snapshot history 専用 request と restore request を分け、必要になってから source / destination 一般化へ拡張する方が安全。
+  任意の editor undo/redo をそのまま許可するのではなく、AI tool が編集したタイミングで before / after の snapshot handle を発行し、その handle 間を戻す / 進める操作として公開する。正式な backlog 分解は [docs/current-backlog.md](docs/current-backlog.md) の AI-ED-001 / AI-ED-002 / AI-ED-003 を正とする。
+  既存 renderer には live snapshot の build / apply と file snapshot 比較があるため、第一段階は generic な Src / Dst 転送 surface へ広げず、snapshot handle 専用 contract として切る。Dirty 状態や file 差分が絡む場合は、現在 buffer、snapshot handle 側の before / after、必要なら disk file snapshot を並べて見せ、user 編集をつぶす結果になるときは merge / discard / undo-redo cancel を選べるようにする。
+
+- [ ] 24. WYSIWYG の画像ウィジェットを実画像優先にする
+  WYSIWYG 画面で画像がバッジ風ウィジェットとして見えると、画像を扱っている感覚が弱く、preview との見え方もずれる。表示可能な画像は WYSIWYG でも実画像を優先表示し、バッジ表示は破損画像、未解決参照、読み込み不能画像など fallback が必要な場合に限定したい。
+  これは asset 管理そのものではなく editor 表示 fidelity の課題なので、正式な backlog では [docs/current-backlog.md](docs/current-backlog.md) の MD-BL-023 として切り出して扱う。
+

@@ -4,6 +4,8 @@
 
 この文書は [docs/current-backlog.md](docs/current-backlog.md) の AI-P2 に追加した次の項目について、受け入れ条件と実装順の前提を詳細化する。
 
+この文書は subordinate backlog detail であり、正式な backlog 登録、優先順位、受理結果の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。
+
 - AI-TL-001 GH Issue の閲覧 / 発行 tool surface
 - AI-CFG-001 Prompt File 編集 / 切替
 - AI-CFG-002 SKILL 登録 / 有効化 / 切替

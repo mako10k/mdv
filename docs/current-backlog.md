@@ -6,6 +6,17 @@
 
 詳細設計や詳細タスク分解は個別文書に残すが、優先順位、着手順、保留理由はこの文書を基準に判断する。
 
+user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助するが、PBI の正式登録、ID 付与、優先順位決定はこの文書でのみ行う。これは、usernote の整理番号誤読や、詳細文書ごとの優先順位 drift を防ぐためである。
+
+## Backlog Source Rules
+
+- product / workflow backlog の正式正本はこの文書とする
+- docs/usernote.md は user 要望の intake / triage 用メモであり、PBI 正本ではない
+- 個別 backlog 詳細文書は、この文書で受理済みの既存 backlog ID の受け入れ条件、詳細分解、補助設計だけを持つ subordinate 文書として扱う。新規 ID 付与や独自優先順位の確定は行わない
+- 個別 backlog 詳細文書に完了済み ID や歴史的分解が残ることはあるが、それらは historical anchor であり、active priority や正式登録の正本にはしない
+- usernote や設計文書に書かれただけでは backlog 登録完了とみなさない。正式化には、この文書へ backlog ID、配置、依存、優先順位を反映する
+- usernote から取り込んだ項目は、この文書側に受理結果を残し、usernote 側は intake / discussion 履歴として維持する
+
 ## Planning Rules
 
 - UI と編集体験の優先順位は [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md) を正とする
@@ -37,11 +48,12 @@
 
 1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 2. MD-BL-005 画像 / メディア asset workflow と参照管理
-3. MD-BL-012 起動時 placeholder ちらつき抑制
-4. MD-BL-017 同一ファイル再オープン時の editor focus dedupe
-5. MD-BL-018 H3/H4 heading 表示崩れ修正
-6. MD-BL-006 表編集補助
-7. MD-BL-007 リスト継続と task list 操作補助
+3. MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
+4. MD-BL-012 起動時 placeholder ちらつき抑制
+5. MD-BL-017 同一ファイル再オープン時の editor focus dedupe
+6. MD-BL-018 H3/H4 heading 表示崩れ修正
+7. MD-BL-006 表編集補助
+8. MD-BL-007 リスト継続と task list 操作補助
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
@@ -49,6 +61,7 @@
 
 - MD-BL-004 には MDV topbar と Toast UI toolbar の責務重複整理、footnote を含む挿入コマンドの caret / selection anchor 安定化を含める
 - MD-BL-005 には単なる挿入 UI だけでなく、draft workspace、asset manager、assetId continuity、base64 data URL の相対 asset 正規化を含む local asset foundation を含める
+- MD-BL-023 は WYSIWYG 上の画像表現 fidelity を主対象にし、解決可能な画像は実画像表示を優先しつつ、破損画像や未解決参照だけを fallback widget で扱う。asset 管理や orphan cleanup 自体は MD-BL-005 に残す
 - MD-BL-017 は OS / second-instance launch と app 内 open dialog の両方で、同一 file が既に開いている場合は既存 editor window を focus して重複 open を避ける
 - MD-BL-018 は editor / preview / assistant bubble の Markdown heading style 競合を含めて直す
 
@@ -97,7 +110,11 @@
 
 ## Usernote Intake
 
-2026-06-01 時点の usernote メモは、次の backlog へ反映した。
+docs/usernote.md は user 要望の整理と取り込み前メモを置く intake 文書であり、ここに書かれた番号は backlog ID ではない。
+
+usernote から backlog へ受理した項目は、この節で backlog ID への対応関係を記録する。PBI の正本はこの文書であり、usernote 側は discussion / intake 履歴として残す。
+
+2026-06-01 時点の usernote スナップショット番号は、次の backlog へ反映した。以下の番号は当時の intake snapshot に対する対応であり、現行 usernote の番号とは一致しない場合がある。
 
 1. 起動時に placeholder 文書がちらつく: MD-BL-012
 2. MDV topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
@@ -118,6 +135,15 @@
 17. 変更プレビューと merge UI 基盤: MD-BL-020
 18. アップデート基盤とバージョンメタデータ基盤: REL-BL-001
 
+2026-06-10 時点の追加 intake は、次の backlog へ反映した。
+
+19. 変更プレビュー / マージ UI 基盤: MD-BL-020
+20. アップデート基盤とバージョンメタデータ基盤: REL-BL-001
+21. エディタ下部の細かい説明を削除する: done in shipped UI slice, backlog 追加なし
+22. ヘルプ導線を追加する: done in shipped UI slice, backlog 追加なし
+23. AI tool 向け snapshot handle ベース Undo/Redo: AI-ED-001, AI-ED-002, AI-ED-003
+24. WYSIWYG の画像ウィジェットを実画像優先にする: MD-BL-023
+
 補足:
 
 - 10 は editor backlog ではなく、assistant interaction の product gap として AI-P2 に置く
@@ -126,6 +152,9 @@
 - 13 は UI だけでなく AI tool surface と XDG 永続化を跨ぐため、単独 backlog として切り出す
 - 15 は MDV topbar の grouping とは分け、読みやすさと表示密度の調整として MD-BL-019 へ置く
 - 18 は version authority 自体の再議論ではなく、ADR 0008 を前提に release/update/help/AI metadata へ同じ version facts を配る implementation backlog として切り出す
+- 21 と 22 は個別 PBI を追加せず、実装済み変更として intake をクローズする
+- 23 は inspection foundation、apply / resolve、一般化評価へ分割し、一括 undo / redo 実装ではなく依存の強い slice から AI-P2 へ置く
+- 24 は MD-BL-005 の asset 管理課題とは分け、WYSIWYG で画像が画像として見える editor fidelity の課題として独立 PBI にする
 
 ## Active AI Backlog
 
@@ -164,6 +193,9 @@
 10. AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
 11. suggest mode と audit trail を追加する
 12. AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
+13. AI-ED-001 snapshot restore inspection foundation を追加する
+14. AI-ED-002 snapshot restore apply / resolve action を追加する
+15. AI-ED-003 snapshot history source / destination 一般化を評価する
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
 
@@ -180,6 +212,10 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 - AI-CFG-002 は SKILL の自動注入条件、ownership boundary、可視化、失敗時診断を含め、単なる prompt 断片管理にしない
 - AI-CFG-003 は固定 model 選択を置き換える product backlog とし、model ID、provider、context window、価格、deprecation 状態、default 推奨を registry 正本で管理する
 - AI-CFG-003 の release completeness は REL-BL-001 と release workflow 側で管理し、ここでは user-facing picker と metadata surface の整備を主対象にする
+- AI-ED-001 は AI tool 向け snapshot handle ベース undo / redo 要望を正式 backlog へ受理した first slice であり、current buffer、AI write 前 snapshot、AI write 後 snapshot、disk snapshot を比較する inspection contract を主対象にする
+- AI-ED-001 は MD-BL-020 の preview / merge foundation と [docs/adr/0006-local-file-sync-and-conflict-save.md](docs/adr/0006-local-file-sync-and-conflict-save.md) の snapshot-aware save contract に依存する
+- AI-ED-002 は AI-ED-001 の inspection 結果を受けて restore / merge / discard / cancel を選べる apply / resolve action を扱う
+- AI-ED-003 は deferred item とし、snapshot restore 以外の concrete need が出るまで一般化 surface を前提にしない
 
 ### AI-P3 Context Management
 
@@ -241,7 +277,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 ## Recommended Execution Order
 
 1. AI-P1 Response UX
-2. MD-BL-004, MD-BL-005, MD-BL-012, MD-BL-017, MD-BL-018
+2. MD-BL-004, MD-BL-005, MD-BL-023, MD-BL-012, MD-BL-017, MD-BL-018
 3. MD-BL-006, MD-BL-007
 4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
 5. REL-BL-001 update foundation と version metadata surface

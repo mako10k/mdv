@@ -4,6 +4,7 @@
 
 - Keep this file minimal. Link to existing docs instead of duplicating them.
 - Use [README.md](README.md) for the current project overview, [DEVELOPMENT.md](DEVELOPMENT.md) for setup/build/testing/packaging and the release entrypoint, and [docs/release-workflow.md](docs/release-workflow.md) for detailed release runbook steps.
+- Use [docs/current-backlog.md](docs/current-backlog.md) as the product backlog source of truth. Treat [docs/usernote.md](docs/usernote.md) as user-intake notes only; do not treat its numbering as official PBI IDs. Once an item is accepted, refer to the backlog ID assigned in current-backlog instead.
 - Use [docs/ai-chat-design.md](docs/ai-chat-design.md) and [docs/ai-chat-feasibility.md](docs/ai-chat-feasibility.md) before changing AI chat behavior, IPC contracts, or editor tool semantics.
 - Use [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md) first for the customization layer explainer, and [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) when you need the decision record behind always-on instructions, file-scoped instructions, prompt files, custom agents, skills, or hooks.
 - Use [docs/agent-judgment-hardening.md](docs/agent-judgment-hardening.md) for the repo's general judgment rules: broad-first interpretation, anti-overcompression, evidence-first RCA, objective countermeasure evaluation, and expert-plus-plain-eye review.

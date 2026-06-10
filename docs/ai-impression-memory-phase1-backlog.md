@@ -4,6 +4,8 @@
 
 この文書は [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) の Phase 1 を、MDV で着手可能な最小実装バックログへ落としたものである。
 
+この文書は subordinate backlog detail であり、正式な backlog 登録、優先順位、受理結果の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。
+
 対象は subsystem 内の Phase 1 であり、親設計 [docs/ai-chat-design.md](docs/ai-chat-design.md) の Phase 6 前半に相当する。
 
 ## Phase 1 Goals
