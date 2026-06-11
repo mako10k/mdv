@@ -430,11 +430,10 @@ test('clean tracked files auto-reload on-disk changes and report the refresh', a
 })
 
 test.describe('close dialog clears recovery entries', () => {
-  test('save on close materializes an unsaved pasted image draft', async () => {
+  test('save on close preserves an unsaved pasted inline image draft', async () => {
     const tempRoot = await makeTempDir('mdv-electron-e2e-')
     const userDataDir = path.join(tempRoot, 'user-data')
     const saveFilePath = path.join(tempRoot, 'close-save-image.md')
-    const materializedAssetPath = path.join(tempRoot, 'assets', 'close-save-image.svg')
 
     await fs.mkdir(userDataDir, { recursive: true })
 
@@ -468,15 +467,15 @@ test.describe('close dialog clears recovery entries', () => {
         document.dispatchEvent(pasteEvent)
       })
 
-      await expect(editor).toContainText('![close-save-image.svg](assets/close-save-image.svg)')
+      await expect(editor).toContainText('![close-save-image.svg](')
+      await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
 
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.close()
       })
 
       await expect.poll(async () => (await app.windows()).length).toBe(0)
-      await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![close-save-image.svg](assets/close-save-image.svg)')
-      await expect.poll(async () => fs.readFile(materializedAssetPath, 'utf8')).toContain('<svg')
+      await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![close-save-image.svg](data:image/svg+xml;base64,')
       await expect.poll(async () => readRecoveryStoreEntries(userDataDir)).toEqual([])
     } finally {
       await forceCloseApp(app)
@@ -485,7 +484,7 @@ test.describe('close dialog clears recovery entries', () => {
     }
   })
 
-  test('discard on close removes draft workspace assets from an unsaved document', async () => {
+  test('discard on close removes an unsaved pasted inline image draft', async () => {
     const tempRoot = await makeTempDir('mdv-electron-e2e-')
     const userDataDir = path.join(tempRoot, 'user-data')
     const draftRoot = path.join(userDataDir, 'state', 'drafts')
@@ -521,7 +520,8 @@ test.describe('close dialog clears recovery entries', () => {
         document.dispatchEvent(pasteEvent)
       })
 
-      await expect(editor).toContainText('![draft-discard-image.svg](assets/draft-discard-image.svg)')
+      await expect(editor).toContainText('![draft-discard-image.svg](')
+      await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
       await expect.poll(async () => fs.readdir(draftRoot)).toHaveLength(1)
 
       await app.evaluate(({ BrowserWindow }) => {
@@ -605,22 +605,18 @@ test.describe('close dialog clears recovery entries', () => {
     }
   })
 
-  test('save as on close migrates imported image assets after a save conflict', async () => {
+  test('save as on close preserves inline image Markdown after a save conflict', async () => {
     const tempRoot = await makeTempDir('mdv-electron-e2e-')
     const userDataDir = path.join(tempRoot, 'user-data')
     const sourceDir = path.join(tempRoot, 'close-save-as-source')
     const targetDir = path.join(tempRoot, 'close-save-as-target')
     const filePath = path.join(sourceDir, 'close-save-as.md')
     const saveAsPath = path.join(targetDir, 'close-save-as-target.md')
-    const sourceAssetPath = path.join(tempRoot, 'close-save-as-image.svg')
-    const originalImportedAssetPath = path.join(sourceDir, 'assets', 'close-save-as-image.svg')
-    const movedImportedAssetPath = path.join(targetDir, 'assets', 'close-save-as-image.svg')
 
     await fs.mkdir(userDataDir, { recursive: true })
     await fs.mkdir(sourceDir, { recursive: true })
     await fs.mkdir(targetDir, { recursive: true })
     await fs.writeFile(filePath, '# Close Save As\n\nbase\n', 'utf8')
-    await fs.writeFile(sourceAssetPath, '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#3b82f6"/></svg>', 'utf8')
 
     const app = await launchElectronApp({
       userDataDir,
@@ -639,11 +635,11 @@ test.describe('close dialog clears recovery entries', () => {
       await openWritePanel(page)
       const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
       await editor.click()
-      await page.evaluate((assetUrl) => {
-        const file = new File(['placeholder'], 'close-save-as-image.svg', { type: 'image/svg+xml' })
+      await page.evaluate(() => {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#3b82f6"/></svg>'
+        const file = new File([svg], 'close-save-as-image.svg', { type: 'image/svg+xml' })
         const dataTransfer = new DataTransfer()
         dataTransfer.items.add(file)
-        dataTransfer.setData('text/uri-list', assetUrl)
         const dropEvent = new DragEvent('drop', {
           dataTransfer,
           bubbles: true,
@@ -651,10 +647,10 @@ test.describe('close dialog clears recovery entries', () => {
         })
 
         document.querySelector('.workspace')?.dispatchEvent(dropEvent)
-      }, `file://${sourceAssetPath}`)
+      })
 
-      await expect(editor).toContainText('![close-save-as-image.svg](assets/close-save-as-image.svg)')
-      await expect.poll(async () => fs.readFile(originalImportedAssetPath, 'utf8')).toContain('<svg')
+      await expect(editor).toContainText('![close-save-as-image.svg](')
+      await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
       await fs.writeFile(filePath, '# Close Save As\n\ndisk update\n', 'utf8')
 
       await app.evaluate(({ BrowserWindow }) => {
@@ -662,9 +658,7 @@ test.describe('close dialog clears recovery entries', () => {
       })
 
       await expect.poll(async () => (await app.windows()).length).toBe(0)
-      await expect.poll(async () => fs.readFile(saveAsPath, 'utf8')).toContain('![close-save-as-image.svg](assets/close-save-as-image.svg)')
-      await expect.poll(async () => fs.readFile(movedImportedAssetPath, 'utf8')).toContain('<svg')
-      await expect.poll(async () => fs.access(originalImportedAssetPath).then(() => true).catch(() => false)).toBe(false)
+      await expect.poll(async () => fs.readFile(saveAsPath, 'utf8')).toContain('![close-save-as-image.svg](data:image/svg+xml;base64,')
       await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('disk update')
     } finally {
       await forceCloseApp(app)
@@ -741,16 +735,13 @@ test.describe('close dialog clears recovery entries', () => {
     }
   })
 
-  test('discard on close removes imported image assets from a saved document', async () => {
+  test('discard on close drops unsaved inline image Markdown from a saved document', async () => {
     const tempRoot = await makeTempDir('mdv-electron-e2e-')
     const userDataDir = path.join(tempRoot, 'user-data')
     const filePath = path.join(tempRoot, 'close-discard-image.md')
-    const sourceAssetPath = path.join(tempRoot, 'close-discard-image-source.svg')
-    const importedAssetPath = path.join(tempRoot, 'assets', 'close-discard-image-source.svg')
 
     await fs.mkdir(userDataDir, { recursive: true })
     await fs.writeFile(filePath, '# Close Discard Image\n\nbase\n', 'utf8')
-    await fs.writeFile(sourceAssetPath, '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#ef4444"/></svg>', 'utf8')
 
     const app = await launchElectronApp({
       userDataDir,
@@ -768,11 +759,11 @@ test.describe('close dialog clears recovery entries', () => {
       await openWritePanel(page)
       const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
       await editor.click()
-      await page.evaluate((assetUrl) => {
-        const file = new File(['placeholder'], 'close-discard-image-source.svg', { type: 'image/svg+xml' })
+      await page.evaluate(() => {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#ef4444"/></svg>'
+        const file = new File([svg], 'close-discard-image-source.svg', { type: 'image/svg+xml' })
         const dataTransfer = new DataTransfer()
         dataTransfer.items.add(file)
-        dataTransfer.setData('text/uri-list', assetUrl)
         const dropEvent = new DragEvent('drop', {
           dataTransfer,
           bubbles: true,
@@ -780,10 +771,10 @@ test.describe('close dialog clears recovery entries', () => {
         })
 
         document.querySelector('.workspace')?.dispatchEvent(dropEvent)
-      }, `file://${sourceAssetPath}`)
+      })
 
-      await expect(editor).toContainText('![close-discard-image-source.svg](assets/close-discard-image-source.svg)')
-      await expect.poll(async () => fs.readFile(importedAssetPath, 'utf8')).toContain('<svg')
+      await expect(editor).toContainText('![close-discard-image-source.svg](')
+      await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
 
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.close()
@@ -792,7 +783,6 @@ test.describe('close dialog clears recovery entries', () => {
       await expect.poll(async () => (await app.windows()).length).toBe(0)
       await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('base')
       await expect.poll(async () => fs.readFile(filePath, 'utf8')).not.toContain('close-discard-image-source.svg')
-      await expect.poll(async () => fs.access(importedAssetPath).then(() => true).catch(() => false)).toBe(false)
     } finally {
       await forceCloseApp(app)
       await app.close().catch(() => {})
@@ -868,11 +858,10 @@ test.describe('close dialog clears recovery entries', () => {
   })
 })
 
-test('pasted image into an unsaved document is materialized on first save', async () => {
+test('pasted image into an unsaved document remains inline on first save', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const saveFilePath = path.join(tempRoot, 'pasted-image.md')
-  const materializedAssetPath = path.join(tempRoot, 'assets', 'diagram.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
 
@@ -905,12 +894,12 @@ test('pasted image into an unsaved document is materialized on first save', asyn
       document.dispatchEvent(pasteEvent)
     })
 
-    await expect(editor).toContainText('![diagram.svg](assets/diagram.svg)')
+    await expect(editor).toContainText('![diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
     await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('pasted-image.md')
-    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![diagram.svg](assets/diagram.svg)')
-    await expect.poll(async () => fs.readFile(materializedAssetPath, 'utf8')).toContain('<svg')
+    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![diagram.svg](data:image/svg+xml;base64,')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
@@ -918,11 +907,247 @@ test('pasted image into an unsaved document is materialized on first save', asyn
   }
 })
 
-test('removed draft image reference is not materialized on first save', async () => {
+test('pasted image remains visible in preview after first save', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const saveFilePath = path.join(tempRoot, 'pasted-image-preview.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+
+  const app = await launchElectronApp({
+    userDataDir,
+    dialogResponses: {
+      saveDialog: [{ canceled: false, filePath: saveFilePath }],
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await openWritePanel(page)
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+    await page.evaluate(() => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#0ea5e9"/></svg>'
+      const file = new File([svg], 'diagram.svg', { type: 'image/svg+xml' })
+      const dataTransfer = new DataTransfer()
+      dataTransfer.items.add(file)
+      const pasteEvent = new ClipboardEvent('paste', {
+        clipboardData: dataTransfer,
+        bubbles: true,
+        cancelable: true,
+      })
+
+      document.dispatchEvent(pasteEvent)
+    })
+
+    await expect(editor).toContainText('![diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
+    await triggerPrimaryShortcut(page, 's')
+
+    await expect(page.locator('.statusbar-status')).toContainText('pasted-image-preview.md')
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+
+    const image = page.locator('.preview-panel img').first()
+    await expect(image).toHaveAttribute('alt', 'diagram.svg')
+    await expect(image).toHaveAttribute('src', /^data:image\/svg\+xml;base64,|^data:image\/svg;base64,/)
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('repeated pasted images into an unsaved document remain widgetized on first save', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const saveFilePath = path.join(tempRoot, 'repeated-pasted-images.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+
+  const app = await launchElectronApp({
+    userDataDir,
+    dialogResponses: {
+      saveDialog: [{ canceled: false, filePath: saveFilePath }],
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await openWritePanel(page)
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+
+    async function pasteSvg(fileName: string, color: string) {
+      await page.evaluate(({ pastedFileName, fillColor }) => {
+        const target = document.querySelector('.toastui-editor-md-container .ProseMirror')
+
+        if (!target) {
+          throw new Error('ProseMirror target not found')
+        }
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="${fillColor}"/></svg>`
+        const file = new File([svg], pastedFileName, { type: 'image/svg+xml' })
+        const dataTransfer = new DataTransfer()
+        dataTransfer.items.add(file)
+        const pasteEvent = new ClipboardEvent('paste', {
+          clipboardData: dataTransfer,
+          bubbles: true,
+          cancelable: true,
+        })
+
+        target.dispatchEvent(pasteEvent)
+      }, { pastedFileName: fileName, fillColor: color })
+    }
+
+    await page.evaluate(() => {
+      const target = document.querySelector('.toastui-editor-md-container .ProseMirror')
+
+      if (!target) {
+        throw new Error('ProseMirror target not found')
+      }
+
+      target.addEventListener('paste', () => {
+        const smokeWindow = window as Window & { __mdvDownstreamPasteCount?: number }
+        smokeWindow.__mdvDownstreamPasteCount = (smokeWindow.__mdvDownstreamPasteCount ?? 0) + 1
+      })
+    })
+
+    await pasteSvg('first-paste.svg', '#22c55e')
+    await expect(editor).toContainText('![first-paste.svg](')
+
+    await pasteSvg('second-paste.svg', '#38bdf8')
+    await expect(editor).toContainText('![first-paste.svg](')
+    await expect(editor).toContainText('![second-paste.svg](')
+    await expect.poll(async () => page.locator('.inline-data-image-widget').count()).toBeGreaterThanOrEqual(2)
+    await expect(editor).not.toContainText('PHN2Zy')
+    await expect(editor).not.toContainText('<svg')
+    await expect.poll(async () => page.evaluate(() => {
+      const smokeWindow = window as Window & { __mdvDownstreamPasteCount?: number }
+      return smokeWindow.__mdvDownstreamPasteCount ?? 0
+    })).toBe(0)
+
+    await triggerPrimaryShortcut(page, 's')
+
+    await expect(page.locator('.statusbar-status')).toContainText('repeated-pasted-images.md')
+    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![first-paste.svg](data:image/svg+xml;base64,')
+    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![second-paste.svg](data:image/svg+xml;base64,')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('saved relative image renders in preview when opening an existing file', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const assetsDir = path.join(tempRoot, 'assets')
+  const filePath = path.join(tempRoot, 'saved-preview-image.md')
+  const imagePath = path.join(assetsDir, 'preview-diagram.svg')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.mkdir(assetsDir, { recursive: true })
+  await fs.writeFile(imagePath, '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#22c55e"/></svg>', 'utf8')
+  await fs.writeFile(filePath, '# Saved Preview Image\n\n![preview-diagram](assets/preview-diagram.svg)\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    await expect.poll(async () => page.title()).toContain('saved-preview-image.md - MDV')
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+
+    const image = page.locator('.preview-panel img').first()
+    await expect(image).toHaveAttribute('alt', 'preview-diagram')
+    await expect(image).toHaveAttribute('src', /^data:image\/svg\+xml;base64,|^data:image\/svg;base64,/)
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('saved relative image export inlines image data', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const assetsDir = path.join(tempRoot, 'assets')
+  const filePath = path.join(tempRoot, 'saved-export-image.md')
+  const imagePath = path.join(assetsDir, 'export-diagram.svg')
+  const exportPath = path.join(tempRoot, 'saved-export-image.html')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.mkdir(assetsDir, { recursive: true })
+  await fs.writeFile(imagePath, '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#22c55e"/></svg>', 'utf8')
+  await fs.writeFile(filePath, '# Saved Export Image\n\n![export-diagram](assets/export-diagram.svg)\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+    dialogResponses: {
+      saveDialog: [{ canceled: false, filePath: exportPath }],
+    },
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    await expect.poll(async () => page.title()).toContain('saved-export-image.md - MDV')
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('src', /^data:image\/svg\+xml;base64,|^data:image\/svg;base64,/)
+    await page.locator('button[aria-label="HTML を書き出し"], button[aria-label="Export HTML"]').click()
+
+    await expect.poll(async () => fs.readFile(exportPath, 'utf8')).toContain('Saved Export Image')
+    const html = await fs.readFile(exportPath, 'utf8')
+    expect(html).toContain('src="data:image/svg+xml;base64,')
+    expect(html).toContain('alt="export-diagram"')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('missing relative image shows a preview fallback when opening an existing file', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const filePath = path.join(tempRoot, 'missing-preview-image.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(filePath, '# Missing Preview Image\n\n![missing-diagram](assets/missing-diagram.svg)\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    await expect.poll(async () => page.title()).toContain('missing-preview-image.md - MDV')
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+    await expect(page.locator('.preview-image-fallback')).toContainText('Missing image: assets/missing-diagram.svg')
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('data-mdv-image-state', 'missing')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('removed inline image reference is not saved on first save', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const saveFilePath = path.join(tempRoot, 'removed-draft-image.md')
-  const materializedAssetPath = path.join(tempRoot, 'assets', 'removed-diagram.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
 
@@ -955,14 +1180,14 @@ test('removed draft image reference is not materialized on first save', async ()
       document.dispatchEvent(pasteEvent)
     })
 
-    await expect(editor).toContainText('![removed-diagram.svg](assets/removed-diagram.svg)')
+    await expect(editor).toContainText('![removed-diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
     await replaceMarkdownDocument(page, '# Removed Draft Image\n\nno image\n')
     await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('removed-draft-image.md')
     await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('no image')
     await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).not.toContain('removed-diagram.svg')
-    await expect.poll(async () => fs.access(materializedAssetPath).then(() => true).catch(() => false)).toBe(false)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
@@ -970,11 +1195,10 @@ test('removed draft image reference is not materialized on first save', async ()
   }
 })
 
-test('restored unsaved pasted image draft is materialized on first save after restart', async () => {
+test('restored unsaved pasted inline image draft remains inline after restart', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const saveFilePath = path.join(tempRoot, 'restored-image.md')
-  const materializedAssetPath = path.join(tempRoot, 'assets', 'restored-diagram.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
 
@@ -1002,26 +1226,15 @@ test('restored unsaved pasted image draft is materialized on first save after re
       document.dispatchEvent(pasteEvent)
     })
 
-    await expect(editor).toContainText('![restored-diagram.svg](assets/restored-diagram.svg)')
+    await expect(editor).toContainText('![restored-diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
     await expect.poll(async () => readRecoveryStoreEntries(userDataDir)).toEqual([
       expect.objectContaining({
         snapshot: expect.objectContaining({
-          draftWorkspace: expect.objectContaining({ workspaceId: expect.any(String) }),
+          markdownText: expect.stringContaining('![restored-diagram.svg](data:image/svg+xml;base64,'),
         }),
       }),
     ])
-    await expect.poll(async () => {
-      const [entry] = await readRecoveryStoreEntries(userDataDir) as Array<{
-        snapshot?: { draftWorkspace?: { assetDir?: string | null } | null }
-      }>
-      const assetDir = entry?.snapshot?.draftWorkspace?.assetDir
-
-      if (!assetDir) {
-        return ''
-      }
-
-      return fs.readFile(path.join(assetDir, 'restored-diagram.svg'), 'utf8')
-    }).toContain('<svg')
   } finally {
     await forceCloseApp(firstApp)
     await firstApp.close().catch(() => {})
@@ -1043,13 +1256,13 @@ test('restored unsaved pasted image draft is materialized on first save after re
 
     const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
     await openWritePanel(page)
-    await expect(editor).toContainText('![restored-diagram.svg](assets/restored-diagram.svg)')
+    await expect(editor).toContainText('![restored-diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
 
     await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('restored-image.md')
-    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![restored-diagram.svg](assets/restored-diagram.svg)')
-    await expect.poll(async () => fs.readFile(materializedAssetPath, 'utf8')).toContain('<svg')
+    await expect.poll(async () => fs.readFile(saveFilePath, 'utf8')).toContain('![restored-diagram.svg](data:image/svg+xml;base64,')
   } finally {
     await forceCloseApp(secondApp)
     await secondApp.close().catch(() => {})
@@ -1057,16 +1270,13 @@ test('restored unsaved pasted image draft is materialized on first save after re
   }
 })
 
-test('declining saved-file recovery removes imported assets created before restart', async () => {
+test('declining saved-file recovery drops unsaved inline image Markdown created before restart', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const filePath = path.join(tempRoot, 'recovery-decline-target.md')
-  const sourceAssetPath = path.join(tempRoot, 'recovery-decline-source.svg')
-  const importedAssetPath = path.join(tempRoot, 'assets', 'recovery-decline-source.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
   await fs.writeFile(filePath, '# Recovery Decline\n\nbase\n', 'utf8')
-  await fs.writeFile(sourceAssetPath, '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#14b8a6"/></svg>', 'utf8')
 
   const firstApp = await launchElectronApp({
     userDataDir,
@@ -1081,11 +1291,11 @@ test('declining saved-file recovery removes imported assets created before resta
     await openWritePanel(page)
     const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
     await editor.click()
-    await page.evaluate((assetUrl) => {
-      const file = new File(['placeholder'], 'recovery-decline-source.svg', { type: 'image/svg+xml' })
+    await page.evaluate(() => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#14b8a6"/></svg>'
+      const file = new File([svg], 'recovery-decline-source.svg', { type: 'image/svg+xml' })
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(file)
-      dataTransfer.setData('text/uri-list', assetUrl)
       const dropEvent = new DragEvent('drop', {
         dataTransfer,
         bubbles: true,
@@ -1093,14 +1303,14 @@ test('declining saved-file recovery removes imported assets created before resta
       })
 
       document.querySelector('.workspace')?.dispatchEvent(dropEvent)
-    }, `file://${sourceAssetPath}`)
+    })
 
-    await expect(editor).toContainText('![recovery-decline-source.svg](assets/recovery-decline-source.svg)')
-    await expect.poll(async () => fs.readFile(importedAssetPath, 'utf8')).toContain('<svg')
+    await expect(editor).toContainText('![recovery-decline-source.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
     await expect.poll(async () => readRecoveryStoreEntries(userDataDir)).toEqual([
       expect.objectContaining({
         snapshot: expect.objectContaining({
-          pendingImportedAssets: [expect.objectContaining({ filePath: importedAssetPath })],
+          markdownText: expect.stringContaining('![recovery-decline-source.svg](data:image/svg+xml;base64,'),
         }),
       }),
     ])
@@ -1125,7 +1335,6 @@ test('declining saved-file recovery removes imported assets created before resta
     await expect.poll(async () => page.title()).toContain('recovery-decline-target.md - MDV')
     await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('base')
     await expect.poll(async () => fs.readFile(filePath, 'utf8')).not.toContain('recovery-decline-source.svg')
-    await expect.poll(async () => fs.access(importedAssetPath).then(() => true).catch(() => false)).toBe(false)
     await expect.poll(async () => readRecoveryStoreEntries(userDataDir)).toEqual([])
   } finally {
     await forceCloseApp(secondApp)
@@ -1134,22 +1343,18 @@ test('declining saved-file recovery removes imported assets created before resta
   }
 })
 
-test('save as moves imported saved-document assets beside the new markdown file', async () => {
+test('save as preserves pasted inline image Markdown beside the new markdown file', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const sourceDir = path.join(tempRoot, 'source')
   const targetDir = path.join(tempRoot, 'target')
   const filePath = path.join(sourceDir, 'save-as-source.md')
   const saveAsPath = path.join(targetDir, 'save-as-target.md')
-  const sourceAssetPath = path.join(tempRoot, 'save-as-image-source.svg')
-  const originalImportedAssetPath = path.join(sourceDir, 'assets', 'save-as-image-source.svg')
-  const movedImportedAssetPath = path.join(targetDir, 'assets', 'save-as-image-source.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
   await fs.mkdir(sourceDir, { recursive: true })
   await fs.mkdir(targetDir, { recursive: true })
   await fs.writeFile(filePath, '# Save As Source\n\nbody\n', 'utf8')
-  await fs.writeFile(sourceAssetPath, '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#22c55e"/></svg>', 'utf8')
 
   const app = await launchElectronApp({
     userDataDir,
@@ -1167,11 +1372,11 @@ test('save as moves imported saved-document assets beside the new markdown file'
     await openWritePanel(page)
     const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
     await editor.click()
-    await page.evaluate((assetUrl) => {
-      const file = new File(['placeholder'], 'save-as-image-source.svg', { type: 'image/svg+xml' })
+    await page.evaluate(() => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#22c55e"/></svg>'
+      const file = new File([svg], 'save-as-image-source.svg', { type: 'image/svg+xml' })
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(file)
-      dataTransfer.setData('text/uri-list', assetUrl)
       const dropEvent = new DragEvent('drop', {
         dataTransfer,
         bubbles: true,
@@ -1179,17 +1384,15 @@ test('save as moves imported saved-document assets beside the new markdown file'
       })
 
       document.querySelector('.workspace')?.dispatchEvent(dropEvent)
-    }, `file://${sourceAssetPath}`)
+    })
 
-    await expect(editor).toContainText('![save-as-image-source.svg](assets/save-as-image-source.svg)')
-    await expect.poll(async () => fs.readFile(originalImportedAssetPath, 'utf8')).toContain('<svg')
+    await expect(editor).toContainText('![save-as-image-source.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
 
     await triggerPrimaryShortcut(page, 's', { shiftKey: true })
 
     await expect(page.locator('.statusbar-status')).toContainText('save-as-target.md')
-    await expect.poll(async () => fs.readFile(saveAsPath, 'utf8')).toContain('![save-as-image-source.svg](assets/save-as-image-source.svg)')
-    await expect.poll(async () => fs.readFile(movedImportedAssetPath, 'utf8')).toContain('<svg')
-    await expect.poll(async () => fs.access(originalImportedAssetPath).then(() => true).catch(() => false)).toBe(false)
+    await expect.poll(async () => fs.readFile(saveAsPath, 'utf8')).toContain('![save-as-image-source.svg](data:image/svg+xml;base64,')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})
@@ -1264,16 +1467,13 @@ test('closing a clean untitled buffer cleans up the proactive draft workspace', 
   }
 })
 
-test('dropped image into a saved document is stored beside the file and saved as relative markdown', async () => {
+test('dropped image into a saved document is saved as inline image Markdown', async () => {
   const tempRoot = await makeTempDir('mdv-electron-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const filePath = path.join(tempRoot, 'drop-target.md')
-  const sourceAssetPath = path.join(tempRoot, 'dropped-diagram.svg')
-  const materializedAssetPath = path.join(tempRoot, 'assets', 'dropped-diagram.svg')
 
   await fs.mkdir(userDataDir, { recursive: true })
   await fs.writeFile(filePath, '# Drop Target\n\nbody\n', 'utf8')
-  await fs.writeFile(sourceAssetPath, '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#22c55e"/></svg>', 'utf8')
 
   const app = await launchElectronApp({
     userDataDir,
@@ -1288,11 +1488,11 @@ test('dropped image into a saved document is stored beside the file and saved as
     await openWritePanel(page)
     const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
     await editor.click()
-    await page.evaluate((assetUrl) => {
-      const file = new File(['placeholder'], 'dropped-diagram.svg', { type: 'image/svg+xml' })
+    await page.evaluate(() => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="8" fill="#22c55e"/></svg>'
+      const file = new File([svg], 'dropped-diagram.svg', { type: 'image/svg+xml' })
       const dataTransfer = new DataTransfer()
       dataTransfer.items.add(file)
-      dataTransfer.setData('text/uri-list', assetUrl)
       const dropEvent = new DragEvent('drop', {
         dataTransfer,
         bubbles: true,
@@ -1300,14 +1500,76 @@ test('dropped image into a saved document is stored beside the file and saved as
       })
 
       document.querySelector('.workspace')?.dispatchEvent(dropEvent)
-    }, `file://${sourceAssetPath}`)
+    })
 
-    await expect(editor).toContainText('![dropped-diagram.svg](assets/dropped-diagram.svg)')
+    await expect(editor).toContainText('![dropped-diagram.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
     await triggerPrimaryShortcut(page, 's')
 
     await expect(page.locator('.statusbar-status')).toContainText('drop-target.md')
-    await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('![dropped-diagram.svg](assets/dropped-diagram.svg)')
-    await expect.poll(async () => fs.readFile(materializedAssetPath, 'utf8')).toContain('<svg')
+    await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('![dropped-diagram.svg](data:image/svg+xml;base64,')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('repeated dropped images into a saved document do not leak inline image data', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const filePath = path.join(tempRoot, 'repeated-drop-target.md')
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(filePath, '# Repeated Drop Target\n\nbody\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await openWritePanel(page)
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await editor.click()
+
+    async function dropSvg(fileName: string, color: string) {
+      await page.evaluate(({ droppedFileName, fillColor }) => {
+        const file = new File(
+          [`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="${fillColor}"/></svg>`],
+          droppedFileName,
+          { type: 'image/svg+xml' },
+        )
+        const dataTransfer = new DataTransfer()
+        dataTransfer.items.add(file)
+        const dropEvent = new DragEvent('drop', {
+          dataTransfer,
+          bubbles: true,
+          cancelable: true,
+        })
+
+        document.querySelector('.toastui-editor-md-container .ProseMirror')?.dispatchEvent(dropEvent)
+      }, { droppedFileName: fileName, fillColor: color })
+    }
+
+    await dropSvg('first-drop.svg', '#22c55e')
+    await expect(editor).toContainText('![first-drop.svg](')
+
+    await dropSvg('second-drop.svg', '#38bdf8')
+    await expect(editor).toContainText('![first-drop.svg](')
+    await expect(editor).toContainText('![second-drop.svg](')
+    await expect(page.locator('.inline-data-image-widget').first()).toContainText('data:image/svg+xml;base64,')
+    await expect(editor).not.toContainText('PHN2Zy')
+    await expect(editor).not.toContainText('<svg')
+
+    await triggerPrimaryShortcut(page, 's')
+
+    await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('![first-drop.svg](data:image/svg+xml;base64,')
+    await expect.poll(async () => fs.readFile(filePath, 'utf8')).toContain('![second-drop.svg](data:image/svg+xml;base64,')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

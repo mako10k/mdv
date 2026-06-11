@@ -11,6 +11,7 @@
 
 - command:
 - saved file result:
+- preview result:
 - draft workspace result:
 - evidence path or screenshot note:
 - notes:
@@ -24,10 +25,11 @@
 - evidence path or screenshot note:
 - export or workspace path:
 - failure-free result note:
+- notes:
 
 ## Packaged Candidate Spot Check
 
-- deployed candidate path:
+- candidate launch path:
 - first save continuity:
 - HTML export continuity:
 - broken image fallback:

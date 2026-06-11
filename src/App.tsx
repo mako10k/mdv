@@ -56,11 +56,37 @@ type StatusToast = {
   message: string
 }
 
+type MarkdownInlineToken = {
+  attrs: string[][] | null
+  children?: MarkdownInlineToken[]
+  content: string
+}
+
+type MarkdownParserInstance = InstanceType<typeof MarkdownIt>
+
+type MarkdownInlineParserState = {
+  src: string
+  pos: number
+  posMax: number
+  env: unknown
+  md: MarkdownParserInstance & {
+    helpers: {
+      parseLinkDestination: (source: string, position: number, max: number) => { ok: boolean; pos: number; str: string }
+      parseLinkLabel: (state: MarkdownInlineParserState, position: number, disableNested?: boolean) => number
+    }
+    inline: {
+      parse: (source: string, md: MarkdownInlineParserState['md'], env: unknown, tokens: MarkdownInlineToken[]) => void
+    }
+  }
+  push: (type: string, tag: string, nesting: number) => MarkdownInlineToken
+}
+
 const DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT = 32
 const MIN_ASSISTANT_DOCK_WIDTH_PERCENT = 24
 const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
 
 const INLINE_DATA_IMAGE_WIDGET_PATTERN = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/
+const INLINE_DATA_IMAGE_DATA_URL_PATTERN = /^data:image\/[a-zA-Z0-9.+-]+(?:;[a-zA-Z0-9.+-]+(?:=[^,()\s]*)?)*,[^()\s]+$/
 
 function estimateInlineDataImageBytes(base64Text: string): number {
   if (base64Text.length === 0) {
@@ -110,6 +136,97 @@ function createInlineDataImageWidget(text: string): HTMLElement {
   element.title = 'Inline image data URL omitted from source view'
   element.setAttribute('contenteditable', 'false')
   return element
+}
+
+function isMarkdownSpace(code: number): boolean {
+  return code === 0x20 || code === 0x09 || code === 0x0A || code === 0x0D
+}
+
+function parseInlineDataImage(state: MarkdownInlineParserState, silent: boolean): boolean {
+  const oldPosition = state.pos
+  const maxPosition = state.posMax
+
+  if (state.src.charCodeAt(state.pos) !== 0x21 || state.src.charCodeAt(state.pos + 1) !== 0x5B) {
+    return false
+  }
+
+  const labelStart = state.pos + 2
+  const labelEnd = state.md.helpers.parseLinkLabel(state, state.pos + 1, false)
+
+  if (labelEnd < 0) {
+    return false
+  }
+
+  let position = labelEnd + 1
+
+  if (position >= maxPosition || state.src.charCodeAt(position) !== 0x28) {
+    return false
+  }
+
+  position += 1
+
+  while (position < maxPosition && isMarkdownSpace(state.src.charCodeAt(position))) {
+    position += 1
+  }
+
+  const destination = state.md.helpers.parseLinkDestination(state.src, position, maxPosition)
+
+  if (!destination.ok) {
+    return false
+  }
+
+  const source = state.md.normalizeLink(destination.str)
+
+  if (!INLINE_DATA_IMAGE_DATA_URL_PATTERN.test(source.trim())) {
+    return false
+  }
+
+  position = destination.pos
+
+  while (position < maxPosition && isMarkdownSpace(state.src.charCodeAt(position))) {
+    position += 1
+  }
+
+  if (position >= maxPosition || state.src.charCodeAt(position) !== 0x29) {
+    state.pos = oldPosition
+    return false
+  }
+
+  position += 1
+
+  if (!silent) {
+    const content = state.src.slice(labelStart, labelEnd)
+    const tokens: MarkdownInlineToken[] = []
+    state.md.inline.parse(content, state.md, state.env, tokens)
+
+    const token = state.push('image', 'img', 0)
+    token.attrs = [['src', source], ['alt', '']]
+    token.children = tokens
+    token.content = content
+  }
+
+  state.pos = position
+  state.posMax = maxPosition
+  return true
+}
+
+function hasStaleInlineDataImageWidgets(root: ParentNode | null, markdown: string): boolean {
+  if (!root) {
+    return false
+  }
+
+  const expectedWidgetLabels = Array.from(markdown.matchAll(new RegExp(INLINE_DATA_IMAGE_WIDGET_PATTERN, 'g')))
+    .map((match) => abbreviateInlineDataImageDataUrl(match[0]))
+
+  if (expectedWidgetLabels.length === 0) {
+    return false
+  }
+
+  const actualWidgetLabels = Array.from(root.querySelectorAll<HTMLElement>('.inline-data-image-widget'))
+    .map((widget) => widget.textContent ?? '')
+
+  return expectedWidgetLabels.length !== actualWidgetLabels.length
+    || expectedWidgetLabels.some((label, index) => actualWidgetLabels[index] !== label)
 }
 
 function disableEditorSpellcheck(root: HTMLElement) {
@@ -169,6 +286,8 @@ const markdownParser = new MarkdownIt({
   .use(markdownItTaskLists, { enabled: true })
   .use(markdownItFootnote)
   .use(markdownItContainer, 'note')
+
+markdownParser.inline.ruler.before('image', 'inline_data_image', parseInlineDataImage)
 
 function splitMarkdownSegments(markdown: string): MarkdownSegment[] {
   const fencePattern = /```([\w-]*)\r?\n([\s\S]*?)```/g
@@ -509,6 +628,139 @@ type RelativeImageResolutionCacheEntry = {
   failedAt: number | null
 }
 
+async function resolveRelativeImagesInRoot(options: {
+  root: ParentNode
+  selector: string
+  contentBaseFilePath: string | null
+  cache: Map<string, RelativeImageResolutionCacheEntry>
+}) {
+  const images = Array.from(options.root.querySelectorAll<HTMLImageElement>(options.selector))
+
+  await Promise.all(images.map(async (image) => {
+    const liveSource = image.getAttribute('src')?.trim() || ''
+    const rememberedSource = image.getAttribute('data-mdv-source-src')?.trim() || ''
+    const resolvedBasePath = image.getAttribute('data-mdv-resolved-base-path')?.trim() || ''
+    const rememberedResolvedSource = image.getAttribute('data-mdv-resolved-src')?.trim() || ''
+    const originalSource = isRelativeImageSource(liveSource)
+      ? liveSource
+      : rememberedSource && rememberedResolvedSource === liveSource
+        ? rememberedSource
+        : liveSource
+
+    if (!isRelativeImageSource(originalSource)) {
+      image.removeAttribute('data-mdv-source-src')
+      image.removeAttribute('data-mdv-resolved-base-path')
+      image.removeAttribute('data-mdv-resolved-src')
+      return
+    }
+
+    if (!options.contentBaseFilePath) {
+      if (image.getAttribute('src') !== originalSource) {
+        image.setAttribute('src', originalSource)
+      }
+
+      image.removeAttribute('data-mdv-resolved-base-path')
+      image.removeAttribute('data-mdv-resolved-src')
+      return
+    }
+
+    if (resolvedBasePath && resolvedBasePath !== options.contentBaseFilePath && rememberedResolvedSource === liveSource && image.getAttribute('src') !== originalSource) {
+      image.setAttribute('src', originalSource)
+      image.removeAttribute('data-mdv-resolved-base-path')
+      image.removeAttribute('data-mdv-resolved-src')
+    }
+
+    const cacheKey = `${options.contentBaseFilePath}\u0000${originalSource}`
+    const cachedEntry = options.cache.get(cacheKey)
+    let resolvedSource = cachedEntry?.resolvedSource
+
+    if (cachedEntry?.resolvedSource === null && cachedEntry.failedAt && Date.now() - cachedEntry.failedAt < 3000) {
+      resolvedSource = null
+    } else if (cachedEntry === undefined || cachedEntry.resolvedSource === null) {
+      try {
+        const result = await window.mdvDesktop?.readRelativeAssetAsDataUrl({
+          baseFilePath: options.contentBaseFilePath,
+          source: originalSource,
+        })
+
+        resolvedSource = result?.dataUrl
+          ? `${result.dataUrl}${getImageSourceTail(originalSource)}`
+          : null
+        options.cache.set(cacheKey, {
+          resolvedSource,
+          failedAt: resolvedSource ? null : Date.now(),
+        })
+      } catch {
+        resolvedSource = null
+        options.cache.set(cacheKey, {
+          resolvedSource: null,
+          failedAt: Date.now(),
+        })
+      }
+    }
+
+    if (!resolvedSource) {
+      if (image.getAttribute('src') !== originalSource) {
+        image.setAttribute('src', originalSource)
+      }
+
+      image.removeAttribute('data-mdv-resolved-base-path')
+      image.removeAttribute('data-mdv-resolved-src')
+      return
+    }
+
+    if (image.getAttribute('src') === resolvedSource) {
+      image.setAttribute('data-mdv-source-src', originalSource)
+      image.setAttribute('data-mdv-resolved-base-path', options.contentBaseFilePath)
+      image.setAttribute('data-mdv-resolved-src', resolvedSource)
+      return
+    }
+
+    image.setAttribute('data-mdv-source-src', originalSource)
+    image.setAttribute('data-mdv-resolved-base-path', options.contentBaseFilePath)
+    image.setAttribute('data-mdv-resolved-src', resolvedSource)
+    image.setAttribute('src', resolvedSource)
+  }))
+}
+
+function syncPreviewImageFallbackState(root: ParentNode) {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'))
+
+  for (const image of images) {
+    const liveSource = image.getAttribute('src')?.trim() || ''
+    const rememberedSource = image.getAttribute('data-mdv-source-src')?.trim() || ''
+    const rememberedResolvedSource = image.getAttribute('data-mdv-resolved-src')?.trim() || ''
+    const originalSource = isRelativeImageSource(liveSource)
+      ? liveSource
+      : rememberedSource && rememberedResolvedSource === liveSource
+        ? rememberedSource
+        : liveSource
+    const fallback = image.nextElementSibling instanceof HTMLElement && image.nextElementSibling.classList.contains('preview-image-fallback')
+      ? image.nextElementSibling
+      : null
+    const shouldShowFallback = isRelativeImageSource(originalSource) && liveSource === originalSource
+
+    if (!shouldShowFallback) {
+      image.removeAttribute('data-mdv-image-state')
+      image.removeAttribute('aria-hidden')
+      fallback?.remove()
+      continue
+    }
+
+    const nextFallback = fallback ?? document.createElement('span')
+    nextFallback.className = 'preview-image-fallback'
+    nextFallback.setAttribute('role', 'note')
+    nextFallback.textContent = `Missing image: ${originalSource}`
+
+    if (!fallback) {
+      image.insertAdjacentElement('afterend', nextFallback)
+    }
+
+    image.setAttribute('data-mdv-image-state', 'missing')
+    image.setAttribute('aria-hidden', 'true')
+  }
+}
+
 type EditorSurfaceProps = {
   value: string
   contentBaseFilePath: string | null
@@ -568,97 +820,12 @@ function EditorSurface({
         return
       }
 
-      const images = Array.from(host.querySelectorAll<HTMLImageElement>('.toastui-editor-ww-container img[src]'))
-
-      await Promise.all(images.map(async (image) => {
-        const liveSource = image.getAttribute('src')?.trim() || ''
-        const rememberedSource = image.getAttribute('data-mdv-source-src')?.trim() || ''
-        const resolvedBasePath = image.getAttribute('data-mdv-resolved-base-path')?.trim() || ''
-        const rememberedResolvedSource = image.getAttribute('data-mdv-resolved-src')?.trim() || ''
-        const originalSource = isRelativeImageSource(liveSource)
-          ? liveSource
-          : rememberedSource && rememberedResolvedSource === liveSource
-            ? rememberedSource
-            : liveSource
-
-        if (!isRelativeImageSource(originalSource)) {
-          image.removeAttribute('data-mdv-source-src')
-          image.removeAttribute('data-mdv-resolved-base-path')
-          image.removeAttribute('data-mdv-resolved-src')
-          return
-        }
-
-        if (!contentBaseFilePath) {
-          if (image.getAttribute('src') !== originalSource) {
-            image.setAttribute('src', originalSource)
-          }
-
-          image.removeAttribute('data-mdv-resolved-base-path')
-          image.removeAttribute('data-mdv-resolved-src')
-          return
-        }
-
-        if (resolvedBasePath && resolvedBasePath !== contentBaseFilePath && rememberedResolvedSource === liveSource && image.getAttribute('src') !== originalSource) {
-          image.setAttribute('src', originalSource)
-          image.removeAttribute('data-mdv-resolved-base-path')
-          image.removeAttribute('data-mdv-resolved-src')
-        }
-
-        const cacheKey = `${contentBaseFilePath}\u0000${originalSource}`
-        const cachedEntry = relativeImageCacheRef.current.get(cacheKey)
-        let resolvedSource = cachedEntry?.resolvedSource
-
-        if (cachedEntry?.resolvedSource === null && cachedEntry.failedAt && Date.now() - cachedEntry.failedAt < 3000) {
-          resolvedSource = null
-        } else if (cachedEntry === undefined || cachedEntry.resolvedSource === null) {
-          try {
-            const result = await window.mdvDesktop?.readRelativeAssetAsDataUrl({
-              baseFilePath: contentBaseFilePath,
-              source: originalSource,
-            })
-
-            resolvedSource = result?.dataUrl
-              ? `${result.dataUrl}${getImageSourceTail(originalSource)}`
-              : null
-            relativeImageCacheRef.current.set(cacheKey, {
-              resolvedSource,
-              failedAt: resolvedSource ? null : Date.now(),
-            })
-          } catch {
-            resolvedSource = null
-            relativeImageCacheRef.current.set(cacheKey, {
-              resolvedSource: null,
-              failedAt: Date.now(),
-            })
-          }
-        }
-
-        if (!active) {
-          return
-        }
-
-        if (!resolvedSource) {
-          if (image.getAttribute('src') !== originalSource) {
-            image.setAttribute('src', originalSource)
-          }
-
-          image.removeAttribute('data-mdv-resolved-base-path')
-          image.removeAttribute('data-mdv-resolved-src')
-          return
-        }
-
-        if (image.getAttribute('src') === resolvedSource) {
-          image.setAttribute('data-mdv-source-src', originalSource)
-          image.setAttribute('data-mdv-resolved-base-path', contentBaseFilePath)
-          image.setAttribute('data-mdv-resolved-src', resolvedSource)
-          return
-        }
-
-        image.setAttribute('data-mdv-source-src', originalSource)
-        image.setAttribute('data-mdv-resolved-base-path', contentBaseFilePath)
-        image.setAttribute('data-mdv-resolved-src', resolvedSource)
-        image.setAttribute('src', resolvedSource)
-      }))
+      await resolveRelativeImagesInRoot({
+        root: host,
+        selector: '.toastui-editor-ww-container img[src]',
+        contentBaseFilePath,
+        cache: relativeImageCacheRef.current,
+      })
     }
 
     const scheduleRelativeImageResolution = () => {
@@ -783,10 +950,9 @@ function EditorSurface({
       return
     }
 
-    const widgetMissing =
-      INLINE_DATA_IMAGE_WIDGET_PATTERN.test(value) && !hostRef.current?.querySelector('.inline-data-image-widget')
+    const widgetStale = hasStaleInlineDataImageWidgets(hostRef.current, value)
 
-    if (instance.getMarkdown() !== value || widgetMissing) {
+    if (instance.getMarkdown() !== value || widgetStale) {
       instance.setMarkdown(value)
     }
   }, [value])
@@ -924,6 +1090,50 @@ function isImageFileName(fileName: string | null): boolean {
   return Boolean(fileName && /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(fileName))
 }
 
+function getImageMimeType(file: File): string {
+  const normalizedType = file.type.trim().toLowerCase()
+
+  if (normalizedType.startsWith('image/')) {
+    return normalizedType
+  }
+
+  const fileName = file.name.toLowerCase()
+
+  if (fileName.endsWith('.svg')) {
+    return 'image/svg+xml'
+  }
+
+  if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) {
+    return 'image/jpeg'
+  }
+
+  if (fileName.endsWith('.png')) {
+    return 'image/png'
+  }
+
+  if (fileName.endsWith('.gif')) {
+    return 'image/gif'
+  }
+
+  if (fileName.endsWith('.webp')) {
+    return 'image/webp'
+  }
+
+  if (fileName.endsWith('.bmp')) {
+    return 'image/bmp'
+  }
+
+  if (fileName.endsWith('.ico')) {
+    return 'image/x-icon'
+  }
+
+  if (fileName.endsWith('.avif')) {
+    return 'image/avif'
+  }
+
+  return 'image/png'
+}
+
 function isImageDropCandidate(file: File | null, nativePath: string | null): boolean {
   if (!file) {
     return false
@@ -934,6 +1144,10 @@ function isImageDropCandidate(file: File | null, nativePath: string | null): boo
   }
 
   if (file.type.startsWith('image/')) {
+    return true
+  }
+
+  if (isImageFileName(file.name)) {
     return true
   }
 
@@ -1333,6 +1547,26 @@ function insertImageMarkdown(markdown: string, span: MdvAiNormalizedSpan, source
   const sourceStartOffset = startOffset + insertedText.indexOf(source)
 
   return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, sourceStartOffset, sourceStartOffset + source.length)
+}
+
+function insertImportedImageMarkdown(markdown: string, span: MdvAiNormalizedSpan, source: string, fallbackAlt: string): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const selectedText = markdown.slice(startOffset, endOffset)
+  const alt = selectedText.length > 0 ? selectedText : fallbackAlt
+  const leadingBreak = startOffset === 0
+    ? ''
+    : markdown[startOffset - 1] === '\n'
+      ? startOffset >= 2 && markdown[startOffset - 2] === '\n' ? '' : '\n'
+      : '\n\n'
+  const trailingBreak = endOffset >= markdown.length
+    ? '\n'
+    : markdown[endOffset] === '\n'
+      ? markdown[endOffset + 1] === '\n' ? '' : '\n'
+      : '\n\n'
+  const insertedText = `${leadingBreak}![${alt}](${source})${trailingBreak}`
+  const insertedEndOffset = startOffset + insertedText.length
+
+  return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, insertedEndOffset, insertedEndOffset)
 }
 
 function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
@@ -2104,10 +2338,13 @@ function App() {
   const editorRef = useRef<ToastUiEditor | null>(null)
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null)
   const previewRootRef = useRef<HTMLDivElement | null>(null)
+  const previewRelativeImageCacheRef = useRef<Map<string, RelativeImageResolutionCacheEntry>>(new Map())
+  const previewRelativeImageResolveFrameRef = useRef<number | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const currentFilePathRef = useRef<string | null>(null)
   const persistedMarkdownRef = useRef<string>(EMPTY_UNTITLED_DOCUMENT)
   const currentFileSnapshotRef = useRef<MdvFileSnapshot | null>(null)
+  const pendingImportedAssetsRef = useRef<MdvPendingImportedAsset[]>([])
   const untitledTitleRef = useRef<string>(t.app.untitledTitle)
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
   const toastIdRef = useRef(0)
@@ -2134,6 +2371,7 @@ function App() {
   const outlineListRef = useRef<HTMLDivElement | null>(null)
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
   const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
+  const currentDraftWorkspaceRef = useRef<MdvDraftWorkspace | null>(null)
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: EMPTY_UNTITLED_DOCUMENT,
     persistedMarkdown: EMPTY_UNTITLED_DOCUMENT,
@@ -2157,6 +2395,14 @@ function App() {
     && isUntouchedUntitledBuffer
     && markdownText === EMPTY_UNTITLED_DOCUMENT
     && persistedMarkdown === EMPTY_UNTITLED_DOCUMENT
+  const updatePendingImportedAssets = useCallback((nextAssets: MdvPendingImportedAsset[] | ((currentAssets: MdvPendingImportedAsset[]) => MdvPendingImportedAsset[])) => {
+    const resolvedAssets = typeof nextAssets === 'function'
+      ? nextAssets(pendingImportedAssetsRef.current)
+      : nextAssets
+
+    pendingImportedAssetsRef.current = resolvedAssets
+    setPendingImportedAssets(resolvedAssets)
+  }, [setPendingImportedAssets])
   const isLivePlaceholderDocument = useCallback((
     liveMarkdown: string = editorRef.current?.getMarkdown() ?? markdownText,
     livePersistedMarkdown: string = persistedMarkdownRef.current,
@@ -2355,6 +2601,10 @@ function App() {
   }, [currentFilePath])
 
   useEffect(() => {
+    currentDraftWorkspaceRef.current = currentDraftWorkspace
+  }, [currentDraftWorkspace])
+
+  useEffect(() => {
     document.title = `${visibleDisplayTitle} - MDV`
   }, [visibleDisplayTitle])
 
@@ -2365,6 +2615,101 @@ function App() {
       hasInitialLaunchRequest: bootstrap?.hasInitialLaunchRequest ?? false,
     })
   }, [activePanel, bootstrap?.hasInitialLaunchRequest, displayTitle])
+
+  useLayoutEffect(() => {
+    const previewRoot = previewRootRef.current
+
+    if (!previewRoot) {
+      return
+    }
+
+    let active = true
+    const retryTimeouts = new Set<number>()
+
+    const resolvePreviewRelativeImages = async () => {
+      const liveRoot = previewRootRef.current
+
+      if (!active || !liveRoot) {
+        return
+      }
+
+      await resolveRelativeImagesInRoot({
+        root: liveRoot,
+        selector: 'img[src]',
+        contentBaseFilePath,
+        cache: previewRelativeImageCacheRef.current,
+      })
+      syncPreviewImageFallbackState(liveRoot)
+
+      if (!active || !contentBaseFilePath) {
+        return
+      }
+
+      const hasRemainingRelativeImages = Array.from(liveRoot.querySelectorAll<HTMLImageElement>('img[src]'))
+        .some((image) => isRelativeImageSource(image.getAttribute('src')?.trim() || ''))
+
+      if (!hasRemainingRelativeImages) {
+        return
+      }
+
+      for (const delayMs of [180, 900]) {
+        const timeoutId = window.setTimeout(() => {
+          retryTimeouts.delete(timeoutId)
+          void resolvePreviewRelativeImages()
+        }, delayMs)
+
+        retryTimeouts.add(timeoutId)
+      }
+    }
+
+    const schedulePreviewRelativeImageResolution = () => {
+      if (previewRelativeImageResolveFrameRef.current !== null) {
+        window.cancelAnimationFrame(previewRelativeImageResolveFrameRef.current)
+      }
+
+      previewRelativeImageResolveFrameRef.current = window.requestAnimationFrame(() => {
+        previewRelativeImageResolveFrameRef.current = null
+        void resolvePreviewRelativeImages()
+      })
+    }
+
+    const observer = new MutationObserver(schedulePreviewRelativeImageResolution)
+    observer.observe(previewRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] })
+    schedulePreviewRelativeImageResolution()
+
+    return () => {
+      active = false
+      observer.disconnect()
+
+      for (const timeoutId of retryTimeouts) {
+        window.clearTimeout(timeoutId)
+      }
+      retryTimeouts.clear()
+
+      if (previewRelativeImageResolveFrameRef.current !== null) {
+        window.cancelAnimationFrame(previewRelativeImageResolveFrameRef.current)
+        previewRelativeImageResolveFrameRef.current = null
+      }
+    }
+  }, [contentBaseFilePath, markdownText])
+
+  useLayoutEffect(() => {
+    const previewRoot = previewRootRef.current
+
+    if (!previewRoot) {
+      return
+    }
+
+    void resolveRelativeImagesInRoot({
+      root: previewRoot,
+      selector: 'img[src]',
+      contentBaseFilePath,
+      cache: previewRelativeImageCacheRef.current,
+    })
+      .then(() => {
+        syncPreviewImageFallbackState(previewRoot)
+      })
+  })
 
   useEffect(() => {
     if (!isInitialLaunchOpenSettled || !isStartupRecoveryResolved) {
@@ -2660,7 +3005,7 @@ function App() {
     currentFilePath,
     fileSnapshot: currentFileSnapshotRef.current,
     draftWorkspace: currentDraftWorkspace,
-    pendingImportedAssets,
+    pendingImportedAssets: pendingImportedAssetsRef.current,
     displayTitle,
     activePanel,
     isUntouchedUntitledBuffer,
@@ -2722,7 +3067,7 @@ function App() {
     setCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
     setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
-    setPendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
+    updatePendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     setActivePanel(snapshot.activePanel)
     const nextIsUntouchedUntitledBuffer = inferUntouchedUntitledBuffer(snapshot)
@@ -2753,13 +3098,30 @@ function App() {
     setCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
     setCurrentDraftWorkspace(null)
-    setPendingImportedAssets([])
+    updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('document')
     setDisplayTitle(basename(payload.path))
     persistedMarkdownRef.current = payload.content
     setPersistedMarkdown(payload.content)
     setStatusText(t.app.status.opened(basename(payload.path)))
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const previewRoot = previewRootRef.current
+
+        if (!previewRoot) {
+          return
+        }
+
+        void resolveRelativeImagesInRoot({
+          root: previewRoot,
+          selector: 'img[src]',
+          contentBaseFilePath: payload.path,
+          cache: previewRelativeImageCacheRef.current,
+        })
+      })
+    })
   }
 
   useEffect(() => {
@@ -2779,7 +3141,7 @@ function App() {
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
-    setPendingImportedAssets([])
+    updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('document')
     setDisplayTitle(fileName || i18nRef.current.app.untitledTitle)
@@ -2863,7 +3225,7 @@ function App() {
       currentFilePath,
       fileSnapshot: currentFileSnapshotRef.current,
       draftWorkspace: currentDraftWorkspace,
-      pendingImportedAssets,
+      pendingImportedAssets: pendingImportedAssetsRef.current,
       displayTitle,
       activePanel,
       isUntouchedUntitledBuffer,
@@ -2937,9 +3299,11 @@ function App() {
       return handleSaveRef.current(false)
     }
 
-    if (pendingImportedAssets.length > 0) {
-      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: pendingImportedAssets.map((asset) => asset.filePath) })
-      setPendingImportedAssets([])
+    const currentPendingImportedAssets = pendingImportedAssetsRef.current
+
+    if (currentPendingImportedAssets.length > 0) {
+      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: currentPendingImportedAssets.map((asset) => asset.filePath) })
+      updatePendingImportedAssets([])
     }
 
     if (currentDraftWorkspace) {
@@ -2980,8 +3344,10 @@ function App() {
       return
     }
 
-    if (pendingImportedAssets.length > 0) {
-      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: pendingImportedAssets.map((asset) => asset.filePath) })
+    const currentPendingImportedAssets = pendingImportedAssetsRef.current
+
+    if (currentPendingImportedAssets.length > 0) {
+      await window.mdvDesktop?.cleanupImportedAssets({ filePaths: currentPendingImportedAssets.map((asset) => asset.filePath) })
     }
 
     if (currentDraftWorkspace) {
@@ -2998,7 +3364,7 @@ function App() {
     setCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
-    setPendingImportedAssets([])
+    updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('placeholder')
     setDisplayTitle(i18nRef.current.app.untitledTitle)
@@ -3028,6 +3394,7 @@ function App() {
         }
       }
 
+      const currentPendingImportedAssets = pendingImportedAssetsRef.current
       const result = await window.mdvDesktop?.saveFile({
         path: currentFilePath,
         content: liveMarkdown,
@@ -3038,7 +3405,7 @@ function App() {
         expectedSnapshot: currentFileSnapshotRef.current,
         baseContent: persistedMarkdownRef.current,
         draftWorkspace,
-        pendingImportedAssets,
+        pendingImportedAssets: currentPendingImportedAssets,
       })
 
       if (!result || result.status === 'cancelled') {
@@ -3055,7 +3422,7 @@ function App() {
       currentFileSnapshotRef.current = result.snapshot
       setCurrentDraftWorkspace(null)
       const referencedImportedAssets = collectReferencedImportedAssetPaths(result.content)
-      const abandonedImportedAssets = pendingImportedAssets
+      const abandonedImportedAssets = currentPendingImportedAssets
         .filter((asset) => !referencedImportedAssets.has(asset.relativePath))
 
       if (abandonedImportedAssets.length > 0) {
@@ -3064,9 +3431,9 @@ function App() {
         })
       }
 
-      if (previousFilePath && previousFilePath !== result.path && pendingImportedAssets.length > 0) {
+      if (previousFilePath && previousFilePath !== result.path && currentPendingImportedAssets.length > 0) {
         await window.mdvDesktop?.cleanupImportedAssets({
-          filePaths: pendingImportedAssets.map((asset) => asset.filePath),
+          filePaths: currentPendingImportedAssets.map((asset) => asset.filePath),
         })
       }
 
@@ -3074,7 +3441,7 @@ function App() {
         await cleanupCurrentDraftWorkspace(draftWorkspace)
       }
 
-      setPendingImportedAssets([])
+      updatePendingImportedAssets([])
       setIsUntouchedUntitledBuffer(false)
       setDisplayTitle(basename(result.path))
       if (result.content !== liveMarkdown) {
@@ -3299,65 +3666,24 @@ function App() {
   }) => {
     const editor = editorRef.current
 
-    if (!editor) {
+    if (!editor || !payload.file) {
       return false
     }
 
     try {
-      let draftWorkspace = currentDraftWorkspace
-
-      if (!currentFilePath && !draftWorkspace) {
-        draftWorkspace = await window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: ensureRecoveryKey() }) ?? null
-
-        if (draftWorkspace) {
-          setCurrentDraftWorkspace(draftWorkspace)
-        }
-      }
-
-      let bytesBase64: string | null = null
-
-      if (!payload.nativePath && payload.file) {
-        bytesBase64 = bytesToBase64(new Uint8Array(await payload.file.arrayBuffer()))
-      }
-
-      const result = await window.mdvDesktop?.importImageAsset({
-        currentFilePath,
-        draftWorkspace,
-        sourcePath: payload.nativePath ?? null,
-        bytesBase64,
-        mimeType: payload.file?.type ?? null,
-        suggestedName: payload.file?.name ?? basename(payload.nativePath ?? null, 'image.png'),
-        createdBy: payload.createdBy,
-      })
-
-      if (!result) {
-        throw new Error('Image import returned no result')
-      }
-
-      if (result.draftWorkspace) {
-        setCurrentDraftWorkspace(result.draftWorkspace)
-      }
-
-      if (currentFilePath && !result.draftWorkspace) {
-        setPendingImportedAssets((currentAssets) => {
-          if (currentAssets.some((asset) => asset.filePath === result.filePath)) {
-            return currentAssets
-          }
-
-          return [...currentAssets, { filePath: result.filePath, relativePath: result.relativePath }]
-        })
-      }
+      const bytesBase64 = bytesToBase64(new Uint8Array(await payload.file.arrayBuffer()))
+      const dataUrl = `data:${getImageMimeType(payload.file)};base64,${bytesBase64}`
 
       const liveMarkdown = editor.getMarkdown()
       const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
-      const imageResult = insertImageMarkdown(liveMarkdown, selection, result.relativePath, payload.file?.name || 'image')
+      const imageResult = insertImportedImageMarkdown(liveMarkdown, selection, dataUrl, payload.file.name || 'image')
 
       invalidateEditorSearch()
       updateMarkdownText(imageResult.nextMarkdown)
       editor.setMarkdown(imageResult.nextMarkdown)
       setPendingSearchJump(imageResult.selection)
       setActivePanel('write')
-      setStatusText(t.app.status.insertedImageAsset(basename(result.filePath, result.relativePath)))
+      setStatusText(t.app.status.insertedImageAsset(payload.file.name || 'image'))
       return true
     } catch (error) {
       setStatusText(t.app.status.imageImportFailed(error instanceof Error ? error.message : String(error)))
@@ -4133,25 +4459,30 @@ function App() {
     }
 
     event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
     void importImageIntoEditor({ file: imageFile, createdBy: 'paste' })
   })
 
   useEffect(() => {
-    document.addEventListener('paste', handleImagePaste)
+    document.addEventListener('paste', handleImagePaste, true)
 
     return () => {
-      document.removeEventListener('paste', handleImagePaste)
+      document.removeEventListener('paste', handleImagePaste, true)
     }
   }, [])
 
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
-    event.preventDefault()
-    setIsDraggingFile(false)
-
     const droppedFile = event.dataTransfer.files.item(0)
+
     if (!droppedFile) {
+      setIsDraggingFile(false)
       return
     }
+
+    event.preventDefault()
+    event.stopPropagation()
+    setIsDraggingFile(false)
 
     const nativePath = resolveDroppedNativePath(event)
 
@@ -4209,7 +4540,7 @@ function App() {
     <main className="shell">
       <section
         className={`workspace compact-workspace${isDraggingFile ? ' dragging' : ''}`}
-        onDrop={handleDrop}
+        onDropCapture={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
       >

@@ -1,7 +1,7 @@
 {
   "name": "mdv",
   "private": true,
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Markdown workspace for Windows with editing, preview, assistant dock, and export tools.",
   "author": "GitHub Copilot",
   "type": "module",

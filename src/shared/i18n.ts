@@ -364,7 +364,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       ],
       mediaTitle: '画像とメディア',
       mediaItems: [
-        '画像ファイルのドロップまたは貼り付けは assets/ へ取り込み、相対参照を挿入します。',
+        '画像ファイルのドロップまたは貼り付けは data URL として Markdown に埋め込みます。',
         '埋め込み data URL 画像は source view で本体を省略表示しますが、表示コメントはそのまま編集できます。',
         '相対画像を含む HTML 書き出しは、先に Markdown ファイルを保存してから行ってください。',
       ],
@@ -797,7 +797,7 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       ],
       mediaTitle: 'Images and media',
       mediaItems: [
-        'Dropping or pasting an image imports it into assets/ and inserts a relative reference.',
+        'Dropping or pasting an image embeds it in Markdown as a data URL.',
         'Inline data URL images are abbreviated in source view, while the display comment remains editable.',
         'Save the Markdown file before exporting HTML when it contains relative images.',
       ],

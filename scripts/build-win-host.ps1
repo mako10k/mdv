@@ -479,6 +479,9 @@ function Update-LocalRunnableCopy {
     $localSwap = Swap-StagedDirectory -StagePath $localRunStageDest -LivePath $localRunDest -BackupPath $localRunBackupDest
   } catch {
     Restore-SwappedDirectory -SwapResult $localSwap
+    if ($_.Exception.Message -match 'access.*denied|アクセスが拒否') {
+      throw "Failed to refresh $localRunDest because Windows is still holding the existing latest copy open. Close MarkDownViewer and any Explorer window rooted at $localRunDest, then rerun deploy. Do not launch the packaged candidate from a UNC path."
+    }
     throw
   }
 
@@ -588,6 +591,7 @@ function Validate-ActionArguments {
   if ($Action -eq 'promote' -and $ArtifactSource -ne 'release') {
     throw 'ArtifactSource is only supported for deploy.'
   }
+
 }
 
 Validate-ActionArguments

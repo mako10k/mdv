@@ -1,8 +1,10 @@
 # 0012 Draft Workspace Image Import
 
-Status: Accepted
+Status: Superseded by [0020 Inline Image Storage And Assets Deprecation](0020-inline-image-storage-and-assets-deprecation.md)
 
 ## Context
+
+This ADR is superseded by [0020 Inline Image Storage And Assets Deprecation](0020-inline-image-storage-and-assets-deprecation.md) for the persisted storage model of newly inserted images.
 
 MD-BL-005 では、画像 paste / drop を saved file と unsaved document の両方で relative path のまま扱う必要がある。
 

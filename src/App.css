@@ -788,13 +788,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: baseline;
+  vertical-align: middle;
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-panel-strong);
   color: var(--text-muted);
   font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.preview-panel img[data-mdv-image-state='missing'] {
+  display: none;
+}
+
+.preview-image-fallback {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--danger, #d14343) 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger, #d14343) 10%, var(--bg-panel-strong));
+  color: var(--text-muted);
+  font-family: var(--mono);
   font-size: 0.9em;
   line-height: 1.4;
 }

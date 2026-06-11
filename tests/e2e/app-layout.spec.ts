@@ -35,15 +35,17 @@ async function openWritePanel(page: Page) {
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
 }
 
-async function replaceMarkdownDocument(page: Page, markdown: string) {
+async function replaceMarkdownDocument(page: Page, markdown: string, expectedEditorText: string | null = markdown.replace(/\n+/g, '')) {
   const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
-  const normalizedEditorText = markdown.replace(/\n+/g, '')
 
   await editor.click()
   await page.keyboard.press(selectAllShortcut)
   await page.keyboard.press('Backspace')
   await page.keyboard.insertText(markdown)
-  await expect(editor).toContainText(normalizedEditorText)
+
+  if (expectedEditorText !== null) {
+    await expect(editor).toContainText(expectedEditorText)
+  }
 }
 
 async function selectEditorLinesFromStart(page: Page, lineCount: number) {
@@ -1391,16 +1393,77 @@ test.describe('markdown insert commands', () => {
   test('editor source view abbreviates inline data image markdown', async ({ page }) => {
     await openWritePanel(page)
 
-    const editor = page.locator('.toastui-editor-md-container .ProseMirror').first()
     const markdown = '![logo](data:image/png;base64,QUJDRA==)'
 
-    await editor.click()
-    await page.keyboard.press(selectAllShortcut)
-    await page.keyboard.press('Backspace')
-    await editor.pressSequentially(markdown)
+    await replaceMarkdownDocument(page, markdown, null)
 
-    await expect(page.locator('.inline-data-image-widget').first()).toHaveText('![logo](data:image/png;base64,<4 B omitted>)')
-    await expect(editor).not.toContainText('QUJDRA==')
+    await expect(page.locator('.inline-data-image-widget').first()).toHaveText('data:image/png;base64,<4 B omitted>')
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('QUJDRA==')
+  })
+
+  test('editor source view keeps widgets for multiple inline data images', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '![logo-a](data:image/png;base64,QUJDRA==)',
+      '',
+      '![logo-b](data:image/png;base64,QUJD)',
+    ].join('\n')
+
+    await replaceMarkdownDocument(
+      page,
+      markdown,
+      null,
+    )
+
+    await expect(page.locator('.inline-data-image-widget').filter({ hasText: 'data:image/png;base64,<4 B omitted>' })).toHaveCount(2)
+    await expect(page.locator('.inline-data-image-widget').filter({ hasText: 'data:image/png;base64,<3 B omitted>' })).toHaveCount(2)
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('QUJDRA==')
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).not.toContainText('QUJD')
+  })
+
+  test('preview renders inline data image markdown as an image', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = '![logo](data:image/png;base64,QUJDRA==)'
+
+    await replaceMarkdownDocument(page, markdown, null)
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('alt', 'logo')
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('src', 'data:image/png;base64,QUJDRA==')
+    await expect(page.locator('.preview-panel')).not.toContainText(markdown)
+  })
+
+  test('preview renders url-encoded inline SVG data image markdown as an image', async ({ page }) => {
+    await openWritePanel(page)
+
+    const source = 'data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3C/svg%3E'
+    const markdown = `![logo](${source})`
+
+    await replaceMarkdownDocument(page, markdown)
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('alt', 'logo')
+    await expect(page.locator('.preview-panel img').first()).toHaveAttribute('src', source)
+    await expect(page.locator('.preview-panel')).not.toContainText(markdown)
+  })
+
+  test('preview keeps url-encoded inline SVG data links as literal markdown', async ({ page }) => {
+    await openWritePanel(page)
+
+    const source = 'data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%221%22%20height=%221%22%3E%3C/svg%3E'
+    const markdown = `[logo](${source})`
+
+    await replaceMarkdownDocument(page, markdown)
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+    await expect(page.locator('.preview-panel img')).toHaveCount(0)
+    await expect(page.locator('.preview-panel a')).toHaveCount(0)
+    await expect(page.locator('.preview-panel')).toContainText(markdown)
   })
 
   test('WYSIWYG resolves saved relative images to actual image sources', async ({ page }) => {
@@ -1434,6 +1497,37 @@ test.describe('markdown insert commands', () => {
     const image = page.locator('.toastui-editor-ww-container img').first()
     await expect(image).toHaveAttribute('alt', 'diagram')
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,QUJDRA==$/)
+  })
+
+  test('preview resolves saved relative images to actual image sources', async ({ page }) => {
+    const filePath = '/workspace/docs/example.md'
+    const source = './assets/diagram.png'
+
+    await installDesktopImageResolutionStub(page, {
+      openFilePayload: {
+        path: filePath,
+        content: `![diagram](${source})`,
+        snapshot: {
+          path: filePath,
+          contentHash: 'saved-image-preview-hash',
+          size: 24,
+          mtimeMs: 1718000000000,
+        },
+      },
+      draftWorkspace: null,
+      dataUrlMap: {
+        [`${filePath}\u0000${source}`]: 'data:image/png;base64,UVJFVklFVw==',
+      },
+    })
+
+    await page.reload()
+    await triggerPrimaryShortcut(page, 'o')
+    await expect(page.locator('.title-strip h1')).toContainText('example.md')
+    await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+
+    const image = page.locator('.preview-panel img').first()
+    await expect(image).toHaveAttribute('alt', 'diagram')
+    await expect(image).toHaveAttribute('src', /^data:image\/png;base64,UVJFVklFVw==$/)
   })
 
   test('WYSIWYG resolves draft-workspace relative images for unsaved documents', async ({ page }) => {

@@ -25,17 +25,22 @@
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
 3. `docs/release-work-memos/vX.Y.Z.md` を [release-work-memo-template.md](release-work-memo-template.md) から作成し、この release の作業メモ正本にする
-4. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、まず `npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG resolves saved relative images to actual image sources|WYSIWYG resolves draft-workspace relative images for unsaved documents"` を通し、saved file / draft workspace の browser 回帰を renderer 側 release gate として確認する。現時点では次リリースがこの条件に該当し、追加 gate を外す判定は [current-backlog.md](current-backlog.md) の P1 Editor Comfort からこの bundle の次リリース最小範囲が外れた時点を正本とする
+4. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、まず `npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG resolves saved relative images to actual image sources|preview resolves saved relative images to actual image sources|WYSIWYG resolves draft-workspace relative images for unsaved documents"` を通し、saved file / preview / draft workspace の browser 回帰を renderer 側 release gate として確認する。現時点では次リリースがこの条件に該当し、追加 gate を外す判定は [current-backlog.md](current-backlog.md) の P1 Editor Comfort からこの bundle の次リリース最小範囲が外れた時点を正本とする
 5. 同じ release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面を使って次の smoke を手動確認する
-	- paste / drop 画像が first save 後も切れない
-	- HTML export で相対画像が見える
+	- paste 画像が first save 後も見えたまま編集継続できる
+	- saved relative image が preview と HTML export の両方で見える
 	- broken / unresolved image が fallback 表示になる
 	- editor 上で orphaned asset が状態として判別できる
-	この 4 項目はすべて必須確認とする。この bundle の合格観点は「見える」「保存後も切れない」「壊れたら分かる」の 3 つで、手順 4 が「見える」、手順 5 の first save / export が「保存後も切れない」、手順 5 の fallback / orphaned asset 確認が「壊れたら分かる」に対応する。手動 smoke の結果は `docs/release-work-memos/vX.Y.Z.md` に残し、最低でも command 名、確認した画面や出力断面、生成された export または配置先 path、失敗がなかったことを判別できる短い結果メモを含める。release notes には user-facing 要約だけを書く
+	この 4 項目はすべて必須確認とする。この bundle の合格観点は「見える」「保存後も切れない」「壊れたら分かる」の 3 つで、手順 4 が「見える」、手順 5 の first save / export が「保存後も切れない」、手順 5 の fallback / orphaned asset 確認が「壊れたら分かる」に対応する。ADR 0020 に従い、`assets/` フォルダ生成や asset materialization 自体は release 合格条件に含めない。drag and drop は Windows shell 側の source metadata 差分を受けやすいため、この manual gate では画像登録手段の合否判定に使わない。手動 smoke の結果は `docs/release-work-memos/vX.Y.Z.md` に残し、最低でも command 名、確認した画面や出力断面、生成された export または配置先 path、失敗がなかったことを判別できる短い結果メモを含める。release notes には user-facing 要約だけを書く
 6. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
 7. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
 8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、その配置物を対象に model registry preflight を実施する
-9. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、手順 5 の 4 項目を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うための再確認である
+9. MD-BL-005 / MD-BL-023 を同じ release で一緒に出す間は、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、手順 5 の 4 項目を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うための再確認である。deploy が access denied で latest を更新できない場合は、MarkDownViewer 本体と `%LOCALAPPDATA%\MarkDownViewer\latest` 配下を開いている Explorer を閉じてから同じ deploy をやり直し、UNC 上の exe は起動に使わない
+10. 手順 5 と 9 の saved relative image / broken fallback 確認は、次の固定 fixture を使う
+	- [docs/assets/manual-smoke/saved-preview-image.md](docs/assets/manual-smoke/saved-preview-image.md) を開き、preview に緑の SVG が見えることを確認する
+	- 同じ file を HTML export し、出力 HTML でも同じ SVG が見えることを確認する
+	- [docs/assets/manual-smoke/missing-preview-image.md](docs/assets/manual-smoke/missing-preview-image.md) を開き、preview に Missing image: assets/missing-diagram.svg の fallback が出ることを確認する
+	- first save continuity は新規 unsaved document で clipboard paste を使って確認し、drag and drop はこの gate の再現手順から外す
 10. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
 11. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する
 12. release notes を [release-notes-template.md](release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` として作成する

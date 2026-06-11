@@ -4,6 +4,8 @@ Status: Accepted
 
 ## Context
 
+The storage-model portions of this ADR are partially superseded by [0020 Inline Image Storage And Assets Deprecation](0020-inline-image-storage-and-assets-deprecation.md). The workspace boundary and asset-identity reasoning remain historical context until separately replaced.
+
 MDV は relative image の export や local file sync は持っているが、paste、drag and drop、embed で入る local asset の正本保存先はまだ固定されていなかった。
 
 特に次が未整理だった。
