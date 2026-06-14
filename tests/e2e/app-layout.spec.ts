@@ -155,7 +155,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
     manifestPath: string
   } | null
   dataUrlMap: Record<string, string>
-}) {
+} = { dataUrlMap: {} }) {
   await page.addInitScript((config) => {
     const baseSettings: MdvSettings = {
       version: 3,
@@ -169,11 +169,11 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         initialEditType: 'markdown',
         showModeSwitch: true,
         previewStyle: 'vertical',
-        fontSizePx: 15,
+        fontSizePx: 13,
       },
       ai: {
         defaultWriteMode: 'direct',
-        chatFontSizePx: 14,
+        chatFontSizePx: 12,
         toolPermissions: {
           readActiveDocument: true,
           readActiveSelection: true,
@@ -304,6 +304,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
 }
 
 test.beforeEach(async ({ page }) => {
+  await installDesktopImageResolutionStub(page)
   await page.goto('/')
 })
 
@@ -1138,6 +1139,7 @@ test.describe('AI chat streaming', () => {
   test('ignores unrelated stream events and applies tool/completed events to the active request only', async ({ page }) => {
     const aiPage = await page.context().newPage()
 
+    await installDesktopImageResolutionStub(aiPage)
     await aiPage.addInitScript(() => {
       type TestChatMessage = {
         role: 'user' | 'assistant' | 'tool'
@@ -1167,11 +1169,11 @@ test.describe('AI chat streaming', () => {
           initialEditType: 'markdown',
           showModeSwitch: true,
           previewStyle: 'vertical',
-          fontSizePx: 15,
+          fontSizePx: 13,
         },
         ai: {
           defaultWriteMode: 'direct',
-          chatFontSizePx: 14,
+          chatFontSizePx: 12,
           toolPermissions: {
             readActiveDocument: true,
             readActiveSelection: true,
@@ -1322,7 +1324,7 @@ test.describe('AI chat streaming', () => {
     await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
 
     await expect(aiPage.getByText('Working reply')).toBeVisible()
-    await expect(aiPage.getByText('Selection loaded')).toBeVisible()
+    await expect(aiPage.locator('.chat-tool-summary-meta').getByText('Selection loaded')).toBeVisible()
     await expect(aiPage.getByText('ignore me')).toHaveCount(0)
 
     await aiPage.close()
@@ -1584,6 +1586,34 @@ test.describe('markdown insert commands', () => {
 
     await expect(editor).toContainText('[^1]')
     await expect(editor).toContainText('[^1]: note me')
+  })
+
+  test('footnote command uses the WYSIWYG selection as the insert anchor', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'Intro paragraph with selected note text.')
+    await switchToastEditorMode(page, 'wysiwyg')
+
+    const wysiwygEditor = page.locator('.toastui-editor-ww-container .ProseMirror').first()
+    await wysiwygEditor.click()
+    await page.keyboard.press(moveEditorCursorToStartShortcut)
+
+    for (let index = 0; index < 'Intro paragraph with '.length; index += 1) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await page.keyboard.down('Shift')
+
+    for (let index = 0; index < 'selected note'.length; index += 1) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await page.keyboard.up('Shift')
+    await page.locator('.topbar').getByRole('button', { name: /(脚注を挿入|Insert footnote)/ }).click()
+    await switchToastEditorMode(page, 'markdown')
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('Intro paragraph with [^1] text.')
+    await expect(editor).toContainText('[^1]: selected note')
   })
 
   test('horizontal rule command inserts a thematic break on its own block', async ({ page }) => {

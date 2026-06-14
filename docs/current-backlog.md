@@ -57,7 +57,7 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 これらは P0 完了後にまとめて扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
-次リリースでは、まず MD-BL-005 と MD-BL-023 を 1 つの「画像体験 bundle」としてまとめる。これは backlog 上の 2 PBI を 1 件へ統合する意味ではなく、次 release で同じ体験面として一緒に出すという意味である。
+v0.1.14 では、MD-BL-005 と MD-BL-023 を 1 つの「画像体験 bundle」としてまとめた first release slice を出した。これは backlog 上の 2 PBI を 1 件へ統合する意味ではなく、同じ体験面として一緒に出したという意味である。
 
 bundle の狙い:
 
@@ -65,17 +65,23 @@ bundle の狙い:
 - pasted / dropped image が、保存済み文書と untitled draft の両方で相対 asset として生き残る
 - 破損画像、未解決参照、orphaned asset が silent failure せず状態として判別できる
 
-次リリース前に閉じたい最小範囲:
+v0.1.14 で閉じた最小範囲:
 
 - MD-BL-023 の WYSIWYG 実画像優先表示を saved file と draft workspace の両経路で安定化し、browser 回帰を release gate として固定する
 - MD-BL-005 の first release slice として、paste / drop / first save / export の asset path continuity を release-ready にする
 - broken / unresolved image の fallback と、editor 上で orphaned asset が判別できる状態可視化を揃え、「画像を扱うと壊れる」印象を残さない
 
-次リリース後へ送ってよいもの:
+後続 slice へ送ったもの:
 
 - asset manager の本格 UI
 - asset rename / continuity の高度な一括操作
 - AI asset tool surface や cross-workspace reusable blob の一般化
+
+次に扱う最小範囲:
+
+- MD-BL-004 の first slice として、footnote を含む Markdown insert command の selection / caret anchor を source と WYSIWYG の両方で固定する
+- Toast UI が WYSIWYG で保持できない Markdown 専用構文は、escape された壊れた Markdown にせず、source mode へ戻して正規 Markdown として挿入する
+- topbar / Toast UI toolbar の大きなIA整理は、挿入 contract の安定化後に扱う
 
 注記:
 
@@ -286,6 +292,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-002 見出しアウトライン追従強化は完了。outline pane に active heading 表示を追加し、editor caret に追従して現在位置の見出しを強調できるようにした。
 - MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
 - MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
+- MD-BL-005 / MD-BL-023 の画像体験 first release slice は v0.1.14 で完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定した。
 - AI-RT-004 streaming Markdown render tuning は完了。assistant delta の flush cadence を応答長と transcript 量に合わせて調整し、過去 chat bubble の Markdown 再レンダリングを抑制した。
 
 ## Historical Documents
@@ -297,18 +304,20 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 ## Recommended Execution Order
 
 1. AI-P1 Response UX
-2. MD-BL-004, MD-BL-005, MD-BL-023, MD-BL-012, MD-BL-017, MD-BL-018
-3. MD-BL-006, MD-BL-007
-4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
-5. REL-BL-001 update foundation と version metadata surface
-6. AI-P2 の残件整理と tool surface 残件の優先順位見直し
-7. AI-P3 context management
-8. AI-CM context lifecycle
-9. AI-P4 subagent orchestration
+2. MD-BL-004, MD-BL-012, MD-BL-017, MD-BL-018
+3. MD-BL-005 / MD-BL-023 の後続 slice: asset manager、rename / continuity、orphan cleanup の本格 UI
+4. MD-BL-006, MD-BL-007
+5. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
+6. REL-BL-001 update foundation と version metadata surface
+7. AI-P2 の残件整理と tool surface 残件の優先順位見直し
+8. AI-P3 context management
+9. AI-CM context lifecycle
+10. AI-P4 subagent orchestration
 
 注記:
 
 - AI-P1 は新機能拡張というより、現行 assistant の待ち時間知覚を改善する response UX 修正として editor comfort より前に扱う
+- MD-BL-005 / MD-BL-023 は first release slice 完了済み。recommended order で次に扱う画像系は、同じ ID の残り scope のうち asset manager / rename / orphan cleanup の後続 slice だけを指す
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
@@ -317,7 +326,8 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージとして扱う。
 
-- 画像体験 bundle として、MD-BL-005 / MD-BL-023 の「見える」「保存後も切れない」「壊れたら分かる」を先に揃える
+- Markdown command surface と挿入アンカーを安定化し、footnote / link / image / code block などの主要挿入を source と WYSIWYG の両方で破綻しないようにする
+- 画像体験 bundle の後続として、asset manager、rename / continuity、orphan cleanup の本格UIを段階的に扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善

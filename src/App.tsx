@@ -3653,6 +3653,9 @@ function App() {
 
     invalidateEditorSearch()
     updateMarkdownText(result.nextMarkdown)
+    if (command === 'footnote' && editor.isWysiwygMode()) {
+      editor.changeMode('markdown', true)
+    }
     editor.setMarkdown(result.nextMarkdown)
     setPendingSearchJump(result.selection)
     setActivePanel('write')
