@@ -24,6 +24,20 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 - AI 機能の拡張より先に、Markdown エディタとしての日常価値を底上げする
 - separate chat window 前提の古い分解は履歴扱いとし、現行の assistant dock 前提へ読み替える
 
+## Backlog Inventory Rules
+
+`[棚卸待ち]` は、その backlog item または slice が未実装だという意味ではない。現行実装、テスト、release memo、関連 docs と照合して、完了済み、一部完了・後続あり、未実装、または scope 再定義のどれかを current-backlog 上で確定する必要があるという意味で使う。`[残件棚卸待ち]` は、完了済み slice の記録を残したまま、残 scope だけを棚卸対象にするという意味で使う。
+
+棚卸では次の順で確認する。
+
+1. current-backlog の該当 priority group と subordinate backlog detail の受け入れ条件を読む
+2. 実装、テスト、release note / release memo、ADR / design doc の根拠を探す
+3. 必要なら targeted validation を実行する
+4. 結果を current-backlog に `完了済み`、`一部完了・後続あり`、`未実装`、`scope 再定義` のいずれかで記録する
+5. 完了済みなら active / recommended order から外し、後続があれば残 scope を独立 slice として残す
+
+棚卸順は priority group を優先する。まず P1 Editor Comfort、次に P2 Editor Expansion、Supporting Backlog、AI-P2、AI-P3、AI-CM、AI-P4 の順で確認する。これは全 backlog の棚卸完了まで実装を止めるという意味ではなく、次に実装対象にする priority group を先に棚卸し、確定した同 group の残 scope から実装へ進むという意味である。`[棚卸待ち]` または `[残件棚卸待ち]` が付いた項目は、実装着手前にこの確認を行う。
+
 ## Completed Baseline
 
 現時点で、次の基盤は導入済みである。
@@ -42,15 +56,17 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ## Active Backlog
 
+この節にある `[棚卸待ち]` は active candidate の未実装断定ではなく、実装前に現状確認と分類記録が必要な印である。既に完了済み slice が記録されている項目は `[残件棚卸待ち]` とし、既存の完了記録は維持したまま残 scope だけを確認する。
+
 ### P0 Editor Core
 
 現時点で未着手の P0 はない。MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled placeholder を Toast UI の内部 placeholder widget から app 側 overlay へ退避し、WYSIWYG 編集開始時の renderer crash を解消した。
 
 ### P1 Editor Comfort
 
-1. MD-BL-005 画像 / メディア inline storage と relative image 互換の後続整理
-2. MD-BL-006 表編集補助
-3. MD-BL-007 リスト継続と task list 操作補助
+1. [残件棚卸待ち] MD-BL-005 画像 / メディア inline storage と relative image 互換の後続整理
+2. [棚卸待ち] MD-BL-006 表編集補助
+3. [棚卸待ち] MD-BL-007 リスト継続と task list 操作補助
 
 P0 が完了済みのため、これらを現在の editor comfort 候補として扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
 
@@ -94,15 +110,15 @@ v0.1.14 で閉じた最小範囲:
 
 ### P2 Editor Expansion
 
-1. MD-BL-019 workspace topbar / outline / typography density 整理
-2. MD-BL-020 変更プレビューと merge UI 基盤
-3. MD-BL-021 Span comment と orphan 管理
-4. MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
-5. MD-BL-014 検索 surface の再設計
-6. MD-BL-008 Preview 同期強化
-7. MD-BL-009 スペルチェック
-8. MD-BL-010 最近使った文書 / クイックオープン
-9. MD-BL-011 PDF 出力
+1. [棚卸待ち] MD-BL-019 workspace topbar / outline / typography density 整理
+2. [棚卸待ち] MD-BL-020 変更プレビューと merge UI 基盤
+3. [棚卸待ち] MD-BL-021 Span comment と orphan 管理
+4. [棚卸待ち] MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
+5. [棚卸待ち] MD-BL-014 検索 surface の再設計
+6. [棚卸待ち] MD-BL-008 Preview 同期強化
+7. [棚卸待ち] MD-BL-009 スペルチェック
+8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
+9. [棚卸待ち] MD-BL-011 PDF 出力
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -115,8 +131,8 @@ v0.1.14 で閉じた最小範囲:
 
 ### Supporting Backlog
 
-1. ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
-2. REL-BL-001 アップデート基盤と version metadata surface の整備
+1. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+2. [棚卸待ち] REL-BL-001 アップデート基盤と version metadata surface の整備
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -212,21 +228,21 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 ### AI-P2 Current Product Gaps
 
-1. dock 前提の AI-P2 残件整理と優先順位再評価を続ける
-2. AI-TL-001 GH Issue の閲覧 / 発行 tool surface を追加する
-3. workspace grep を assistant tool surface に追加する
-4. slice 加工系 `nl` / `cut` / `sort` を追加する
-5. AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
-6. AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
-7. AI-UX-003 accepted layering policy を各 AI backlog と diagnostics surface へ適用する
-8. AI-CFG-001 Prompt File を編集・切替できる customization surface を追加する
-9. AI-CFG-002 SKILL を登録・有効化・切替できる runtime surface を追加する
-10. AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
-11. suggest mode と audit trail を追加する
-12. AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
-13. AI-ED-001 snapshot restore inspection foundation を追加する
-14. AI-ED-002 snapshot restore apply / resolve action を追加する
-15. AI-ED-003 snapshot history source / destination 一般化を評価する
+1. [棚卸待ち] dock 前提の AI-P2 残件整理と優先順位再評価を続ける
+2. [棚卸待ち] AI-TL-001 GH Issue の閲覧 / 発行 tool surface を追加する
+3. [棚卸待ち] workspace grep を assistant tool surface に追加する
+4. [棚卸待ち] slice 加工系 `nl` / `cut` / `sort` を追加する
+5. [棚卸待ち] AI-UX-001 AI chat で default target editor を常に明示し、切替を迷わせない
+6. [棚卸待ち] AI-UX-002 複数 editor window 起動時の chat context binding と cross-window policy を定義する
+7. [棚卸待ち] AI-UX-003 accepted layering policy を各 AI backlog と diagnostics surface へ適用する
+8. [棚卸待ち] AI-CFG-001 Prompt File を編集・切替できる customization surface を追加する
+9. [棚卸待ち] AI-CFG-002 SKILL を登録・有効化・切替できる runtime surface を追加する
+10. [棚卸待ち] AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
+11. [棚卸待ち] suggest mode と audit trail を追加する
+12. [棚卸待ち] AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
+13. [棚卸待ち] AI-ED-001 snapshot restore inspection foundation を追加する
+14. [棚卸待ち] AI-ED-002 snapshot restore apply / resolve action を追加する
+15. [棚卸待ち] AI-ED-003 snapshot history source / destination 一般化を評価する
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。AI-P1 Response UX は完了済みなので、次の AI 作業ではこの束の優先順位再評価から着手できる。
 
@@ -250,11 +266,11 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 
 ### AI-P3 Context Management
 
-1. IM-P1-001 Rolling Short Context Buffer
-2. IM-P1-002 Base Summary Generator
-3. IM-P1-003 Protected Context Area
-4. IM-P1-004 Context Budget Manager
-5. IM-P1-005 Protected Context Tools
+1. [棚卸待ち] IM-P1-001 Rolling Short Context Buffer
+2. [棚卸待ち] IM-P1-002 Base Summary Generator
+3. [棚卸待ち] IM-P1-003 Protected Context Area
+4. [棚卸待ち] IM-P1-004 Context Budget Manager
+5. [棚卸待ち] IM-P1-005 Protected Context Tools
 
 詳細は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
 
@@ -262,9 +278,9 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 
 ### AI-CM Context Lifecycle
 
-1. AI-CM-001 thread 一覧、resume、active context 切替 surface を定義する
-2. AI-CM-002 context 継続の永続化と復元 policy を定義し、customization provenance summary を保持する
-3. AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
+1. [棚卸待ち] AI-CM-001 thread 一覧、resume、active context 切替 surface を定義する
+2. [棚卸待ち] AI-CM-002 context 継続の永続化と復元 policy を定義し、customization provenance summary を保持する
+3. [棚卸待ち] AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
 
 詳細は [docs/ai-context-lifecycle-design.md](docs/ai-context-lifecycle-design.md) を参照する。
 
@@ -274,11 +290,11 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ### AI-P4 Subagent Orchestration
 
-1. AI-SA-001 Subagent session model と main chat 対称 contract を定義する
-2. AI-SA-002 サブエージェント依頼、分岐、専用 state branch を定義する
-3. AI-SA-003 join、wait-all、呼び出し元への context 差し戻し規則を定義する
-4. AI-SA-004 specialist / evaluator の role model と objective review flow を定義する
-5. AI-SA-005 subagent lifecycle、cancel、timeout、garbage collection を定義する
+1. [棚卸待ち] AI-SA-001 Subagent session model と main chat 対称 contract を定義する
+2. [棚卸待ち] AI-SA-002 サブエージェント依頼、分岐、専用 state branch を定義する
+3. [棚卸待ち] AI-SA-003 join、wait-all、呼び出し元への context 差し戻し規則を定義する
+4. [棚卸待ち] AI-SA-004 specialist / evaluator の role model と objective review flow を定義する
+5. [棚卸待ち] AI-SA-005 subagent lifecycle、cancel、timeout、garbage collection を定義する
 
 詳細は [docs/ai-subagent-orchestration-design.md](docs/ai-subagent-orchestration-design.md) を参照する。
 
@@ -312,14 +328,14 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. MD-BL-005 の後続 slice: inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup
-2. MD-BL-006, MD-BL-007
-3. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
-4. REL-BL-001 update foundation と version metadata surface
-5. AI-P2 の残件整理と tool surface 残件の優先順位見直し
-6. AI-P3 context management
-7. AI-CM context lifecycle
-8. AI-P4 subagent orchestration
+1. P1 Editor Comfort の棚卸: MD-BL-005 後続 slice、MD-BL-006、MD-BL-007
+2. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-013、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
+3. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
+4. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
+5. AI-P3 context management の棚卸
+6. AI-CM context lifecycle の棚卸
+7. AI-P4 subagent orchestration の棚卸
+8. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定した項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
 
 注記:
 
@@ -338,4 +354,4 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善
 - Playwright による主要 UI 回帰の固定化
-- 今後の実装順を response UX と editor comfort の現行優先順へ再整理
+- 今後の実装順を、priority group ごとの棚卸結果に基づいて再整理
