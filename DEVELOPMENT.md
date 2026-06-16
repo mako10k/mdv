@@ -89,7 +89,7 @@ npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG re
 
 `npm test` は必要な Chromium を確認してから、この suite を実行します。suite 自体は毎回 production build を作ってから preview server を起動し、その renderer に対して回帰確認を行います。
 
-MD-BL-004 を次 release line として進める間は、上の `markdown insert commands` targeted browser 回帰を renderer 側の release gate の最低線として扱います。特に WYSIWYG で保持できない Markdown 専用構文は source mode へ戻して正規 Markdown として挿入されることを確認してください。MD-BL-005 / MD-BL-023 の画像体験 bundle は v0.1.14 で first release slice 完了済みです。画像 path continuity や fallback を変更した場合は、画像体験 bundle の targeted browser 回帰と Electron 実行面の first save / HTML export / broken image fallback / orphaned asset smoke を再確認してください。
+MD-BL-004 の first slice は完了済みです。Markdown insert command surface を変更する release line では、上の `markdown insert commands` targeted browser 回帰を renderer 側の release gate の最低線として扱います。特に WYSIWYG で保持できない Markdown 専用構文は source mode へ戻して正規 Markdown として挿入されることを確認してください。MD-BL-005 / MD-BL-023 の画像体験 bundle は v0.1.14 で first release slice 完了済みです。画像 continuity や fallback を変更した場合は、画像体験 bundle の targeted browser 回帰と Electron 実行面の first save / HTML export / broken image fallback / unresolved image visibility smoke を再確認してください。
 
 ブラウザを開いて確認したいとき:
 
@@ -281,12 +281,12 @@ npm run dist:win:dir
 1. `package.json` の `version` を bump する。
 2. `npm run lint && npm run build` を通す。
 3. `docs/release-work-memos/vX.Y.Z.md` を [docs/release-work-memo-template.md](docs/release-work-memo-template.md) から作り、この release の作業メモ正本にする。
-4. MD-BL-004 を含む release line では、`npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "markdown insert commands"` を通し、Markdown insert command の renderer 側 gate を確認する。
-5. 画像 path continuity や fallback を変更した release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面で、first save / HTML export / broken image fallback / orphaned asset の状態可視化を手動 smoke する。必要な確認結果は `docs/release-work-memos/vX.Y.Z.md` に残す。release notes にはその user-facing 要約だけを反映する。
+4. Markdown insert command surface を変更した release では、`npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "markdown insert commands"` を通し、Markdown insert command の renderer 側 gate を確認する。
+5. 画像 continuity や fallback を変更した release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面で、first save / HTML export / broken image fallback / unresolved image visibility を手動 smoke する。必要な確認結果は `docs/release-work-memos/vX.Y.Z.md` に残す。release notes にはその user-facing 要約だけを反映する。
 6. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
 7. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
 8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で配置した candidate を対象に、[docs/release-workflow.md](docs/release-workflow.md) の model registry preflight を実施する。
-9. 画像 path continuity や fallback を変更した release では、`npm run win:host:deploy:candidate:noadmin` で candidate を Windows ローカルへ配置し、手順 5 の画像 smoke を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うためである。
+9. 画像 continuity や fallback を変更した release では、`npm run win:host:deploy:candidate:noadmin` で candidate を Windows ローカルへ配置し、手順 5 の画像 smoke を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像切れを拾うためである。
 10. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。
 11. 問題なければ `npm run win:host:promote:noadmin` で canonical artifact を更新する。
 12. [docs/release-notes-template.md](docs/release-notes-template.md) から `docs/release-notes/vX.Y.Z.md` を作る。

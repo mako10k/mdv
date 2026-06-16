@@ -4,7 +4,7 @@
 
 MDV を「Markdown 編集用途のモダンなデスクトップエディタ」として見たときに、現状機能がどこまで満たせているかを整理し、Markdown 編集に本当に必要な追加・変更だけをバックログ化する。
 
-この文書は editor 領域の詳細定義と背景整理を持つ補助 backlog 文書であり、正式な backlog 登録と優先順位の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。ここに残る完了済み ID や過去の分解は履歴アンカーであり、文書間で食い違った場合は current-backlog を優先する。
+この文書は editor 領域の詳細定義と背景整理を持つ補助 backlog 文書であり、正式な backlog 登録と優先順位の正本は [docs/current-backlog.md](current-backlog.md) とする。ここに残る完了済み ID や過去の分解は履歴アンカーであり、文書間で食い違った場合は current-backlog を優先する。
 
 この文書では AI 連携や fetch ACL のような周辺機能は主評価軸にしない。比較対象は、Typora、Obsidian、MarkText、VS Code + Markdown 拡張のような現代的 Markdown エディタ群の共通期待値とする。
 
@@ -27,7 +27,7 @@ MDV は次の点ですでに強い。
 - Mermaid、KaTeX、task list、footnote、container block の描画
 - HTML export、印刷、文書コピー
 
-一方で、Markdown エディタとして日常利用の快適さを決める「置換」「編集補助」「資産挿入」「復旧性」「構造ナビの追従性」はまだ薄い。
+一方で、Markdown エディタとして日常利用の快適さを決める「画像管理」「表 / リスト編集補助」「検索 surface」「preview 同期」「複数文書の往復」はまだ薄い。
 
 ## 比較基準
 
@@ -48,15 +48,15 @@ MDV は次の点ですでに強い。
 | 基本保存安全性 | Fit | Save / Save As、dirty 表示、外部変更追従、競合保存、merge save あり | なし |
 | ドラッグ&ドロップ読込 | Fit | ローカルファイルとして接続したまま読込できる | なし |
 | プレビュー確認 | Partial Fit | Preview、印刷、HTML export はある | side-by-side 常時比較、スクロール同期、カーソル連動がない |
-| 文内検索 | Fit | exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは未整理 |
+| 文内検索 | Fit | core の exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは polish gap として未整理 |
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
-| Markdown 入力補助 | Partial Fit | Toast UI Editor 標準 toolbar と MDV topbar の挿入コマンドはある | command surface が二重化しており、役割分担、grouping、overflow、footnote を含む insert anchor 安定性が弱い |
-| 画像・添付資産 | Partial Fit | pasted / dropped image を assets/ に materialize する基盤は入った | media reference manager、base64 data URL の明示的な退避 / 正規化、asset rename / continuity の UX に加え、WYSIWYG 上で画像がバッジ風 widget に見える表現差が未完 |
+| Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
+| 画像・添付資産 | Partial Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、saved / draft の relative image も WYSIWYG 実画像表示できる | inline image の管理 / 退避 / 変換導線、relative image 互換の整理、deprecated asset-workspace 前提の cleanup が未完 |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
 | 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
-| 起動初期状態 | Partial Fit | bootstrap settings と initial document の仕組みはある | 初期 placeholder 文書が open / recovery 解決前に見える瞬間が残る |
+| 起動初期状態 | Fit | fresh untitled document は blank start になり、placeholder-only surface は回帰固定済み | なし |
 | マルチ文書作業 | Partial Fit | 複数 window は可能 | タブ、最近使った文書、クイックスイッチがない |
 | 出力手段 | Partial Fit | 印刷、HTML export はある | PDF / copy as HTML など軽出力がない |
 
@@ -64,13 +64,13 @@ MDV は次の点ですでに強い。
 
 Markdown 編集という観点での優先 gap は次の 3 つに集約される。
 
-1. Markdown command surface の重複と挿入アンカー不安定
-2. 画像 / media asset workflow と参照管理の不足分
-3. 起動 / 検索 / topbar の workspace UX 整理不足
+1. 画像 / media asset workflow と参照管理の不足分
+2. 表編集、リスト継続、task list 操作などの日常編集補助
+3. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
 
 見出しアウトラインと jump に加えて active heading 追従も完了したため、以後は「長文構造ナビゲーションそのもの」ではなく、filter / collapse のような副次改善が必要になったときだけ別途扱う。
 
-逆に、AI 連携強化や高度な workspace 機能より先に、上の 3 つを埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
+逆に、AI 連携強化や高度な workspace 機能より先に、上の残件を埋めたほうが「モダンな Markdown エディタ」としての体感価値が上がる。
 
 ## バックログ
 
@@ -121,57 +121,65 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 #### MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 
 - 種別: 変更
+- 状態: 完了
 - 目的: 記法を覚えていなくても主要 Markdown を素早く書けるようにする
 - 内容:
-  - Toast UI Editor 標準 toolbar と MDV topbar の責務重複を整理し、command surface を統合する
+  - Toast UI Editor 標準 toolbar は非表示にし、MDV topbar の挿入コマンドを主要 command surface として固定する
   - 見出し、リンク、画像、コードブロック、引用、水平線、脚注の挿入コマンド
-  - toolbar または command palette から呼び出し
+  - toolbar から呼び出し
   - caret / selection 起点の insert anchor を安定化し、footnote definition を含めて意図した位置に挿入する
 - 完了条件:
   - 選択範囲 wrap とカーソル位置 insert の両方に対応
   - footnote を含む各 insert command が active caret / selection を起点に安定して動く
   - WYSIWYG / source どちらでも破綻しない
+- 完了メモ:
+  - WYSIWYG で保持できない footnote 挿入は source mode へ戻して正規 Markdown として残す
+  - `tests/e2e/app-layout.spec.ts` の `markdown insert commands` 回帰で固定済み
+  - command surface の grouping / overflow と toolbar IA の追加整理は MD-BL-013 で扱う
 
 #### MD-BL-005 画像 / メディア asset workflow と参照管理
 
 - 種別: 追加
+- 状態: first release slice 完了、後続あり
 - 目的: Markdown 執筆で最も頻出な画像挿入を簡単にする
 - 内容:
-  - draft workspace、asset manager、assetId continuity を含む local asset foundation を導入する
-  - クリップボード画像、ファイル drop を相対 asset として保存
+  - ADR 0020 に従い、新規 paste / drop 画像は inline image 表現を正本として扱う
+  - 既存 relative image / `assets/...` Markdown は後方互換として open / preview / WYSIWYG / export で読めるようにする
   - Markdown に `![](...)` を自動挿入
-  - 保存先未確定文書では app-managed draft workspace へ保存し、初回保存時に実ディレクトリへ materialize する
-  - data URL / base64 埋め込みを常用導線にせず、必要時も相対 asset へ正規化できるようにする
-  - media reference manager を追加し、rename / continuity / orphan cleanup / 破損添付の削除を UI から扱えるようにする
+  - source view では inline data URL を abbreviated widget として扱い、巨大な base64 文字列で編集体験を壊さない
+  - inline image の管理 / 退避 / 変換導線、relative image 互換、deprecated asset-workspace 前提の cleanup を後続で扱う
 - 完了条件:
-  - 保存済み Markdown の隣接 assets ディレクトリへ出力できる
-  - 未保存文書でも relative path を維持したまま recovery / first save と整合する
+  - paste / drop 画像が first save 後も見え、編集を継続できる
+  - 既存 relative image は saved / draft の両経路で preview / WYSIWYG / export と整合する
   - 既存 export 挙動と整合する
-  - pasted / dropped image が data URL のまま残り続けない
+  - broken / unresolved image が silent failure せず fallback として判別できる
 
   v0.1.14 で完了した first release slice:
 
-  - untitled draft workspace と保存済み文書の両方で、貼り付け / drop 画像が相対 path を維持したまま first save 後も壊れない
+  - 貼り付け / drop 画像が inline image 表現として first save 後も見え、編集を継続できる
   - HTML export と WYSIWYG 表示が同じ base path 解決前提で動き、saved / draft の差で画像が見えなくならない
-  - 破損 / 未解決画像の fallback と、editor 上で孤立 asset が判別できる状態可視化を揃え、画像を入れたあとに「どこへ消えたか分からない」状態を避ける
+  - 破損 / 未解決画像の fallback と、editor 上で未解決画像状態が判別できる状態可視化を揃え、画像を入れたあとに「どこへ消えたか分からない」状態を避ける
+  - `assets/` materialization は ADR 0020 で deprecated になったため、新規挿入画像の正本モデルや release 合格条件に含めない
 
   後続 slice へ送ったもの:
 
-  - asset manager の本格一覧 UI
-  - rename / move / dedupe の高度な一括管理
-  - AI からの asset copy / rename mutation surface の一般化
+  - inline image の管理 / 退避 / 変換導線
+  - relative image 互換 resolver と export / fallback の整理
+  - deprecated asset workspace / materialization 前提の実装と文書の段階的 cleanup
 
 注記:
 
-- 詳細設計は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を正とする
+- 新規 paste / drop 画像の正本保存モデルは [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) を正とする
+- [docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の補助資料としてだけ参照する。両者が衝突する場合は ADR 0020 を優先する
 
 #### MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
 
 - 種別: 変更
+- 状態: 完了
 - 目的: WYSIWYG でも preview に近い感覚で画像を扱えるようにする
 - 内容:
   - 解決可能な画像参照は、WYSIWYG 上で badge 風 widget より実画像表示を優先する
-  - 破損画像、未解決参照、未 materialize asset、読み込み不能画像では fallback widget または error 表示へ退避する
+  - 破損画像、未解決参照、旧 draft asset 参照、読み込み不能画像では fallback widget または error 表示へ退避する
   - 画像選択、caret 移動、削除、alt 編集など editor 操作が実画像表示で破綻しないようにする
   - preview / source / WYSIWYG の見え方差を減らしつつ、編集 affordance が必要な箇所だけ最小限の chrome を残す
 - 完了条件:
@@ -183,7 +191,8 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
   - MD-BL-023 は単独 polish ではなく、MD-BL-005 の first release slice とセットで「画像体験 bundle」として出した
   - release readiness は saved file 経路だけでなく、untitled draft workspace 経路と browser 回帰まで含めて判断した
-  - asset 管理 UI 全体を先に完成させるのではなく、まず「見える」「保存後も切れない」「壊れたら分かる」を優先した
+  - 画像管理 UI 全体を先に完成させるのではなく、まず「見える」「保存後も切れない」「壊れたら分かる」を優先した
+  - 後続の画像管理 / cleanup は ADR 0020 前提で MD-BL-005 に残す
 
 #### MD-BL-006 表編集補助
 
@@ -211,6 +220,7 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 #### MD-BL-012 起動時 placeholder ちらつき抑制
 
 - 種別: 変更
+- 状態: 完了
 - 目的: 起動直後に placeholder 文書や初期 panel state が一瞬見える違和感をなくす
 - 内容:
   - initial document と実ファイル open / recovery 解決の間に見える placeholder surface を抑制する
@@ -218,6 +228,8 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 - 完了条件:
   - 起動時に placeholder 文書がちらつかない
   - 初回 open、recovery restore、clean untitled の各経路で挙動がぶれない
+- 完了メモ:
+  - fresh untitled document は blank start に寄せ、placeholder-only surface が新規文書で見えないことを browser / Electron E2E で固定済み
 
 ### P2
 
@@ -321,34 +333,39 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 - 完了条件:
   - 1 アクションで PDF を生成できる
 
-## Historical Execution Heuristic
+## Historical Execution Notes
 
-ここでの順序は editor fit/gap 観点の分析メモであり、正式な着手順と優先順位は [docs/current-backlog.md](docs/current-backlog.md) を正とする。ここで bundle と書く箇所は、PBI を統合せずに同じ release で一緒に出すという意味である。
+ここでの順序は editor fit/gap 観点の分析メモであり、正式な着手順と優先順位は [docs/current-backlog.md](current-backlog.md) を正とする。ここで bundle と書く箇所は、PBI を統合せずに同じ release で一緒に出すという意味である。
 
-1. MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
-2. MD-BL-005 画像 / メディア asset workflow と参照管理 (first release slice は v0.1.14 で完了、後続 slice は asset manager / rename / orphan cleanup)
-3. MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示 (first release slice は v0.1.14 で完了)
-4. MD-BL-012 起動時 placeholder ちらつき抑制
-5. MD-BL-006 表編集補助
-6. MD-BL-007 リスト継続と task list 操作補助
-7. MD-BL-013 workspace topbar grouping / overflow 再設計
-8. MD-BL-014 検索 surface の再設計
-9. MD-BL-008 Preview 同期強化
-10. MD-BL-009 スペルチェック
+完了済み:
 
-2 と 3 の画像体験 first release slice は v0.1.14 で同じ release bundle として完了済み。
-11. MD-BL-010 最近使った文書 / クイックオープン
-12. MD-BL-011 PDF 出力
+- MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
+- MD-BL-012 起動時 placeholder ちらつき抑制
+- MD-BL-017 同一ファイル再オープン時の editor focus dedupe
+- MD-BL-018 H3/H4 heading 表示崩れ修正
+- MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
+
+残りの分析順:
+
+1. MD-BL-005 画像 / メディア asset workflow と参照管理 (first release slice は v0.1.14 で完了、後続 slice は inline image 管理 / relative image 互換 / deprecated asset-workspace cleanup)
+2. MD-BL-006 表編集補助
+3. MD-BL-007 リスト継続と task list 操作補助
+4. MD-BL-013 workspace topbar grouping / overflow 再設計
+5. MD-BL-014 検索 surface の再設計
+6. MD-BL-008 Preview 同期強化
+7. MD-BL-009 スペルチェック
+8. MD-BL-010 最近使った文書 / クイックオープン
+9. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
-この文書は editor backlog の詳細定義であり、優先順位と正式 backlog 登録の正本は [docs/current-backlog.md](docs/current-backlog.md) とする。
+この文書は editor backlog の詳細定義であり、優先順位と正式 backlog 登録の正本は [docs/current-backlog.md](current-backlog.md) とする。
 
-2026-06-01 の usernote メモは次のように intake され、正式 backlog への受理結果は [docs/current-backlog.md](docs/current-backlog.md) 側で管理する。
+2026-06-01 の usernote メモは次のように intake され、正式 backlog への受理結果は [docs/current-backlog.md](current-backlog.md) 側で管理する。
 
 1. 起動時 placeholder のちらつき: MD-BL-012
 2. topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
-3. media link manager と base64 回避: MD-BL-005
+3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005
 4. 検索ボックスの別 window 検討: MD-BL-014
 5. topbar の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入位置ずれ: MD-BL-004
@@ -365,10 +382,10 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
 非 editor-fit-gap 項目:
 
-1. 公開 README と開発文書の責務分離は [docs/current-backlog.md](docs/current-backlog.md) の DOC-BL-001 で扱う
-2. iteration limit 到達時の継続 / 中断選択は [docs/current-backlog.md](docs/current-backlog.md) の AI-UX-004 で扱う
-3. Electron 側肥大化の解消と TypeScript 化は [docs/current-backlog.md](docs/current-backlog.md) の ENG-BL-001 で扱う
+1. 公開 README と開発文書の責務分離は [docs/current-backlog.md](current-backlog.md) の DOC-BL-001 で扱う
+2. iteration limit 到達時の継続 / 中断選択は [docs/current-backlog.md](current-backlog.md) の AI-UX-004 で扱う
+3. Electron 側肥大化の解消と TypeScript 化は [docs/current-backlog.md](current-backlog.md) の ENG-BL-001 で扱う
 
 ## 補足
 
-README にある diff / patch 系機能は編集基盤として有用だが、Markdown エディタとしての第一優先ではない。この文書の並び順は「Markdown を日常的に書く人の体感価値」で見た分析メモであり、正式な優先度確定は [docs/current-backlog.md](docs/current-backlog.md) で行う。
+README にある diff / patch 系機能は編集基盤として有用だが、Markdown エディタとしての第一優先ではない。この文書の並び順は「Markdown を日常的に書く人の体感価値」で見た分析メモであり、正式な優先度確定は [docs/current-backlog.md](current-backlog.md) で行う。

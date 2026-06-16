@@ -25,21 +25,21 @@
 1. `package.json` の `version` を bump する
 2. `npm run lint && npm run build` を通す
 3. `docs/release-work-memos/vX.Y.Z.md` を [release-work-memo-template.md](release-work-memo-template.md) から作成し、この release の作業メモ正本にする
-4. MD-BL-004 を含む release line では、まず `npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "markdown insert commands"` を通し、Markdown insert command の browser 回帰を renderer 側 release gate として確認する。特に WYSIWYG で保持できない Markdown 専用構文が source mode へ戻り、正規 Markdown として残ることを確認する
-5. 画像 path continuity や fallback を変更した release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面を使って次の smoke を手動確認する
+4. Markdown insert command surface を変更した release では、まず `npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "markdown insert commands"` を通し、Markdown insert command の browser 回帰を renderer 側 release gate として確認する。特に WYSIWYG で保持できない Markdown 専用構文が source mode へ戻り、正規 Markdown として残ることを確認する
+5. 画像 continuity や fallback を変更した release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面を使って次の smoke を手動確認する
 	- paste 画像が first save 後も見えたまま編集継続できる
 	- saved relative image が preview と HTML export の両方で見える
 	- broken / unresolved image が fallback 表示になる
-	- editor 上で orphaned asset が状態として判別できる
-	この bundle の合格観点は「見える」「保存後も切れない」「壊れたら分かる」の 3 つで、first save / export が「保存後も切れない」、fallback / orphaned asset 確認が「壊れたら分かる」に対応する。ADR 0020 に従い、`assets/` フォルダ生成や asset materialization 自体は release 合格条件に含めない。drag and drop は Windows shell 側の source metadata 差分を受けやすいため、この manual gate では画像登録手段の合否判定に使わない。手動 smoke の結果は `docs/release-work-memos/vX.Y.Z.md` に残し、最低でも command 名、確認した画面や出力断面、生成された export または配置先 path、失敗がなかったことを判別できる短い結果メモを含める。release notes には user-facing 要約だけを書く
+	- editor 上で未解決画像状態が silent ではなく判別できる
+	この bundle の合格観点は「見える」「保存後も切れない」「壊れたら分かる」の 3 つで、first save / export が「保存後も切れない」、fallback / unresolved image visibility が「壊れたら分かる」に対応する。`broken image fallback` と `unresolved image visibility` は別 fixture を要求するものではなく、通常は missing-image fallback が表示される同じ確認結果を、fallback 表示そのものと未解決状態の可視性の両面で記録する。ADR 0020 に従い、`assets/` フォルダ生成や asset materialization 自体は release 合格条件に含めない。drag and drop は Windows shell 側の source metadata 差分を受けやすいため、この manual gate では画像登録手段の合否判定に使わない。手動 smoke の結果は `docs/release-work-memos/vX.Y.Z.md` に残し、最低でも command 名、確認した画面や出力断面、生成された export または配置先 path、失敗がなかったことを判別できる短い結果メモを含める。release notes には user-facing 要約だけを書く
 6. `npm run win:host:generate:clean:noadmin` で candidate artifact を生成する
 7. `npm run release:check:candidate` で candidate artifact の version metadata、updater manifest、updater config、必須成果物を確認する
 8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、その配置物を対象に model registry preflight を実施する
-9. 画像 path continuity や fallback を変更した release では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、手順 5 の画像 smoke を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像 path 切れを拾うための再確認である。deploy が access denied で latest を更新できない場合は、MarkDownViewer 本体と `%LOCALAPPDATA%\MarkDownViewer\latest` 配下を開いている Explorer を閉じてから同じ deploy をやり直し、UNC 上の exe は起動に使わない
+9. 画像 continuity や fallback を変更した release では、`npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を Windows ローカルへ配置し、手順 5 の画像 smoke を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像切れを拾うための再確認である。deploy が access denied で latest を更新できない場合は、MarkDownViewer 本体と `%LOCALAPPDATA%\MarkDownViewer\latest` 配下を開いている Explorer を閉じてから同じ deploy をやり直し、UNC 上の exe は起動に使わない
 10. 画像 smoke を実施する場合、手順 5 と 9 の saved relative image / broken fallback 確認は、次の固定 fixture を使う
-	- [docs/assets/manual-smoke/saved-preview-image.md](docs/assets/manual-smoke/saved-preview-image.md) を開き、preview に緑の SVG が見えることを確認する
+	- [docs/assets/manual-smoke/saved-preview-image.md](assets/manual-smoke/saved-preview-image.md) を開き、preview に緑の SVG が見えることを確認する
 	- 同じ file を HTML export し、出力 HTML でも同じ SVG が見えることを確認する
-	- [docs/assets/manual-smoke/missing-preview-image.md](docs/assets/manual-smoke/missing-preview-image.md) を開き、preview に Missing image: assets/missing-diagram.svg の fallback が出ることを確認する
+	- [docs/assets/manual-smoke/missing-preview-image.md](assets/manual-smoke/missing-preview-image.md) を開き、preview に Missing image: assets/missing-diagram.svg の fallback が出ることを確認する
 	- first save continuity は新規 unsaved document で clipboard paste を使って確認し、drag and drop はこの gate の再現手順から外す
 11. 上記以外でも Windows ローカル検証が必要なら `npm run win:host:deploy:candidate:noadmin` で candidate の `win-unpacked` を配置して確認する
 12. 問題なければ `npm run win:host:promote:noadmin` で candidate artifact を `release/windows-host` に昇格する

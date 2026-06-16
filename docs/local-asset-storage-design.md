@@ -2,47 +2,52 @@
 
 ## Status
 
-Accepted
+Accepted for historical workspace / compatibility foundation.
+
+Partially superseded by [ADR 0020 Inline Image Storage And Assets Deprecation](adr/0020-inline-image-storage-and-assets-deprecation.md) for new paste / drop image storage. The sections below describe the earlier `assets/` materialization model and remain useful for draft workspace identity, relative image compatibility, resolver cleanup, and AI asset-tool background. They are not the source of truth for the canonical storage model of newly inserted images; ADR 0020 wins for that contract.
 
 ## Why This Document Exists
 
-現行仕様には次がある。
+この設計当時の仕様・前提には次があった。ADR 0020 後は、新規 paste / drop 画像の保存正本には使わない。
 
 - 保存済み Markdown の隣接 assets ディレクトリへ相対 asset を出力する要件
 - ローカルファイルの同一性と snapshot-aware save を守る保存フロー
 - AI 側の canonical target として editor/buffer resource を扱う方針
 
-ただし、次はまだ閉じていない。
+当時、次はまだ閉じていなかった。
 
 - 未保存文書で paste / drag and drop / embed された画像をどこへ置くか
 - relative local link と履歴保存をどう両立するか
 - AI が local asset をどう参照し、copy や rename をどこまで実行できるか
 - XDG / Electron / 既存ノートアプリの慣行に沿った保存先の切り方
 
-この文書は、その設計を一旦まとめる。
+この文書は、その当時の設計を一旦まとめた。
 
 関連:
 
-- [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md)
-- [docs/adr/0006-local-file-sync-and-conflict-save.md](docs/adr/0006-local-file-sync-and-conflict-save.md)
-- [docs/adr/0010-local-asset-workspace-and-tool-boundary.md](docs/adr/0010-local-asset-workspace-and-tool-boundary.md)
-- [docs/ai-chat-design.md](docs/ai-chat-design.md)
-- [docs/ai-resource-target-unification-proposal.md](docs/ai-resource-target-unification-proposal.md)
+- [docs/markdown-editor-fit-gap-backlog.md](markdown-editor-fit-gap-backlog.md)
+- [docs/adr/0006-local-file-sync-and-conflict-save.md](adr/0006-local-file-sync-and-conflict-save.md)
+- [docs/adr/0010-local-asset-workspace-and-tool-boundary.md](adr/0010-local-asset-workspace-and-tool-boundary.md)
+- [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md)
+- [docs/ai-chat-design.md](ai-chat-design.md)
+- [docs/ai-resource-target-unification-proposal.md](ai-resource-target-unification-proposal.md)
 
-## Design Summary
+## Historical Design Summary
 
-結論から書く。
+この節は ADR 0020 より前の historical materialization model である。新規 paste / drop 画像は inline image 表現を正本とし、この節の `assets/` 保存ルールは relative image 互換、draft workspace identity、resolver cleanup の背景として読む。ここにある `assets/` 保存、first-save materialization、assetId continuity の箇条書きは現行実装指示ではない。
+
+当時の結論:
 
 - relative local asset は常に「文書に紐づく workspace root」を基準に扱う
 - 保存済み文書では workspace root は Markdown ファイルの親ディレクトリ
 - 未保存文書では workspace root はアプリ管理の draft workspace ディレクトリ
-- paste / drop / embed で入った画像は、まずその workspace root 配下に保存する
+- historical materialization model では、paste / drop / embed で入った画像をまずその workspace root 配下に保存する
 - 履歴保存は本文 snapshot だけでなく asset manifest を伴う workspace-aware state として扱う
 - AI は asset を editor resource に雑に混ぜず、専用の asset resource / asset mutation tool で扱う
 
-この設計により、保存済み文書も未保存文書も「相対リンクで資産を参照する」という表面契約を維持できる。未保存文書だけ特別扱いして broken path や一時 data URL を Markdown に残す必要がない。
+この historical model では、保存済み文書も未保存文書も「相対リンクで資産を参照する」という表面契約を維持できる。未保存文書だけ特別扱いして broken path や一時 data URL を Markdown に残す必要がない、という判断だった。
 
-## Best-Practice Baseline
+## Historical Best-Practice Baseline
 
 この設計は次の慣行に寄せる。
 
@@ -70,11 +75,13 @@ Linux ではこの切り方をそのまま採る。
 
 Electron の app.getPath('userData') は設定やアプリデータの標準場所だが、大きなファイルを直下へ雑に積むのは推奨されない。Chromium 自身の subdirectory と混ざるため、アプリ専用 subdirectory を切る。
 
-### 5. 孤立 asset は参照関係ベースで GC する
+### 5. 未参照 asset は参照関係ベースで GC する
 
 Joplin は note に属さない resource を履歴ポリシーに従って削除する。MDV でも draft workspace や history から参照されなくなった asset を、retention policy に従って掃除する。
 
-## Canonical Model
+## Historical Workspace Model
+
+この節は新規 paste / drop 画像の canonical storage model ではない。ADR 0020 後は、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理を検討するときの historical workspace model として扱う。
 
 ### Document Workspace Root
 
@@ -125,7 +132,7 @@ type LocalAssetRecord = {
 - rename は path 変更と Markdown link 更新を伴うが、assetId は維持する
 - contentHash は dedupe と import optimization 用で、参照キーにはしない
 
-## Storage Layout
+## Historical Storage Layout
 
 ### Linux
 
@@ -174,7 +181,7 @@ Windows と macOS では Electron の userData を基準にしつつ、用途ご
 - 新しい asset / history / draft は userData 直下へ増やさず、data と state に分ける
 - logs は既存の app.getPath('logs') を継続する
 
-## Attachment Placement Policy
+## Historical Attachment Placement Policy
 
 既定ポリシー:
 
@@ -196,7 +203,7 @@ Windows と macOS では Electron の userData を基準にしつつ、用途ご
 
 これは Obsidian 系の attachment location 運用に近いが、MDV ではまず assets を既定に固定して複雑さを抑える。
 
-## Lifecycle
+## Historical Lifecycle
 
 ### New Unsaved Document
 
@@ -272,7 +279,7 @@ type WorkspaceHistoryEntry = {
 - history entry は assetId 参照でぶら下げる
 - asset 実体は workspace root に残し、GC は history retention を見て行う
 
-## Relative Link Rules
+## Historical Relative Link Rules
 
 relative local link は次だけを許可する。
 
@@ -291,13 +298,13 @@ relative local link は次だけを許可する。
 - link 解決は normalize 済み absolute path で判定する
 - resolved path が workspace root を外れる場合は unsafe とみなす
 
-## AI Integration
+## Historical AI Integration
 
 ### Principle
 
 asset は editor text と混ぜず、resource kind を分ける。
 
-これは [docs/ai-resource-target-unification-proposal.md](docs/ai-resource-target-unification-proposal.md) の方針に沿う。asset は text span ではなく file object に近いため、editor locator を流用しない。
+これは [docs/ai-resource-target-unification-proposal.md](ai-resource-target-unification-proposal.md) の方針に沿う。asset は text span ではなく file object に近いため、editor locator を流用しない。
 
 ### Resource Shape
 
@@ -352,7 +359,7 @@ AI からの asset mutation は destructive class を分ける。
 
 rename を単純な file-system rename にすると、Markdown link rewrite、history の asset reference、open editor state が壊れる。したがって rename は asset manager が ownership を持つ。
 
-## Manifest
+## Historical Manifest
 
 draft workspace では manifest を持つ。
 
@@ -388,7 +395,7 @@ saved-file workspace では manifest は optional にする。
 - history / recovery は assetId を正本にし、実体 path は live workspace または app state cache から再解決する
 - sidecar manifest が無い saved-file でも、open 時の遅延 index 構築で assetId continuity map を補修できるようにする
 
-## Garbage Collection And Retention
+## Historical Garbage Collection And Retention
 
 掃除対象:
 
@@ -403,7 +410,7 @@ saved-file workspace では manifest は optional にする。
 - asset GC は startup 時即実行ではなく、idle 時または一定間隔で実行する
 - first implementation は conservative に残し、漏れより誤削除回避を優先する
 
-## Security And Safety
+## Historical Security And Safety
 
 - asset path は workspace root confinement を必須にする
 - mime type と拡張子の両方を記録する
@@ -411,7 +418,9 @@ saved-file workspace では manifest は optional にする。
 - HTML export や preview inline 時も、既存 relative image read の safety check を流用する
 - symlink は初期フェーズでは非対応または解決後に workspace confinement を再検証する
 
-## Implementation Plan
+## Historical Implementation Plan
+
+この plan は ADR 0020 より前の実装順であり、新規 paste / drop 画像の現行実装指示ではない。今後この節を参照する場合は、互換読み取り、draft workspace cleanup、deprecated asset materialization 経路の整理に限り、ADR 0020 の inline image storage contract と衝突しない範囲で扱う。
 
 ### Phase 1
 
@@ -433,7 +442,7 @@ saved-file workspace では manifest は optional にする。
 - rename preview と approval UI を追加
 - copy/export policy を追加
 
-## Decisions
+## Historical Decisions
 
 この設計では次を明示的に採る。
 
@@ -442,13 +451,13 @@ saved-file workspace では manifest は optional にする。
 - AI asset 操作を read_target / write_target に押し込む案は採らない
 - saved-file workspace に sidecar manifest を必須化する案は採らない
 
-## Open Questions
+## Historical Open Questions
 
 - 保存済み文書で assetDir の既定を assets 固定にするか、ファイル横直置きを許すか
 - first save 時の asset move を atomic rename 優先にするか copy+verify 優先にするか
 - image 以外の binary attachment を Phase 1 から同じ経路に乗せるか
 - AI rename を常時承認制にするか、同一 workspace 内の低リスク rename は policy で自動化するか
 
-## Recommended Next Step
+## Historical Next Step
 
-次に実装へ進めるなら、最初に入れるべき境界は「editor が file ではなく workspace に attach される」ことである。これを入れずに paste/drop だけ先行実装すると、未保存文書、履歴、AI asset 操作のすべてで一時しのぎの分岐が増える。
+当時の recommended next step は「editor が file ではなく workspace に attach される」境界を最初に入れることだった。ADR 0020 後は、これは新規 paste / drop 画像の保存モデルとしては採らない。必要になった場合だけ、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理のための historical guidance として参照する。

@@ -169,7 +169,7 @@ planned additions:
 - この節より下に出てくる `grep_slice` / `nl` / `cut` / `sort` / `stats` は旧分解を含む後続候補であり、現行 shipped tool 名ではない
 - 上の planned additions は AI-TL-001 の first slice 候補であり、現時点では未実装である
 - asset は editor text と異なる file semantics を持つため、`read` / `write` に雑に混ぜず、read 系参照と mutation 系 tool を分ける
-- local asset の詳細方針は [docs/local-asset-storage-design.md](docs/local-asset-storage-design.md) を参照する
+- 新規 paste / drop 画像の保存正本は [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) を参照する。local asset の historical / compatibility / AI asset-tool 背景は [docs/local-asset-storage-design.md](local-asset-storage-design.md) を参照する
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 

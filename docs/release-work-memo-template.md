@@ -21,7 +21,7 @@
 - first save continuity:
 - HTML export continuity:
 - broken image fallback:
-- orphaned asset visibility:
+- unresolved image visibility: use the same missing-image fallback evidence unless this release adds a separate unresolved-state surface.
 - evidence path or screenshot note:
 - export or workspace path:
 - failure-free result note:
@@ -33,7 +33,7 @@
 - first save continuity:
 - HTML export continuity:
 - broken image fallback:
-- orphaned asset visibility:
+- unresolved image visibility: use the same missing-image fallback evidence unless this release adds a separate unresolved-state surface.
 - evidence path or screenshot note:
 - failure-free result note:
 - notes:
