@@ -187,24 +187,28 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 ### AI-P1 Response UX
 
-1. AI-RT-001 応答ストリーミング基盤の整理
-2. AI-RT-002 チャットバブル単位のリアルタイム連携
-3. AI-RT-003 OpenAI 差分 chunk の段階反映
-4. AI-RT-004 負荷制御つきリアルタイム Markdown レンダリング
+完了済み。
 
-理由:
+完了範囲:
+
+- AI-RT-001 応答ストリーミング基盤の整理
+- AI-RT-002 チャットバブル単位のリアルタイム連携
+- AI-RT-003 OpenAI 差分 chunk の段階反映
+- AI-RT-004 負荷制御つきリアルタイム Markdown レンダリング
+
+優先理由:
 
 - 現在の「しばらく待ってから一気に返る」体験は、assistant の能力不足より先に知覚される product gap である
 - tool surface を増やしても、応答体験が blocking に見える限り使用感が伸びにくい
 - bubble 単位、text chunk 単位、Markdown render 単位で更新境界を分けておくと、リアルタイム性と renderer 負荷の trade-off を調整しやすい
 
-実装メモ:
+完了メモ:
 
-- 上の 4 項目は望ましい分解であり、厳密な waterfall ではない
-- AI-RT-003 は first slice として段階反映を導入済みで、assistant bubble に preparing / tool / streaming phase を表示する
-- AI-RT-004 は streaming 中の Markdown render を deferred に切り替え、応答長 / pending delta / transcript 量に応じた flush cadence と、既存 chat Markdown の再 render 抑制を導入済みである
-- transport を SSE、WS、あるいは現行 main process 経路の streaming 再編で解くかは実装時に決めてよい
-- UI と renderer 負荷の見合いが取れるなら、AI-RT-001 から AI-RT-004 をまとめて一気に進めてもよい
+- 現行実装は OpenAI response stream を main process で受け、`requestId` 付き dispatch ack の後に `ai-chat-stream-event` で `text-delta` / `tool-event` / `completed` / `failed` を assistant surface へ段階配送する
+- renderer は active `requestId` だけを受け入れ、assistant placeholder bubble を先行生成し、text delta を同じ bubble へ追記し、tool call / result を途中表示する
+- streaming 中の Markdown render は deferred に切り替え、応答長 / pending delta / transcript 量に応じた flush cadence と、既存 chat Markdown の再 render 抑制を導入済みである
+- stream contract の正本は [docs/adr/0011-ai-chat-streamed-ipc-contract.md](adr/0011-ai-chat-streamed-ipc-contract.md) と [docs/ai-chat-design.md](ai-chat-design.md) の IPC Design とする。実装確認先は `src/electron/main/main-ipc.cts`、`src/electron/main.cts`、`electron/preload.cjs`、`src/shims.d.ts`、`src/ai-chat/ChatApp.tsx`、`src/ai-chat/ChatMarkdown.tsx`、回帰確認先は `tests/e2e/app-layout.spec.ts` の `AI chat streaming` である
+- `cancelChatRequest` は現時点では未実装だが、AI-P1 が閉じる streaming / perceived-wait / rendering responsiveness ではなく、stream contract の上に載る request abort lifecycle の将来拡張として扱う
 
 ### AI-P2 Current Product Gaps
 
@@ -224,7 +228,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 14. AI-ED-002 snapshot restore apply / resolve action を追加する
 15. AI-ED-003 snapshot history source / destination 一般化を評価する
 
-この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。ただし、まずは AI-P1 で応答の見え方自体を改善してから着手する。
+この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。AI-P1 Response UX は完了済みなので、次の AI 作業ではこの束の優先順位再評価から着手できる。
 
 asset / image tool 群は MD-BL-005 の後続 implementation phase に従属させ、AI-P2 の一部として扱う。新規 paste / drop 画像の正本 contract は [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) の inline image storage を優先し、[docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の補助資料としてだけ参照する。
 
@@ -254,7 +258,7 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 
 詳細は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
 
-ただしこれは、editor core の P0、AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足、assistant 応答体験の重さ、tool surface の未完了が先に効くためである。
+ただしこれは、editor core の P0、完了済みの AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足と tool surface の未完了が先に効くためである。
 
 ### AI-CM Context Lifecycle
 
@@ -298,7 +302,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe は完了。OS second-instance launch と app 内 open dialog の両方で既存 editor window を focus し、重複 window を作らないことを Electron E2E で固定した。
 - MD-BL-018 H3/H4 heading 表示崩れ修正は完了。preview / WYSIWYG / AI chat の Markdown heading と inline code style の競合を scoped CSS と Playwright 回帰で固定した。
 - MD-BL-005 / MD-BL-023 の画像体験 first release slice は v0.1.14 で完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定した。
-- AI-RT-004 streaming Markdown render tuning は完了。assistant delta の flush cadence を応答長と transcript 量に合わせて調整し、過去 chat bubble の Markdown 再レンダリングを抑制した。
+- AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
 ## Historical Documents
 
@@ -308,19 +312,18 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. AI-P1 Response UX
-2. MD-BL-005 の後続 slice: inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup
-3. MD-BL-006, MD-BL-007
-4. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
-5. REL-BL-001 update foundation と version metadata surface
-6. AI-P2 の残件整理と tool surface 残件の優先順位見直し
-7. AI-P3 context management
-8. AI-CM context lifecycle
-9. AI-P4 subagent orchestration
+1. MD-BL-005 の後続 slice: inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup
+2. MD-BL-006, MD-BL-007
+3. MD-BL-019, MD-BL-020, MD-BL-021, MD-BL-013, MD-BL-014, MD-BL-008
+4. REL-BL-001 update foundation と version metadata surface
+5. AI-P2 の残件整理と tool surface 残件の優先順位見直し
+6. AI-P3 context management
+7. AI-CM context lifecycle
+8. AI-P4 subagent orchestration
 
 注記:
 
-- AI-P1 は新機能拡張というより、現行 assistant の待ち時間知覚を改善する response UX 修正として editor comfort より前に扱う
+- AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
 - MD-BL-005 / MD-BL-023 は first release slice 完了済み。recommended order で次に扱う画像系は、MD-BL-005 に残る inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup の後続 slice だけを指す
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
