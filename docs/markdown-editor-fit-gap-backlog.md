@@ -50,9 +50,9 @@ MDV は次の点ですでに強い。
 | プレビュー確認 | Partial Fit | Preview、印刷、HTML export はある | side-by-side 常時比較、スクロール同期、カーソル連動がない |
 | 文内検索 | Fit | core の exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは polish gap として未整理 |
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
-| Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
+| Markdown 入力補助 | Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み。table command family は Table actions menu に集約済み | global command palette、shortcut overlay、全 command surface の再編が必要になった場合は ADR 0009 を前提に別 slice で受理する |
 | 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | remaining accepted-scope gap はなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する |
-| 表編集 | Partial Fit | Toast UI Editor 標準の表編集はあり、MDV topbar からの Markdown table template 挿入、top-level rendered GFM table block の source 整形、current row 後ろへの空行追加、current column 後ろへの空列追加は完了 | 残 gap は column alignment selector。Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA と照合してから扱う |
+| 表編集 | Fit | Toast UI Editor 標準の表編集はあり、MDV Table actions menu からの Markdown table template 挿入、top-level rendered GFM table block の source 整形、current row 後ろへの空行追加、current column 後ろへの空列追加、current column alignment 変更は完了 | remaining accepted-scope gap はなし。delete row / column、insert-before、bulk table operations、またはその他の構造操作が必要になった場合は別 slice で受理する |
 | リスト継続補助 | Fit | Toast UI 標準 editor で unordered / ordered / nested / task list の Enter 継続が自然に動き、MDV topbar から current line / selected lines の task checkbox toggle を実行できる | remaining accepted-scope gap はなし。追加の list outdent / indent 専用 UI、task list bulk operations、list style conversion が必要になった場合は別 slice で受理する |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
 | 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
@@ -62,10 +62,10 @@ MDV は次の点ですでに強い。
 
 ## 結論
 
-Markdown 編集という観点での優先 gap は次の 2 つに集約される。
+Markdown 編集という観点で、表編集補助の current accepted scope は完了済みである。残る優先 gap は次の workspace UX と周辺機能に移る。
 
-1. 表編集の残 scope などの日常編集補助
-2. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
+1. 検索 surface polish / preview 同期など workspace UX の整理不足
+2. スペルチェック、最近使った文書 / クイックオープン、PDF 出力などの周辺機能不足
 
 画像 / media asset workflow は、[docs/image-storage-design.md](image-storage-design.md) の inline image storage contract を正本にする範囲では完了済みとして扱う。asset manager や export-to-file のような追加 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する。
 
@@ -136,7 +136,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 - 完了メモ:
   - WYSIWYG で保持できない footnote 挿入は source mode へ戻して正規 Markdown として残す
   - `tests/e2e/app-layout.spec.ts` の `markdown insert commands` 回帰で固定済み
-  - command surface の grouping / overflow と toolbar IA の追加整理は MD-BL-013 で扱う
+  - command surface の current accepted grouping / overflow gate は MD-BL-013 で閉じ、broader UI reset は ADR 0009 の長期方針として扱う
 
 #### MD-BL-005 画像 / メディア asset workflow と参照管理
 
@@ -206,7 +206,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
   - first slice 完了済み: 表テンプレート挿入、source 上の整形コマンド
   - row add slice 完了済み: current row 後ろへの空行追加
   - column add slice 完了済み: current column 後ろへの空列追加
-  - 残 scope: column alignment selector。既存 table の列に対して default / left / center / right の alignment marker を選んで変更する UI
+  - column alignment selector 完了済み: 既存 table の列に対して default / left / center / right の alignment marker を選んで変更する UI
 - first slice 完了条件:
   - 少なくとも表の新規作成と整形が UI から実行できる
 - 2026-06-17 first slice:
@@ -223,7 +223,13 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
   - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、caret または selection end が属する cell の後ろへ default alignment の空列を追加できる
   - 実装判断: 列追加は既存の table block 検出と source command surface だけで閉じ、既存 table command group へ単一の column action を足す範囲に留めるため、この slice では Toast UI 標準表 UI や MD-BL-013 の broader command IA と競合させない。accepted scope の add-after row / add-after column はこの slice で閉じる。delete row / column、insert-before、bulk table operations、またはその他の構造操作はこの slice の完了範囲ではなく、必要なら MD-BL-013 の結果または別 backlog slice で受理する
   - 回帰: `tests/e2e/app-layout.spec.ts` の `add table column command inserts an empty column after the current table column`、`add table column command preserves existing alignment and adjacent non-table pipe blocks`、`add table column command uses the selection end column as the insertion anchor`、`add table column command reports no target outside rendered table blocks`
-  - 残 scope: column alignment selector は未実装。これは column add slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残す。実装可否は MD-BL-013 command IA / overflow の棚卸で確定する
+  - column add slice 時点の残 scope: column alignment selector は未実装だった。これは column add slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残した。実装可否は MD-BL-013 command IA / overflow の棚卸で確定するものとした
+- 2026-06-17 MD-BL-013 gate / column alignment selector slice:
+  - 実装済み: table command family を Table actions menu に集約し、topbar 直置き button を増やさずに table option set を menu item として扱う
+  - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、current column の alignment marker を default / left / center / right に変更できる
+  - 実装判断: MD-BL-013 の current accepted gate は table command overflow と table option-set placement で閉じる。global command palette、shortcut overlay、全 command surface の再編は ADR 0009 の長期方針として残すが、この current backlog slice には含めない
+  - 回帰: `tests/e2e/app-layout.spec.ts` の `editor mode groups topbar commands and hides the Toast UI toolbar`、`table column alignment command updates the current column marker`、`table column alignment command reports no target outside rendered table blocks`
+  - 残 scope: remaining accepted-scope gap はなし。delete row / column、insert-before、bulk table operations、またはその他の構造操作が必要になった場合は `future_requires_acceptance` として別 slice で受理する
 
 #### MD-BL-007 リスト継続と task list 操作補助
 
@@ -261,6 +267,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 #### MD-BL-013 workspace topbar grouping / overflow 再設計
 
 - 種別: 変更
+- 状態: current accepted gate 完了
 - 目的: topbar の情報密度を下げ、主要操作の discoverability を上げる
 - 内容:
   - open/save、insert、copy/export、AI、settings を command group と overflow に再整理する
@@ -268,6 +275,11 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 - 完了条件:
   - topbar が command group 単位で読める
   - 狭い幅でも主要操作が壊れず、overflow 先が一貫する
+- 2026-06-17 current accepted gate:
+  - 既存の file / insert / output / workspace group を維持し、table command family を Table actions menu に集約した
+  - column alignment selector のような table option set は topbar 直置き button ではなく menu item として扱う
+  - この gate の完了条件は、table command family が command group 内の menu で読め、狭い幅でも table command / option set が到達可能であることに限定する
+  - broader UI reset、open/save / insert / copy/export / AI / settings 全体の再編、global command palette、shortcut overlay、全 command surface の再設計は [docs/adr/0009-ui-information-architecture-reset.md](adr/0009-ui-information-architecture-reset.md) の長期方針として残し、必要になった場合に別 slice で受理する
 
 #### MD-BL-015 新規ドキュメント作成導線
 
@@ -366,20 +378,21 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 
 - MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 - MD-BL-005 画像 / メディア asset workflow と参照管理
+- MD-BL-006 表編集補助
 - MD-BL-007 リスト継続と task list 操作補助
 - MD-BL-012 起動時 placeholder ちらつき抑制
+- MD-BL-013 workspace topbar grouping / overflow current accepted gate
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe
 - MD-BL-018 H3/H4 heading 表示崩れ修正
 - MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
 
 残りの分析順:
 
-1. MD-BL-013 workspace topbar grouping / overflow 再設計。ここで MD-BL-006 column alignment selector の実装可否も確定する
-2. MD-BL-014 検索 surface の再設計
-3. MD-BL-008 Preview 同期強化
-4. MD-BL-009 スペルチェック
-5. MD-BL-010 最近使った文書 / クイックオープン
-6. MD-BL-011 PDF 出力
+1. MD-BL-014 検索 surface の再設計
+2. MD-BL-008 Preview 同期強化
+3. MD-BL-009 スペルチェック
+4. MD-BL-010 最近使った文書 / クイックオープン
+5. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 

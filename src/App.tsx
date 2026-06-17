@@ -1281,6 +1281,18 @@ type ToolbarButtonProps = {
   children: ReactElement
 }
 
+type ToolbarMenuItem = {
+  label: string
+  icon: ReactElement
+  onClick: () => void | Promise<void>
+}
+
+type ToolbarMenuButtonProps = {
+  label: string
+  children: ReactElement
+  items: ToolbarMenuItem[]
+}
+
 type ToolbarGroupProps = {
   label: string
   children: ReactNode
@@ -1317,7 +1329,9 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
-type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'add-table-row' | 'add-table-column' | 'toggle-task-list'
+type MarkdownTableColumnAlignmentCommand = 'align-table-column-default' | 'align-table-column-left' | 'align-table-column-center' | 'align-table-column-right'
+
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'add-table-row' | 'add-table-column' | MarkdownTableColumnAlignmentCommand | 'toggle-task-list'
 
 type MarkdownInsertResult = {
   nextMarkdown: string
@@ -1345,6 +1359,12 @@ type MarkdownTableCellRange = {
   endIndex: number
 }
 
+type MarkdownTableTargetPosition = {
+  lineNumber: number
+  line: MarkdownLineInfo
+  column: number
+}
+
 function ToolbarButton({ label, active = false, disabled = false, onClick, children }: ToolbarButtonProps) {
   return (
     <button
@@ -1357,6 +1377,72 @@ function ToolbarButton({ label, active = false, disabled = false, onClick, child
     >
       {children}
     </button>
+  )
+}
+
+function ToolbarMenuButton({ label, children, items }: ToolbarMenuButtonProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRootRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+
+      if (target instanceof Node && menuRootRef.current?.contains(target)) {
+        return
+      }
+
+      setIsOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
+
+  const runItem = (item: ToolbarMenuItem) => {
+    setIsOpen(false)
+    void item.onClick()
+  }
+
+  return (
+    <div className="toolbar-menu-shell" ref={menuRootRef}>
+      <button
+        type="button"
+        className="icon-button"
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        {children}
+      </button>
+      {isOpen ? (
+        <div className="toolbar-menu-panel" role="menu" aria-label={label}>
+          {items.map((item) => (
+            <button key={item.label} type="button" className="toolbar-menu-item" role="menuitem" onClick={() => runItem(item)}>
+              <span className="toolbar-menu-item-icon" aria-hidden="true">{item.icon}</span>
+              <span className="toolbar-menu-item-label">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1951,6 +2037,30 @@ function getMarkdownLineRelativeStartOffset(lines: string[], lineIndex: number):
   return lines.slice(0, lineIndex).reduce((offset, line) => offset + line.length + 1, 0)
 }
 
+function getMarkdownTableTargetPosition(tableBlock: MarkdownTableBlock, lines: MarkdownLineInfo[], span: MdvAiNormalizedSpan): MarkdownTableTargetPosition {
+  const effectiveEndPosition = getEffectiveSelectionEndPosition(span, lines)
+  const lineNumber = Math.min(
+    Math.max(effectiveEndPosition.line, tableBlock.startLine),
+    tableBlock.endLine,
+  )
+  const line = lines[lineNumber - 1]
+  const column = lineNumber === effectiveEndPosition.line
+    ? effectiveEndPosition.column
+    : line.text.length + 1
+
+  return {
+    lineNumber,
+    line,
+    column,
+  }
+}
+
+function getMarkdownTableColumnIndexAtSpan(tableBlock: MarkdownTableBlock, lines: MarkdownLineInfo[], span: MdvAiNormalizedSpan): number {
+  const target = getMarkdownTableTargetPosition(tableBlock, lines, span)
+
+  return getMarkdownTableColumnIndexAtPosition(target.line.text, target.column, tableBlock.alignments.length)
+}
+
 function addMarkdownTableRowAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
   const tableBlock = findMarkdownTableBlock(markdown, span)
 
@@ -1993,17 +2103,9 @@ function addMarkdownTableColumnAtSpan(markdown: string, span: MdvAiNormalizedSpa
   }
 
   const lines = getMarkdownLineInfos(markdown)
-  const effectiveEndPosition = getEffectiveSelectionEndPosition(span, lines)
-  const targetLineNumber = Math.min(
-    Math.max(effectiveEndPosition.line, tableBlock.startLine),
-    tableBlock.endLine,
-  )
-  const targetLine = lines[targetLineNumber - 1]
-  const targetColumn = targetLineNumber === effectiveEndPosition.line
-    ? effectiveEndPosition.column
-    : targetLine.text.length + 1
+  const target = getMarkdownTableTargetPosition(tableBlock, lines, span)
   const columnCount = tableBlock.alignments.length
-  const targetColumnIndex = getMarkdownTableColumnIndexAtPosition(targetLine.text, targetColumn, columnCount)
+  const targetColumnIndex = getMarkdownTableColumnIndexAtPosition(target.line.text, target.column, columnCount)
   const insertionColumnIndex = targetColumnIndex + 1
   const nextAlignments = [...tableBlock.alignments]
 
@@ -2019,9 +2121,9 @@ function addMarkdownTableColumnAtSpan(markdown: string, span: MdvAiNormalizedSpa
   const startInfo = lines[tableBlock.startLine - 1]
   const endInfo = lines[tableBlock.endLine - 1]
   const nextMarkdown = replaceOffsets(markdown, startInfo.startOffset, endInfo.endOffset, formattedTable)
-  const caretLineNumber = targetLineNumber === tableBlock.startLine + 1
+  const caretLineNumber = target.lineNumber === tableBlock.startLine + 1
     ? tableBlock.startLine
-    : targetLineNumber
+    : target.lineNumber
   const caretLineIndex = caretLineNumber - tableBlock.startLine
   const caretLineStartOffset = startInfo.startOffset + getMarkdownLineRelativeStartOffset(formattedTableLines, caretLineIndex)
   const caretIndex = getMarkdownTableCellCaretIndex(formattedTableLines[caretLineIndex] ?? '', insertionColumnIndex)
@@ -2032,6 +2134,67 @@ function addMarkdownTableColumnAtSpan(markdown: string, span: MdvAiNormalizedSpa
     selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
     didFindTarget: true,
   }
+}
+
+function setMarkdownTableColumnAlignmentAtSpan(markdown: string, span: MdvAiNormalizedSpan, alignment: MarkdownTableAlignment): MarkdownInsertResult {
+  const tableBlock = findMarkdownTableBlock(markdown, span)
+
+  if (!tableBlock) {
+    return {
+      nextMarkdown: markdown,
+      selection: span,
+      didFindTarget: false,
+    }
+  }
+
+  const lines = getMarkdownLineInfos(markdown)
+  const target = getMarkdownTableTargetPosition(tableBlock, lines, span)
+  const targetColumnIndex = getMarkdownTableColumnIndexAtSpan(tableBlock, lines, span)
+  const nextAlignments = [...tableBlock.alignments]
+
+  nextAlignments[targetColumnIndex] = alignment
+
+  const tableLines = lines
+    .filter((line) => line.line >= tableBlock.startLine && line.line <= tableBlock.endLine)
+    .map((line) => line.text)
+  const formattedTableLines = formatMarkdownTableLines(tableLines, nextAlignments)
+  const formattedTable = formattedTableLines.join('\n')
+  const startInfo = lines[tableBlock.startLine - 1]
+  const endInfo = lines[tableBlock.endLine - 1]
+  const nextMarkdown = replaceOffsets(markdown, startInfo.startOffset, endInfo.endOffset, formattedTable)
+  const caretLineNumber = target.lineNumber === tableBlock.startLine + 1
+    ? tableBlock.startLine
+    : target.lineNumber
+  const caretLineIndex = caretLineNumber - tableBlock.startLine
+  const caretLineStartOffset = startInfo.startOffset + getMarkdownLineRelativeStartOffset(formattedTableLines, caretLineIndex)
+  const caretIndex = getMarkdownTableCellCaretIndex(formattedTableLines[caretLineIndex] ?? '', targetColumnIndex)
+  const caretOffset = caretLineStartOffset + caretIndex
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
+    didFindTarget: true,
+  }
+}
+
+function getMarkdownTableColumnAlignmentForCommand(command: MarkdownInsertCommand): MarkdownTableAlignment | null {
+  if (command === 'align-table-column-default') {
+    return 'default'
+  }
+
+  if (command === 'align-table-column-left') {
+    return 'left'
+  }
+
+  if (command === 'align-table-column-center') {
+    return 'center'
+  }
+
+  if (command === 'align-table-column-right') {
+    return 'right'
+  }
+
+  return null
 }
 
 function toggleMarkdownTaskLine(line: string): string | null {
@@ -2172,6 +2335,12 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
 
   if (command === 'add-table-column') {
     return addMarkdownTableColumnAtSpan(markdown, span)
+  }
+
+  const tableColumnAlignment = getMarkdownTableColumnAlignmentForCommand(command)
+
+  if (tableColumnAlignment) {
+    return setMarkdownTableColumnAlignmentAtSpan(markdown, span, tableColumnAlignment)
   }
 
   if (command === 'toggle-task-list') {
@@ -2484,6 +2653,22 @@ function AddTableColumnCommandIcon() {
       <path d="M4 10h12M4 14.5h12M8 5v14M12 5v14M18.5 12h3M20 10.5v3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
+}
+
+function AlignTableColumnDefaultIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">--</span>
+}
+
+function AlignTableColumnLeftIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">L</span>
+}
+
+function AlignTableColumnCenterIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">C</span>
+}
+
+function AlignTableColumnRightIcon() {
+  return <span className="toolbar-text-icon" aria-hidden="true">R</span>
 }
 
 function TaskCheckboxCommandIcon() {
@@ -5249,18 +5434,21 @@ function App() {
                     <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
                       <FootnoteCommandIcon />
                     </ToolbarButton>
-                    <ToolbarButton label={t.app.insertTable} onClick={() => applyMarkdownInsertCommand('table', t.app.insertTable)}>
+                    <ToolbarMenuButton
+                      label={t.app.tableActions}
+                      items={[
+                        { label: t.app.insertTable, icon: <TableCommandIcon />, onClick: () => applyMarkdownInsertCommand('table', t.app.insertTable) },
+                        { label: t.app.formatTable, icon: <FormatTableCommandIcon />, onClick: () => applyMarkdownInsertCommand('format-table', t.app.formatTable) },
+                        { label: t.app.addTableRow, icon: <AddTableRowCommandIcon />, onClick: () => applyMarkdownInsertCommand('add-table-row', t.app.addTableRow) },
+                        { label: t.app.addTableColumn, icon: <AddTableColumnCommandIcon />, onClick: () => applyMarkdownInsertCommand('add-table-column', t.app.addTableColumn) },
+                        { label: t.app.alignTableColumnDefault, icon: <AlignTableColumnDefaultIcon />, onClick: () => applyMarkdownInsertCommand('align-table-column-default', t.app.alignTableColumnDefault) },
+                        { label: t.app.alignTableColumnLeft, icon: <AlignTableColumnLeftIcon />, onClick: () => applyMarkdownInsertCommand('align-table-column-left', t.app.alignTableColumnLeft) },
+                        { label: t.app.alignTableColumnCenter, icon: <AlignTableColumnCenterIcon />, onClick: () => applyMarkdownInsertCommand('align-table-column-center', t.app.alignTableColumnCenter) },
+                        { label: t.app.alignTableColumnRight, icon: <AlignTableColumnRightIcon />, onClick: () => applyMarkdownInsertCommand('align-table-column-right', t.app.alignTableColumnRight) },
+                      ]}
+                    >
                       <TableCommandIcon />
-                    </ToolbarButton>
-                    <ToolbarButton label={t.app.formatTable} onClick={() => applyMarkdownInsertCommand('format-table', t.app.formatTable)}>
-                      <FormatTableCommandIcon />
-                    </ToolbarButton>
-                    <ToolbarButton label={t.app.addTableRow} onClick={() => applyMarkdownInsertCommand('add-table-row', t.app.addTableRow)}>
-                      <AddTableRowCommandIcon />
-                    </ToolbarButton>
-                    <ToolbarButton label={t.app.addTableColumn} onClick={() => applyMarkdownInsertCommand('add-table-column', t.app.addTableColumn)}>
-                      <AddTableColumnCommandIcon />
-                    </ToolbarButton>
+                    </ToolbarMenuButton>
                     <ToolbarButton label={t.app.toggleTaskCheckbox} onClick={() => applyMarkdownInsertCommand('toggle-task-list', t.app.toggleTaskCheckbox)}>
                       <TaskCheckboxCommandIcon />
                     </ToolbarButton>

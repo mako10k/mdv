@@ -69,13 +69,13 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ### P1 Editor Comfort
 
-1. [MD-BL-013 gate 待ち] MD-BL-006 表編集補助
+P1 Editor Comfort の current accepted scope は完了済み。MD-BL-006 表編集補助は table template / source format / add-after row / add-after column / column alignment selector まで閉じた。
 
-P0 が完了済みのため、これを現在の editor comfort 候補として扱う。MD-BL-006 の残 scope は「Markdown を書く速度」と日常編集の手間を直接下げる項目だが、残る column alignment selector は Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA との照合が先である。
+P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。次は P2 Editor Expansion の棚卸へ進む。
 
 ここでいう inline image 表現は、Markdown 本文内の `![](data:image...)` を保存後も画像の正本として扱う方式である。editor-only widget や隠し app-managed blob を正本にする意味ではない。
 
-MD-BL-004 は first slice 完了済みとして active P1 から外す。見出し、リンク、画像、コードブロック、引用、水平線、脚注の toolbar 挿入を実装し、selection / caret anchor、source / WYSIWYG の挙動、WYSIWYG で保持できない脚注挿入時の source mode fallback を Playwright の `markdown insert commands` 回帰で固定した。topbar / Toast UI toolbar の大きな IA 整理や grouping / overflow は MD-BL-013 に残す。
+MD-BL-004 は first slice 完了済みとして active P1 から外す。見出し、リンク、画像、コードブロック、引用、水平線、脚注の toolbar 挿入を実装し、selection / caret anchor、source / WYSIWYG の挙動、WYSIWYG で保持できない脚注挿入時の source mode fallback を Playwright の `markdown insert commands` 回帰で固定した。topbar / Toast UI toolbar の current accepted gate は MD-BL-013 で閉じ、broader UI reset は ADR 0009 の長期方針として扱う。
 
 MD-BL-012、MD-BL-017、MD-BL-018 も完了済みとして active P1 から外す。起動時 placeholder ちらつきは fresh untitled document の blank start と placeholder-only surface の削除で閉じ、同一ファイル再オープン時の focus dedupe は OS second-instance と app 内 open dialog の Electron E2E で固定し、H3/H4 heading 表示崩れは preview / WYSIWYG / AI chat の CSS scope と Playwright 回帰で固定した。
 
@@ -120,7 +120,14 @@ v0.1.14 で閉じた最小範囲:
 - MD-BL-006 の列追加 slice は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` とする。既存の top-level rendered GFM table block 検出を再利用し、caret / selection end が属する cell の後ろへ default alignment の空列を追加できる。source は既存の table formatter と同じルールで正規化する
 - 列追加は source table command として `format-table` / `add-table-row` と同じ対象境界を使うため、Toast UI 標準 UI の広い表操作と競合させずに扱える。topbar への追加は、既存 table command group への単一の column action 追加で、E2E の標準 viewport で押下可能な範囲に限ってこの slice では許容する。accepted scope の add-after row / add-after column はこの slice で閉じる。delete row / column、insert-before、bulk table operations、またはその他の構造操作は、この slice の完了範囲ではなく、必要なら MD-BL-013 の結果または別 backlog slice で受理する
 - 根拠 anchor は `src/App.tsx` の `add-table-column` Markdown insert command、`src/shared/i18n.ts` の add table column label、`tests/e2e/app-layout.spec.ts` の `add table column command inserts an empty column after the current table column` / `add table column command preserves existing alignment and adjacent non-table pipe blocks` / `add table column command uses the selection end column as the insertion anchor` / `add table column command reports no target outside rendered table blocks` である
-- column alignment selector は MD-BL-006 の残 scope として `backlog_state: accepted_active` + `inventory_status: inventory_pending` のまま残す。ここでいう column alignment selector は、既存 table の列に対して default / left / center / right の alignment marker を選んで変更する UI である。alignment mode selection と topbar density の影響が大きいため、単独 command としては実装準備済みとは扱わない
+- column add slice 時点では、column alignment selector は MD-BL-006 の残 scope として `backlog_state: accepted_active` + `inventory_status: inventory_pending` のまま残した。ここでいう column alignment selector は、既存 table の列に対して default / left / center / right の alignment marker を選んで変更する UI である。alignment mode selection と topbar density の影響が大きいため、当時は単独 command として実装準備済みとは扱わなかった
+
+2026-06-17 MD-BL-013 gate / MD-BL-006 column alignment selector 結果:
+
+- MD-BL-013 の current accepted gate は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` とする。既存の file / insert / output / workspace group は維持しつつ、table command family を `Table actions` menu に集約し、table option set を topbar 直置き button ではなく menu item として扱う
+- MD-BL-006 の column alignment selector は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` として active P1 から外す。既存 table の current column に対して default / left / center / right の alignment marker を変更でき、source は既存 table formatter と同じルールで正規化する
+- 根拠 anchor は `src/App.tsx` の `ToolbarMenuButton` / `Table actions` menu / `align-table-column-*` Markdown insert command、`src/shared/i18n.ts` の table action / alignment labels、`tests/e2e/app-layout.spec.ts` の `editor mode groups topbar commands and hides the Toast UI toolbar` / `table column alignment command updates the current column marker` / `table column alignment command reports no target outside rendered table blocks` である
+- MD-BL-013 の broader UI reset、global command palette、shortcut overlay、全 command surface の再編は [docs/adr/0009-ui-information-architecture-reset.md](adr/0009-ui-information-architecture-reset.md) の長期方針として残すが、この turn の current accepted backlog slice には含めない。必要になった場合は `backlog_state: future_requires_acceptance` として別 slice で受理する
 
 2026-06-17 MD-BL-007 棚卸 / 実装結果:
 
@@ -131,8 +138,8 @@ v0.1.14 で閉じた最小範囲:
 
 次に扱う最小範囲:
 
-- MD-BL-013 command IA / overflow を先に棚卸し、その結果で MD-BL-006 の column alignment selector を allowed / blocked / future_requires_acceptance のどれに置くかを確定する
-- topbar / Toast UI toolbar の大きな IA 整理は、挿入 contract 完了後の MD-BL-013 として扱う
+- P2 Editor Expansion のうち MD-BL-019 workspace topbar / outline / typography density 整理を棚卸する
+- MD-BL-013 の broader UI reset、global command palette、shortcut overlay、全 command surface 再編は current accepted scope には含めず、必要になった場合に別 slice で受理する
 
 注記:
 
@@ -144,7 +151,7 @@ v0.1.14 で閉じた最小範囲:
 1. [棚卸待ち] MD-BL-019 workspace topbar / outline / typography density 整理
 2. [棚卸待ち] MD-BL-020 変更プレビューと merge UI 基盤
 3. [棚卸待ち] MD-BL-021 Span comment と orphan 管理
-4. [棚卸待ち] MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
+4. [current accepted gate 完了] MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
 5. [棚卸待ち] MD-BL-014 検索 surface の再設計
 6. [棚卸待ち] MD-BL-008 Preview 同期強化
 7. [棚卸待ち] MD-BL-009 スペルチェック
@@ -349,7 +356,8 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe は完了。OS second-instance launch と app 内 open dialog の両方で既存 editor window を focus し、重複 window を作らないことを Electron E2E で固定した。
 - MD-BL-018 H3/H4 heading 表示崩れ修正は完了。preview / WYSIWYG / AI chat の Markdown heading と inline code style の競合を scoped CSS と Playwright 回帰で固定した。
 - MD-BL-005 / MD-BL-023 の画像体験は完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定し、2026-06-17 棚卸で MD-BL-005 の current accepted scope を active P1 から外した。
-- MD-BL-006 表編集補助の table template / source format first slice、row add slice、column add slice は完了。topbar から Markdown table template を挿入でき、top-level の rendered GFM table block を source 上で整形し、current table row の後ろへ空行を追加し、current table column の後ろへ空列を追加できるようにした。
+- MD-BL-006 表編集補助の table template / source format first slice、row add slice、column add slice、column alignment selector は完了。Table actions menu から Markdown table template を挿入でき、top-level の rendered GFM table block を source 上で整形し、current table row の後ろへ空行を追加し、current table column の後ろへ空列を追加し、current table column の alignment marker を変更できるようにした。
+- MD-BL-013 current accepted gate は完了。table command family を Table actions menu に集約し、table option set を topbar 直置き button ではなく menu item として扱うことを ADR 0009 に接続した。
 - MD-BL-007 リスト継続と task list 操作補助は完了。Toast UI 標準の list continuation を棚卸で確認し、topbar の task checkbox toggle を current line / selected lines で実行できるようにした。
 - AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
@@ -361,19 +369,18 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P1/P2 gate の棚卸: MD-BL-013 command IA / overflow。ここで MD-BL-006 column alignment selector の実装可否も確定する
-2. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
-3. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
-4. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
-5. AI-P3 context management の棚卸
-6. AI-CM context lifecycle の棚卸
-7. AI-P4 subagent orchestration の棚卸
-8. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定し、かつ [docs/decision-governance.md](decision-governance.md) の contract gate / backlog gate を満たす項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
+1. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
+2. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
+3. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
+4. AI-P3 context management の棚卸
+5. AI-CM context lifecycle の棚卸
+6. AI-P4 subagent orchestration の棚卸
+7. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定し、かつ [docs/decision-governance.md](decision-governance.md) の contract gate / backlog gate を満たす項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
 
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
-- MD-BL-005 / MD-BL-023 と MD-BL-007 は完了済み。MD-BL-006 の table template / source format first slice、row add slice、column add slice も完了済み。recommended order で次に扱う gate は MD-BL-013 command IA / overflow であり、ここで MD-BL-006 column alignment selector の実装可否も確定する。画像管理 UI は現時点の active P1 に含めない
+- MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate は完了済み。recommended order で次に扱う group は P2 Editor Expansion であり、画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
@@ -382,7 +389,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- P1/P2 gate として MD-BL-013 command IA / overflow を棚卸し、MD-BL-006 column alignment selector の扱いを確定する
+- P2 Editor Expansion の次 slice を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善

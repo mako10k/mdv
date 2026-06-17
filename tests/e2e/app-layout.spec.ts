@@ -35,6 +35,14 @@ async function openWritePanel(page: Page) {
   await expect(page.locator('.view-switch button').nth(0)).toHaveClass(/active/)
 }
 
+async function clickTableAction(page: Page, actionName: RegExp) {
+  const topbar = page.locator('.topbar')
+
+  await topbar.getByRole('button', { name: /(表操作|Table actions)/ }).click()
+  await expect(topbar.getByRole('menu', { name: /(表操作|Table actions)/ })).toBeVisible()
+  await topbar.getByRole('menuitem', { name: actionName }).click()
+}
+
 async function replaceMarkdownDocument(page: Page, markdown: string, expectedEditorText: string | null = markdown.replace(/\n+/g, '')) {
   const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
 
@@ -381,9 +389,35 @@ test('editor mode groups topbar commands and hides the Toast UI toolbar', async 
   await expect(page.getByRole('group', { name: /(挿入操作|Insert actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(出力操作|Output actions)/ })).toBeVisible()
   await expect(page.getByRole('group', { name: /(ワークスペース操作|Workspace actions)/ })).toBeVisible()
+  await expect(page.getByRole('group', { name: /(挿入操作|Insert actions)/ }).getByRole('button', { name: /(表操作|Table actions)/ })).toBeVisible()
+  await expect(page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ })).toHaveCount(0)
+  await page.getByRole('group', { name: /(挿入操作|Insert actions)/ }).getByRole('button', { name: /(表操作|Table actions)/ }).click()
+  await expect(page.locator('.topbar').getByRole('menu', { name: /(表操作|Table actions)/ }).getByRole('menuitem', { name: /(表の列を中央揃え|Align table column center)/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.topbar').getByRole('menu', { name: /(表操作|Table actions)/ })).toHaveCount(0)
   await expect(page.getByTitle(/(テーマ|Theme)/)).toHaveCount(0)
   await expect(page.getByRole('group', { name: /(ファイル操作|File actions)/ }).locator('.icon-button').nth(0)).toHaveAttribute('title', /(新規文書を作成する|Create new document)/)
   await expect(computedStyle(page, '.toastui-editor-toolbar', 'display')).resolves.toBe('none')
+})
+
+test('narrow editor topbar keeps table actions reachable from the menu', async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 720 })
+  await openWritePanel(page)
+
+  const markdown = [
+    '| Name | Score |',
+    '| --- | --- |',
+    '| Alpha | 10 |',
+  ].join('\n')
+  const topbar = page.locator('.topbar')
+
+  await replaceMarkdownDocument(page, markdown, null)
+  await placeEditorCursorFromStart(page, markdown.indexOf('10'))
+  await expect(topbar.getByRole('button', { name: /(表操作|Table actions)/ })).toBeVisible()
+  await topbar.getByRole('button', { name: /(表操作|Table actions)/ }).click()
+  await topbar.getByRole('menuitem', { name: /(表の列を右揃え|Align table column right)/ }).click()
+  await expect(topbar.getByRole('menu', { name: /(表操作|Table actions)/ })).toHaveCount(0)
+  await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('| ----- | ----: |')
 })
 
 test('editor search button opens a dialog and save stays disabled until dirty', async ({ page }) => {
@@ -392,6 +426,8 @@ test('editor search button opens a dialog and save stays disabled until dirty', 
   await expect(page.getByRole('button', { name: saveButtonName })).toBeDisabled()
   await page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ }).click()
   await expect(page.getByRole('dialog', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
+  await expect(computedStyle(page, '.topbar', 'zIndex')).resolves.toBe('50')
+  await expect(computedStyle(page, '.search-dialog-backdrop', 'zIndex')).resolves.toBe('100')
   await closeEditorSearchDialog(page)
 
   await replaceMarkdownDocument(page, 'alpha beta\n')
@@ -1760,7 +1796,7 @@ test.describe('markdown insert commands', () => {
     await replaceMarkdownDocument(page, 'before table')
     await placeEditorCursorFromStart(page, 'before table'.length)
 
-    await page.locator('.topbar').getByRole('button', { name: /(表を挿入|Insert table)/ }).click()
+    await clickTableAction(page, /(表を挿入|Insert table)/)
 
     const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
     await expect(editor).toContainText('Column 1')
@@ -1789,7 +1825,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+    await clickTableAction(page, /(表を整形|Format table)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('Before')
@@ -1814,7 +1850,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+    await clickTableAction(page, /(表を整形|Format table)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('| Name  | Status |')
@@ -1836,7 +1872,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+    await clickTableAction(page, /(表を整形|Format table)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('| Name  | Score |')
@@ -1858,7 +1894,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表の行を追加|Add table row)/ }).click()
+    await clickTableAction(page, /(表の行を追加|Add table row)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     const sourceText = editorText ?? ''
@@ -1879,7 +1915,7 @@ test.describe('markdown insert commands', () => {
     await replaceMarkdownDocument(page, 'Paragraph | value')
     await placeEditorCursorFromStart(page, 'Paragraph'.length)
 
-    await page.locator('.topbar').getByRole('button', { name: /(表の行を追加|Add table row)/ }).click()
+    await clickTableAction(page, /(表の行を追加|Add table row)/)
 
     await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Paragraph | value')
     await expect(page.locator('.statusbar-status')).toContainText(/表の行を追加 できる対象がありません|No target for Add table row/)
@@ -1897,7 +1933,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+    await clickTableAction(page, /(表の列を追加|Add table column)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('| Name  |     | Status |')
@@ -1924,7 +1960,7 @@ test.describe('markdown insert commands', () => {
 
     await replaceMarkdownDocument(page, markdown, null)
     await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
-    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+    await clickTableAction(page, /(表の列を追加|Add table column)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('| Name  |     | Score |')
@@ -1953,7 +1989,7 @@ test.describe('markdown insert commands', () => {
     }
 
     await page.keyboard.up('Shift')
-    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+    await clickTableAction(page, /(表の列を追加|Add table column)/)
 
     const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
     expect(editorText).toContain('| Name  | Status |     |')
@@ -1966,10 +2002,75 @@ test.describe('markdown insert commands', () => {
     await replaceMarkdownDocument(page, 'Paragraph | value')
     await placeEditorCursorFromStart(page, 'Paragraph'.length)
 
-    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+    await clickTableAction(page, /(表の列を追加|Add table column)/)
 
     await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Paragraph | value')
     await expect(page.locator('.statusbar-status')).toContainText(/表の列を追加 できる対象がありません|No target for Add table column/)
+  })
+
+  const tableColumnAlignmentCases = [
+    {
+      name: 'default',
+      action: /(表の列揃えを標準にする|Set table column default alignment)/,
+      separator: '| ----- | ----- |',
+      alphaRow: '| Alpha | 10    |',
+      betaRow: '| Beta  | 200   |',
+    },
+    {
+      name: 'left',
+      action: /(表の列を左揃え|Align table column left)/,
+      separator: '| ----- | :---- |',
+      alphaRow: '| Alpha | 10    |',
+      betaRow: '| Beta  | 200   |',
+    },
+    {
+      name: 'center',
+      action: /(表の列を中央揃え|Align table column center)/,
+      separator: '| ----- | :---: |',
+      alphaRow: '| Alpha |  10   |',
+      betaRow: '| Beta  |  200  |',
+    },
+    {
+      name: 'right',
+      action: /(表の列を右揃え|Align table column right)/,
+      separator: '| ----- | ----: |',
+      alphaRow: '| Alpha |    10 |',
+      betaRow: '| Beta  |   200 |',
+    },
+  ]
+
+  for (const alignmentCase of tableColumnAlignmentCases) {
+    test(`table column alignment command updates the current column marker to ${alignmentCase.name}`, async ({ page }) => {
+      await openWritePanel(page)
+
+      const markdown = [
+        '| Name | Score |',
+        '| --- | ---: |',
+        '| Alpha | 10 |',
+        '| Beta | 200 |',
+      ].join('\n')
+
+      await replaceMarkdownDocument(page, markdown, null)
+      await placeEditorCursorFromStart(page, markdown.indexOf('10'))
+      await clickTableAction(page, alignmentCase.action)
+
+      const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+      expect(editorText).toContain('| Name  | Score |')
+      expect(editorText).toContain(alignmentCase.separator)
+      expect(editorText).toContain(alignmentCase.alphaRow)
+      expect(editorText).toContain(alignmentCase.betaRow)
+    })
+  }
+
+  test('table column alignment command reports no target outside rendered table blocks', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'Paragraph | value')
+    await placeEditorCursorFromStart(page, 'Paragraph'.length)
+
+    await clickTableAction(page, /(表の列を右揃え|Align table column right)/)
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Paragraph | value')
+    await expect(page.locator('.statusbar-status')).toContainText(/表の列を右揃え できる対象がありません|No target for Align table column right/)
   })
 
   test('standard editor continues ordered, unordered, nested, and task list items', async ({ page }) => {

@@ -20,6 +20,7 @@ Without an explicit reset, the product keeps three kinds of drift:
 - The default workspace will move to one workspace-first layout with outline/search navigation and an assistant dock, but the main editor surface should preserve core viewer semantics rather than forcing always-on combinations that make Toast UI preview or WYSIWYG redundant.
 - AI assistance will be treated as part of the main workspace flow by default, with an optional detached window only as a secondary mode.
 - Statusbar, transient toast, and shortcut help will be consolidated into a single activity surface with clear priority rules.
+- Dense toolbar command families will use group-local menus or overflow surfaces instead of continuing to add one topbar icon per command. Option sets, such as table column alignment, belong inside those menus rather than as separate topbar buttons.
 - Keyboard navigation will be redesigned as a first-class command system with a shortcut overlay and command palette.
 - Runtime preview, AI chat rendering, and HTML export will share one explicit sanitizer policy, with surface-specific extensions only when necessary.
 
