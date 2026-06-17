@@ -1317,7 +1317,7 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
-type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'toggle-task-list'
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'add-table-row' | 'toggle-task-list'
 
 type MarkdownInsertResult = {
   nextMarkdown: string
@@ -1840,6 +1840,43 @@ function formatMarkdownTableAtSpan(markdown: string, span: MdvAiNormalizedSpan):
   }
 }
 
+function createMarkdownTableEmptyRow(columnCount: number): string {
+  const normalizedColumnCount = Math.max(1, columnCount)
+  const cells = Array.from({ length: normalizedColumnCount }, () => '')
+
+  return `| ${cells.join(' | ')} |`
+}
+
+function addMarkdownTableRowAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const tableBlock = findMarkdownTableBlock(markdown, span)
+
+  if (!tableBlock) {
+    return {
+      nextMarkdown: markdown,
+      selection: span,
+      didFindTarget: false,
+    }
+  }
+
+  const lines = getMarkdownLineInfos(markdown)
+  const insertionLineNumber = Math.min(
+    Math.max(getEffectiveSelectionEndLine(span), tableBlock.startLine + 1),
+    tableBlock.endLine,
+  )
+  const insertionLine = lines[insertionLineNumber - 1]
+  const insertedRow = createMarkdownTableEmptyRow(tableBlock.alignments.length)
+  const insertedText = `\n${insertedRow}`
+  const nextMarkdown = replaceOffsets(markdown, insertionLine.endOffset, insertionLine.endOffset, insertedText)
+  const insertedRowStartOffset = insertionLine.endOffset + 1
+  const firstCellOffset = insertedRowStartOffset + 2
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, firstCellOffset, firstCellOffset),
+    didFindTarget: true,
+  }
+}
+
 function toggleMarkdownTaskLine(line: string): string | null {
   const taskMatch = /^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])(\]\s*)/.exec(line)
 
@@ -1970,6 +2007,10 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
 
   if (command === 'format-table') {
     return formatMarkdownTableAtSpan(markdown, span)
+  }
+
+  if (command === 'add-table-row') {
+    return addMarkdownTableRowAtSpan(markdown, span)
   }
 
   if (command === 'toggle-task-list') {
@@ -2262,6 +2303,15 @@ function FormatTableCommandIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
       <path d="M5 5.5h14M5 10h9M5 14.5h14M5 19h9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M17 9.5v5M14.5 12H19.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function AddTableRowCommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <rect x="4" y="5" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4 9h16M4 13h16M9.5 5v12M14.5 5v12M12 18.5v3M10.5 20h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
 }
@@ -5034,6 +5084,9 @@ function App() {
                     </ToolbarButton>
                     <ToolbarButton label={t.app.formatTable} onClick={() => applyMarkdownInsertCommand('format-table', t.app.formatTable)}>
                       <FormatTableCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.addTableRow} onClick={() => applyMarkdownInsertCommand('add-table-row', t.app.addTableRow)}>
+                      <AddTableRowCommandIcon />
                     </ToolbarButton>
                     <ToolbarButton label={t.app.toggleTaskCheckbox} onClick={() => applyMarkdownInsertCommand('toggle-task-list', t.app.toggleTaskCheckbox)}>
                       <TaskCheckboxCommandIcon />

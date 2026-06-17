@@ -1846,6 +1846,45 @@ test.describe('markdown insert commands', () => {
     expect(editorText).not.toContain('ignored')
   })
 
+  test('add table row command inserts an empty row after the current table row', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Status |',
+      '| --- | --- |',
+      '| Alpha | Open |',
+      '| Beta | Done |',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表の行を追加|Add table row)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    const sourceText = editorText ?? ''
+    const alphaRowIndex = sourceText.indexOf('| Alpha | Open |')
+    const insertedRowIndex = sourceText.indexOf('|  |  |')
+    const betaRowIndex = sourceText.indexOf('| Beta | Done |')
+
+    expect(alphaRowIndex).toBeGreaterThanOrEqual(0)
+    expect(insertedRowIndex).toBeGreaterThan(alphaRowIndex)
+    expect(betaRowIndex).toBeGreaterThan(insertedRowIndex)
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel tbody tr')).toHaveCount(3)
+  })
+
+  test('add table row command reports no target outside rendered table blocks', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'Paragraph | value')
+    await placeEditorCursorFromStart(page, 'Paragraph'.length)
+
+    await page.locator('.topbar').getByRole('button', { name: /(表の行を追加|Add table row)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Paragraph | value')
+    await expect(page.locator('.statusbar-status')).toContainText(/表の行を追加 できる対象がありません|No target for Add table row/)
+  })
+
   test('standard editor continues ordered, unordered, nested, and task list items', async ({ page }) => {
     await openWritePanel(page)
 
