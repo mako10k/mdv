@@ -1845,4 +1845,62 @@ test.describe('markdown insert commands', () => {
     expect(editorText).toContain('| Beta  |    20 |')
     expect(editorText).not.toContain('ignored')
   })
+
+  test('standard editor continues ordered, unordered, nested, and task list items', async ({ page }) => {
+    await openWritePanel(page)
+
+    const cases = [
+      { initial: '- Alpha', inserted: 'Beta', expected: '- Beta' },
+      { initial: '1. Alpha', inserted: 'Beta', expected: '2. Beta' },
+      { initial: '  - Alpha', inserted: 'Beta', expected: '  - Beta' },
+      { initial: '- [ ] Alpha', inserted: 'Beta', expected: '- [ ] Beta' },
+    ]
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+
+    for (const listCase of cases) {
+      await replaceMarkdownDocument(page, listCase.initial)
+      await placeEditorCursorFromStart(page, listCase.initial.length)
+      await page.keyboard.press('Enter')
+      await page.keyboard.insertText(listCase.inserted)
+
+      const editorText = await editor.textContent()
+      expect(editorText).toContain(listCase.expected)
+    }
+  })
+
+  test('task checkbox command toggles the current task item and updates the preview', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = '- [ ] Ship feature'
+
+    await replaceMarkdownDocument(page, markdown)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Ship'))
+    await page.locator('.topbar').getByRole('button', { name: /(タスクチェックを切替|Toggle task checkbox)/ }).click()
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('- [x] Ship feature')
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel input[type="checkbox"]').first()).toBeChecked()
+  })
+
+  test('task checkbox command converts selected list items and toggles existing tasks', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '- Alpha',
+      '- [x] Done',
+      'Paragraph',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await selectEditorLinesFromStart(page, 2)
+    await page.locator('.topbar').getByRole('button', { name: /(タスクチェックを切替|Toggle task checkbox)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('- [ ] Alpha')
+    expect(editorText).toContain('- [ ] Done')
+    expect(editorText).toContain('Paragraph')
+  })
 })

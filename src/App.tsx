@@ -1317,7 +1317,7 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
-type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table'
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'toggle-task-list'
 
 type MarkdownInsertResult = {
   nextMarkdown: string
@@ -1840,6 +1840,62 @@ function formatMarkdownTableAtSpan(markdown: string, span: MdvAiNormalizedSpan):
   }
 }
 
+function toggleMarkdownTaskLine(line: string): string | null {
+  const taskMatch = /^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])(\]\s*)/.exec(line)
+
+  if (taskMatch) {
+    const nextCheck = taskMatch[2].toLowerCase() === 'x' ? ' ' : 'x'
+    return `${taskMatch[1]}${nextCheck}${taskMatch[3]}${line.slice(taskMatch[0].length)}`
+  }
+
+  const listMatch = /^(\s*(?:[-+*]|\d+[.)])\s+)(?!\[[ xX]\]\s*)/.exec(line)
+
+  if (!listMatch) {
+    return null
+  }
+
+  return `${listMatch[1]}[ ] ${line.slice(listMatch[1].length)}`
+}
+
+function toggleTaskListAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const lines = getMarkdownLineInfos(markdown)
+  const startLine = Math.min(Math.max(1, span.start.line), lines.length)
+  const endLine = Math.min(Math.max(startLine, getEffectiveSelectionEndLine(span)), lines.length)
+  const targetLines = lines.filter((line) => line.line >= startLine && line.line <= endLine)
+  let didChange = false
+  const nextLines = targetLines.map((line) => {
+    const toggledLine = toggleMarkdownTaskLine(line.text)
+
+    if (toggledLine === null) {
+      return line.text
+    }
+
+    didChange = true
+    return toggledLine
+  })
+
+  if (!didChange) {
+    return {
+      nextMarkdown: markdown,
+      selection: span,
+      didFindTarget: false,
+    }
+  }
+
+  const startInfo = lines[startLine - 1]
+  const endInfo = lines[endLine - 1]
+  const replacement = nextLines.join('\n')
+  const nextMarkdown = replaceOffsets(markdown, startInfo.startOffset, endInfo.endOffset, replacement)
+  const selectionStartOffset = startInfo.startOffset
+  const selectionEndOffset = selectionStartOffset + replacement.length
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, selectionStartOffset, selectionEndOffset),
+    didFindTarget: true,
+  }
+}
+
 function insertMarkdownTableTemplate(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
   const { startOffset, endOffset } = getSpanOffsets(markdown, span)
   const tableTemplate = [
@@ -1914,6 +1970,10 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
 
   if (command === 'format-table') {
     return formatMarkdownTableAtSpan(markdown, span)
+  }
+
+  if (command === 'toggle-task-list') {
+    return toggleTaskListAtSpan(markdown, span)
   }
 
   const footnoteId = getNextFootnoteId(markdown)
@@ -2202,6 +2262,15 @@ function FormatTableCommandIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
       <path d="M5 5.5h14M5 10h9M5 14.5h14M5 19h9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M17 9.5v5M14.5 12H19.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function TaskCheckboxCommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <rect x="4.5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="m8 12 2.5 2.5L16 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -4965,6 +5034,9 @@ function App() {
                     </ToolbarButton>
                     <ToolbarButton label={t.app.formatTable} onClick={() => applyMarkdownInsertCommand('format-table', t.app.formatTable)}>
                       <FormatTableCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.toggleTaskCheckbox} onClick={() => applyMarkdownInsertCommand('toggle-task-list', t.app.toggleTaskCheckbox)}>
+                      <TaskCheckboxCommandIcon />
                     </ToolbarButton>
                   </ToolbarGroup>
                 ) : null}

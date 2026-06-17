@@ -53,7 +53,7 @@ MDV は次の点ですでに強い。
 | Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
 | 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | remaining accepted-scope gap はなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はあり、MDV topbar からの Markdown table template 挿入と top-level rendered GFM table block の source 整形 first slice は完了 | 残 gap は列追加、行追加、明示的な alignment 変更 UI。Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA と照合してから扱う |
-| リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
+| リスト継続補助 | Fit | Toast UI 標準 editor で unordered / ordered / nested / task list の Enter 継続が自然に動き、MDV topbar から current line / selected lines の task checkbox toggle を実行できる | remaining accepted-scope gap はなし。追加の list outdent / indent 専用 UI、task list bulk operations、list style conversion が必要になった場合は別 slice で受理する |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
 | 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
 | 起動初期状態 | Fit | fresh untitled document は blank start になり、placeholder-only surface は回帰固定済み | なし |
@@ -64,7 +64,7 @@ MDV は次の点ですでに強い。
 
 Markdown 編集という観点での優先 gap は次の 2 つに集約される。
 
-1. 表編集、リスト継続、task list 操作などの日常編集補助
+1. 表編集の残 scope などの日常編集補助
 2. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
 
 画像 / media asset workflow は、[docs/image-storage-design.md](image-storage-design.md) の inline image storage contract を正本にする範囲では完了済みとして扱う。asset manager や export-to-file のような追加 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する。
@@ -216,13 +216,19 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 #### MD-BL-007 リスト継続と task list 操作補助
 
 - 種別: 変更
+- 状態: 完了
 - 目的: 箇条書き主体の Markdown 編集を快適にする
 - 内容:
-  - Enter 時の番号継続
-  - ネスト継続
-  - checkbox toggle 操作
+  - 実装済み / 確認済み: Enter 時の番号継続
+  - 実装済み / 確認済み: ネスト継続
+  - 実装済み: checkbox toggle 操作
 - 完了条件:
   - ordered / unordered / task list の継続が自然に動く
+- 2026-06-17 棚卸 / 実装結果:
+  - Toast UI 標準 editor で unordered / ordered / nested / task list の Enter 継続が自然に動くことを browser 回帰で確認した
+  - MDV topbar から current line / selected lines の task checkbox toggle を実行できる。既存 task item は `[ ]` / `[x]` を切り替え、通常の unordered / ordered list item は unchecked task item に変換する
+  - 回帰: `tests/e2e/app-layout.spec.ts` の `standard editor continues ordered, unordered, nested, and task list items`、`task checkbox command toggles the current task item and updates the preview`、`task checkbox command converts selected list items and toggles existing tasks`
+  - 追加の list outdent / indent 専用 UI、task list bulk operations、list style conversion は current accepted scope に含めない。必要になった場合は別 slice で受理する
 
 #### MD-BL-012 起動時 placeholder ちらつき抑制
 
@@ -348,6 +354,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 
 - MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
 - MD-BL-005 画像 / メディア asset workflow と参照管理
+- MD-BL-007 リスト継続と task list 操作補助
 - MD-BL-012 起動時 placeholder ちらつき抑制
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe
 - MD-BL-018 H3/H4 heading 表示崩れ修正
@@ -356,13 +363,12 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 残りの分析順:
 
 1. MD-BL-006 残 scope: 列追加、行追加、明示的な alignment 変更 UI
-2. MD-BL-007 リスト継続と task list 操作補助
-3. MD-BL-013 workspace topbar grouping / overflow 再設計
-4. MD-BL-014 検索 surface の再設計
-5. MD-BL-008 Preview 同期強化
-6. MD-BL-009 スペルチェック
-7. MD-BL-010 最近使った文書 / クイックオープン
-8. MD-BL-011 PDF 出力
+2. MD-BL-013 workspace topbar grouping / overflow 再設計
+3. MD-BL-014 検索 surface の再設計
+4. MD-BL-008 Preview 同期強化
+5. MD-BL-009 スペルチェック
+6. MD-BL-010 最近使った文書 / クイックオープン
+7. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
