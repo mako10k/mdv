@@ -27,6 +27,7 @@
 
 ## Project-Specific Conventions
 
+- Distinguish explicit user instructions from questions, doubts, status checks, and concerns. Do not treat a question like "is this already implemented?" or "what is next?" as authorization to implement, change scope, or commit. When the user raises a concern, pause conflicting work, verify the evidence, report the result, and proceed only under a still-applicable explicit instruction or after confirmation.
 - Do not narrow a request, impact surface, or cause candidate to the nearest convenient interpretation just because the current file, diff, or symptom is local; keep broader plausible readings alive until direct evidence rules them out.
 - Do not compress away scope, assumptions, alternative explanations, or unresolved ambiguity merely to keep an answer short; concise output must still preserve the true decision surface.
 - For debugging, RCA, and design justification, follow the default order `direct evidence -> deeper cause analysis -> root-cause judgment -> countermeasure comparison`; treat pre-root-cause fixes as temporary probes or containment unless proven otherwise.
