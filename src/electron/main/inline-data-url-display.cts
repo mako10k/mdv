@@ -43,6 +43,10 @@ function abbreviateInlineDataImageDataUrl(dataUrl: string): string {
   return `data:${mimeType};base64,<${byteSizeLabel} omitted>`
 }
 
+function abbreviateInlineDataImageMarkdown(markdown: string): string {
+  return abbreviateInlineDataImageMarkdownInText(markdown)
+}
+
 function abbreviateInlineDataImageMarkdownInText(text: string): string {
   if (!text || !text.includes('data:image/')) {
     return text
@@ -54,5 +58,6 @@ function abbreviateInlineDataImageMarkdownInText(text: string): string {
 export {
   INLINE_DATA_IMAGE_DATA_URL_PATTERN,
   abbreviateInlineDataImageDataUrl,
+  abbreviateInlineDataImageMarkdown,
   abbreviateInlineDataImageMarkdownInText,
 }

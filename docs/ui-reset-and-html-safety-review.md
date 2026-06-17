@@ -2,12 +2,12 @@
 
 ## Summary
 
-この文書は、現行 MDV の HTML 安全境界を実装ベースで棚卸しし、その結果を踏まえて UI 全体を後方互換なしで再設計するためのたたき台をまとめる。永続方針として採用した情報設計リセットの判断は [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md) を正とする。
+この文書は、現行 MDV の HTML 安全境界を実装ベースで棚卸しし、その結果を踏まえて UI 全体を後方互換なしで再設計するためのたたき台をまとめる。現行の UI / editor 優先順位と受理状態は [current-backlog](current-backlog.md) を正とし、情報設計リセットの判断履歴は [ADR 0009](adr/0009-ui-information-architecture-reset.md) を参照する。
 
 前提:
 
-- 現行 editor renderer は [src/App.tsx](src/App.tsx#L40) で `markdown-it` の `html: true` を有効化している
-- 現行 AI chat renderer は [src/ai-chat/ChatMarkdown.tsx](src/ai-chat/ChatMarkdown.tsx#L21) で `html: false` を使っている
+- 現行 editor renderer は [src/App.tsx](../src/App.tsx) で `markdown-it` の `html: true` を有効化している
+- 現行 AI chat renderer は [src/ai-chat/ChatMarkdown.tsx](../src/ai-chat/ChatMarkdown.tsx) で `html: false` を使っている
 - ただし両方の renderer は React 側で `dangerouslySetInnerHTML` を使って HTML 文字列を DOM に挿入している
 - 外部リンク遷移は renderer 直開きではなく main process 側の許可フローに送っている
 
@@ -17,8 +17,8 @@
 
 ### 1. Editor preview は raw HTML を許可している
 
-- [src/App.tsx](src/App.tsx#L40) の `markdownParser` は `html: true`
-- preview 描画は [src/App.tsx](src/App.tsx#L2602) で `renderMarkdownSegment()` の戻り値を `dangerouslySetInnerHTML` に渡している
+- [src/App.tsx](../src/App.tsx) の `markdownParser` は `html: true`
+- preview 描画は [src/App.tsx](../src/App.tsx) で `renderMarkdownSegment()` の戻り値を `dangerouslySetInnerHTML` に渡している
 
 影響:
 
@@ -28,8 +28,8 @@
 
 制限されている点:
 
-- 外部リンクは renderer から直接開かれず、main process 管理の許可フローへ送られる。[src/App.tsx](src/App.tsx#L2273) の document click hook で横取りしたあと、[electron/preload.cjs](electron/preload.cjs#L149) と [src/electron/main/main-ipc.cts](src/electron/main/main-ipc.cts#L603) を経由して [src/electron/main/file-controller.cts](src/electron/main/file-controller.cts#L273) の `openExternalLink()` に送っている
-- `http:` / `https:` 以外の protocol は [src/App.tsx](src/App.tsx#L612) で弾かれる
+- 外部リンクは renderer から直接開かれず、main process 管理の許可フローへ送られる。[src/App.tsx](../src/App.tsx) の document click hook で横取りしたあと、[electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) を経由して [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) の `openExternalLink()` に送っている
+- `http:` / `https:` 以外の protocol は [src/App.tsx](../src/App.tsx) で弾かれる
 
 不足している点:
 
@@ -39,7 +39,7 @@
 
 ### 2. Export HTML には限定的なサニタイズがある
 
-- export は [src/App.tsx](src/App.tsx#L1659) から入り、[src/App.tsx](src/App.tsx#L983) の `sanitizeExportHtmlFragment()` を通す
+- export は [src/App.tsx](../src/App.tsx) から入り、[src/App.tsx](../src/App.tsx) の `sanitizeExportHtmlFragment()` を通す
 - この処理は `script`、`iframe`、`object`、`embed`、`form`、`meta refresh`、非 SVG の `style`、`on*` 属性などを除去する
 - `href` と `src` も scheme 制限している
 
@@ -51,10 +51,10 @@
 
 ### 3. AI chat は raw HTML を禁止しているが、完全に text-only ではない
 
-- [src/ai-chat/ChatMarkdown.tsx](src/ai-chat/ChatMarkdown.tsx#L21) の `markdown-it` は `html: false`
+- [src/ai-chat/ChatMarkdown.tsx](../src/ai-chat/ChatMarkdown.tsx) の `markdown-it` は `html: false`
 - 通常の assistant reply / tool markdown では raw HTML をそのまま解釈しない
-- しかし [src/ai-chat/ChatMarkdown.tsx](src/ai-chat/ChatMarkdown.tsx#L114) で Mermaid の SVG を `dangerouslySetInnerHTML` で挿入している
-- さらに [src/ai-chat/ChatMarkdown.tsx](src/ai-chat/ChatMarkdown.tsx#L141) で Markdown render 結果も `dangerouslySetInnerHTML` に渡している
+- しかし [src/ai-chat/ChatMarkdown.tsx](../src/ai-chat/ChatMarkdown.tsx) で Mermaid の SVG を `dangerouslySetInnerHTML` で挿入している
+- さらに [src/ai-chat/ChatMarkdown.tsx](../src/ai-chat/ChatMarkdown.tsx) で Markdown render 結果も `dangerouslySetInnerHTML` に渡している
 
 評価:
 
@@ -64,8 +64,8 @@
 
 ### 4. 外部リンク遷移は main process で制御される
 
-- editor は [src/App.tsx](src/App.tsx#L2273)、AI chat は [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx#L474) でクリックを横取りする
-- 外部リンク遷移は renderer 直開きではなく、main process 管理で扱う。[electron/preload.cjs](electron/preload.cjs#L149) と [src/electron/main/main-ipc.cts](src/electron/main/main-ipc.cts#L603) を経由して [src/electron/main/file-controller.cts](src/electron/main/file-controller.cts#L273) で扱う
+- editor は [src/App.tsx](../src/App.tsx)、AI chat は [src/ai-chat/ChatApp.tsx](../src/ai-chat/ChatApp.tsx) でクリックを横取りする
+- 外部リンク遷移は renderer 直開きではなく、main process 管理で扱う。[electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) を経由して [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) で扱う
 - `block-untrusted` 設定や confirmation dialog があり、許可済みルールも管理する
 
 これは良い境界だが、HTML 自体のサニタイズと混同してはいけない。main process 管理のリンク遷移制御は「クリック後の防御」であり、DOM 注入面の防御ではない。
@@ -81,7 +81,7 @@
 
 ### Current entry points and shortcuts
 
-実装上のショートカットは [src/App.tsx](src/App.tsx#L574) と [src/electron/main/window-controller.cts](src/electron/main/window-controller.cts#L407) に分散している。
+実装上のショートカットは [src/App.tsx](../src/App.tsx) と [src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) に分散している。
 
 現在の主なショートカット:
 
@@ -105,7 +105,7 @@
 
 ### Current editor window structure
 
-現行 editor UI は [src/App.tsx](src/App.tsx#L2350) 以降で構成される。
+現行 editor UI は [src/App.tsx](../src/App.tsx) 以降で構成される。
 
 現状の構造:
 
@@ -131,7 +131,7 @@
 
 ### Current AI chat structure
 
-現行 AI chat は [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx#L690) 以降。
+現行 AI chat は [src/ai-chat/ChatApp.tsx](../src/ai-chat/ChatApp.tsx) 以降。
 
 現状の構造:
 
@@ -150,7 +150,7 @@
 
 ### Current settings structure
 
-現行 settings は [src/settings/SettingsApp.tsx](src/settings/SettingsApp.tsx#L297) 以降。
+現行 settings は [src/settings/SettingsApp.tsx](../src/settings/SettingsApp.tsx) 以降。
 
 良い点:
 

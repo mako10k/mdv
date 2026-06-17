@@ -4,9 +4,9 @@
 
 この文書は、MDV に AI assistant surface と editor 操作ツールを追加するための設計を定義する。
 
-長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) を参照する。editor、memory、chat history を同じ参照面に載せる拡張案は [docs/ai-resource-target-unification-proposal.md](docs/ai-resource-target-unification-proposal.md) に分離する。
+長期継続性と context window 制約を扱う memory subsystem の詳細設計は、current scaffold の次段階拡張として [docs/ai-impression-memory-design.md](ai-impression-memory-design.md) を参照する。editor、memory、chat history を同じ参照面に載せる拡張案は [docs/ai-resource-target-unification-proposal.md](ai-resource-target-unification-proposal.md) に分離する。
 
-subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md](docs/ai-subagent-tools-design.md) を参照する。
+subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md](ai-subagent-tools-design.md) を参照する。
 
 狙いは単なる OpenAI 呼び出しではなく、現在編集中の Markdown 文書や選択範囲に対して、安全に read、write、search を行える editor assistant を作ることにある。
 
@@ -68,13 +68,13 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 注記:
 
 - topic memory や persisted impression memory は current scaffold の外側にある次段階拡張として扱う
-- その詳細要件と設計は [docs/ai-impression-memory-design.md](docs/ai-impression-memory-design.md) に分離する
+- その詳細要件と設計は [docs/ai-impression-memory-design.md](ai-impression-memory-design.md) に分離する
 
 ## Current Constraints
 
-- Electron の runtime entrypoint は [electron/main.cjs](electron/main.cjs) だが、main process 実装を読む入口は [src/electron/main.cts](src/electron/main.cts) で、責務別の本体は [src/electron/main](src/electron/main) 配下に分かれている
-- renderer への安全な API 公開は [electron/preload.cjs](electron/preload.cjs) で行っている
-- editor UI は [src/App.tsx](src/App.tsx) に集中している
+- Electron の runtime entrypoint は [electron/main.cjs](../electron/main.cjs) だが、main process 実装を読む入口は [src/electron/main.cts](../src/electron/main.cts) で、責務別の本体は [src/electron/main](../src/electron/main) 配下に分かれている
+- renderer への安全な API 公開は [electron/preload.cjs](../electron/preload.cjs) で行っている
+- editor UI は [src/App.tsx](../src/App.tsx) に集中している
 - editor は現在単一文書前提だが、Electron 側は multi-window を扱える
 - Toast UI Editor の selection API が editor read/write 設計の制約になる可能性が高い
 
@@ -146,16 +146,14 @@ AI が使う操作面。
 - semantic_search
 - web_search
 - fetch_url
-- list_assets
-- read_asset_metadata
-- copy_asset
-- rename_asset
 - dispose_buffer
 - save_context_item
 - list_context_items
 - update_context_item
 - merge_context_items
 - delete_context_item
+
+Asset / image-management tools such as `list_assets`, `read_asset_metadata`, `copy_asset`, and `rename_asset` are not part of the current accepted AI tool surface. They are `backlog_state: future_requires_acceptance` and `contract_state: decision_change_required` until an accepted editor image-management slice updates [image-storage-design](image-storage-design.md), records the user-facing surface as `active_contract`, updates [current-backlog](current-backlog.md), and updates this AI tool contract with the accepted schema, target rules, approval policy, and validation.
 
 planned additions:
 
@@ -169,7 +167,7 @@ planned additions:
 - この節より下に出てくる `grep_slice` / `nl` / `cut` / `sort` / `stats` は旧分解を含む後続候補であり、現行 shipped tool 名ではない
 - 上の planned additions は AI-TL-001 の first slice 候補であり、現時点では未実装である
 - asset は editor text と異なる file semantics を持つため、`read` / `write` に雑に混ぜず、read 系参照と mutation 系 tool を分ける
-- 新規 paste / drop 画像の保存正本は [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) を参照する。local asset の historical / compatibility / AI asset-tool 背景は [docs/local-asset-storage-design.md](local-asset-storage-design.md) を参照する
+- 新規 paste / drop 画像の保存正本は [docs/image-storage-design.md](image-storage-design.md) を参照する。[docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) は判断履歴として参照し、local asset の historical / compatibility / AI asset-tool 背景は [docs/local-asset-storage-design.md](local-asset-storage-design.md) を参照する
 
 現行 scaffold で UI から明示的に使えるのは次の 3 つだけ:
 
@@ -333,7 +331,7 @@ type ContextTransportPolicy = {
 - 5% を超える attachment は本文を直貼りせず、`EditorID + SPAN + 概要` の hint だけを送る
 - hint を受けた model は必要箇所だけ `read` を繰り返して取得する
 
-selected model ID は settings から解決し、その model の metadata と context window は model registry 正本から解決する。未知モデルでは保守的な fallback を使う。registry 正本の shape と cross-surface 配布は [docs/ai-model-registry-design.md](docs/ai-model-registry-design.md) を参照する。
+selected model ID は settings から解決し、その model の metadata と context window は model registry 正本から解決する。未知モデルでは保守的な fallback を使う。registry 正本の shape と cross-surface 配布は [docs/ai-model-registry-design.md](ai-model-registry-design.md) を参照する。
 
 ### Important API Adjustment
 
@@ -1033,7 +1031,7 @@ fetch を同時に入れると、レスポンスサイズ制御、本文抽出�
 注記:
 
 - 次の phase 分解は separate chat window 初期案から積み上げた履歴であり、現行の優先順位そのものではない
-- 現在の着手順は [docs/current-backlog.md](docs/current-backlog.md) を正とする
+- 現在の着手順は [docs/current-backlog.md](current-backlog.md) を正とする
 
 ### Historical Phase 2
 

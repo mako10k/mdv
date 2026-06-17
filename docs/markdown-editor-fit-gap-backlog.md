@@ -4,7 +4,7 @@
 
 MDV を「Markdown 編集用途のモダンなデスクトップエディタ」として見たときに、現状機能がどこまで満たせているかを整理し、Markdown 編集に本当に必要な追加・変更だけをバックログ化する。
 
-この文書は editor 領域の詳細定義と背景整理を持つ補助 backlog 文書であり、正式な backlog 登録と優先順位の正本は [docs/current-backlog.md](current-backlog.md) とする。ここに残る完了済み ID や過去の分解は履歴アンカーであり、文書間で食い違った場合は current-backlog を優先する。
+この文書は editor 領域の詳細定義と背景整理を持つ補助 backlog 文書であり、正式な backlog 登録と優先順位の正本は [docs/current-backlog.md](current-backlog.md) とする。実装許可、design contract、文書間の優先順位は [docs/decision-governance.md](decision-governance.md) と該当する current design / contract doc を正とする。ここに残る完了済み ID や過去の分解は履歴アンカーであり、backlog 登録や優先順位が食い違った場合は current-backlog を優先する。
 
 この文書では AI 連携や fetch ACL のような周辺機能は主評価軸にしない。比較対象は、Typora、Obsidian、MarkText、VS Code + Markdown 拡張のような現代的 Markdown エディタ群の共通期待値とする。
 
@@ -51,7 +51,7 @@ MDV は次の点ですでに強い。
 | 文内検索 | Fit | core の exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは polish gap として未整理 |
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
-| 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | current accepted scope ではなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は別 slice として受理する |
+| 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | remaining accepted-scope gap はなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
@@ -67,7 +67,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 1. 表編集、リスト継続、task list 操作などの日常編集補助
 2. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
 
-画像 / media asset workflow は、ADR 0020 の inline image storage を正本にする範囲では完了済みとして扱う。asset manager や export-to-file のような追加 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず別 slice として受理する。
+画像 / media asset workflow は、[docs/image-storage-design.md](image-storage-design.md) の inline image storage contract を正本にする範囲では完了済みとして扱う。asset manager や export-to-file のような追加 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する。
 
 見出しアウトラインと jump に加えて active heading 追従も完了したため、以後は「長文構造ナビゲーションそのもの」ではなく、filter / collapse のような副次改善が必要になったときだけ別途扱う。
 
@@ -144,11 +144,11 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 - 状態: 完了
 - 目的: Markdown 執筆で最も頻出な画像挿入を簡単にする
 - 内容:
-  - ADR 0020 に従い、新規 paste / drop 画像は inline image 表現を正本として扱う
+  - [docs/image-storage-design.md](image-storage-design.md) に従い、新規 paste / drop 画像は inline image 表現を正本として扱う
   - 既存 relative image / `assets/...` Markdown は後方互換として open / preview / WYSIWYG / export で読めるようにする
   - Markdown に `![](...)` を自動挿入
   - source view では inline data URL を abbreviated widget として扱い、巨大な base64 文字列で編集体験を壊さない
-  - draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow で扱う
+  - draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow の app-managed temporary cleanup として扱う
 - 完了条件:
   - paste / drop 画像が first save 後も見え、編集を継続できる
   - 既存 relative image は saved / draft の両経路で preview / WYSIWYG / export と整合する
@@ -160,20 +160,20 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
   - 貼り付け / drop 画像が inline image 表現として first save 後も見え、編集を継続できる
   - HTML export と WYSIWYG 表示が同じ base path 解決前提で動き、saved / draft の差で画像が見えなくならない
   - 破損 / 未解決画像の fallback と、editor 上で未解決画像状態が判別できる状態可視化を揃え、画像を入れたあとに「どこへ消えたか分からない」状態を避ける
-  - `assets/` materialization は ADR 0020 で deprecated になったため、新規挿入画像の正本モデルや release 合格条件に含めない
+  - `assets/` materialization は [docs/image-storage-design.md](image-storage-design.md) で deprecated として扱うため、新規挿入画像の正本モデルや release 合格条件に含めない
 
   2026-06-17 棚卸結果:
 
-  - current accepted scope は完了済みとして扱う
+  - current accepted scope は `inventory_status: inventory_confirmed`、`backlog_state: completed` として扱う。`contract_state` は、新規 paste / drop の inline canonical storage が `active_contract`、既存 relative image の open / preview / WYSIWYG / export / fallback と app-managed temporary cleanup が `compatibility_only`、user-facing image management / export-to-file / conversion / repair-cleanup UI / user-managed asset deletion / new file mutation が `decision_change_required` である
   - relative image resolver、export、fallback は実装と回帰で確認済み
-  - 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` である
-  - deprecated asset workspace / materialization は新規画像の正本要件から外し、draft workspace と imported asset の cleanup は既存 flow で扱う
-  - asset manager、export-to-file、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として扱わず別 slice として受理する
+  - 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` / `opening a file from a clean untitled buffer cleans up the proactive draft workspace` / `closing a clean untitled buffer cleans up the proactive draft workspace`、`tests/node/electron-main-close-controller.spec.mjs` の `confirmEditorWindowClose closes clean editor windows immediately` / `confirmEditorWindowClose removes unreferenced imported assets after saving dirty editor windows` である
+  - deprecated asset workspace / materialization は新規画像の正本要件から外し、draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow の app-managed temporary cleanup に限って扱う
+  - asset manager、export-to-file、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として扱わず `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する
 
 注記:
 
-- 新規 paste / drop 画像の正本保存モデルは [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) を正とする
-- [docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料としてだけ参照する。両者が衝突する場合は ADR 0020 を優先する
+- 新規 paste / drop 画像の正本保存モデルは [docs/image-storage-design.md](image-storage-design.md) を正とする。[docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) は判断履歴として参照する
+- [docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料としてだけ参照する。両者が衝突する場合は [docs/image-storage-design.md](image-storage-design.md) を優先する
 
 #### MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
 
@@ -368,13 +368,13 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 
 1. 起動時 placeholder のちらつき: MD-BL-012
 2. topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
-3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005 の current accepted scope で完了。asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
+3. inline image 管理と relative image 互換: MD-BL-005 の current accepted scope で完了。当時 intake に含まれていた user-facing な退避 / 変換導線は current accepted scope では受理していない。asset manager、export-to-file、conversion UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で改めて受理する
 4. 検索ボックスの別 window 検討: MD-BL-014
 5. topbar の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入位置ずれ: MD-BL-004
 7. Ctrl/Cmd+N で editor mode の新規文書を開く: MD-BL-015
 8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
-9. 破損画像や末尾添付の削除・整理導線: MD-BL-005 の current accepted scope で完了。追加の整理 UI が必要になった場合は別 slice として改めて受理する
+9. 破損画像 fallback と未解決状態の可視化: MD-BL-005 の current accepted scope で完了。当時 intake に含まれていた user-facing な削除 / 整理導線は current accepted scope では受理していない。追加の整理 UI、user-managed asset deletion、repair / cleanup UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で改めて受理する
 
 2026-06-10 の追加 intake のうち editor 関連でこの文書に接続する項目:
 

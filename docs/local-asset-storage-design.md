@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted for historical workspace / compatibility foundation.
+Historical workspace / compatibility reference.
 
-Partially superseded by [ADR 0020 Inline Image Storage And Assets Deprecation](adr/0020-inline-image-storage-and-assets-deprecation.md) for new paste / drop image storage. The sections below describe the earlier `assets/` materialization model and remain useful for draft workspace identity, relative image compatibility, resolver cleanup, and AI asset-tool background. They are not the source of truth for the canonical storage model of newly inserted images; ADR 0020 wins for that contract.
+The current implementation contract for image storage is [Image Storage Design](image-storage-design.md). [ADR 0020 Inline Image Storage And Assets Deprecation](adr/0020-inline-image-storage-and-assets-deprecation.md) records the decision history and rationale behind that contract. The sections below describe the earlier `assets/` materialization model and remain useful for draft workspace identity, relative image compatibility, resolver cleanup, and AI asset-tool background. They are not the source of truth for the canonical storage model of newly inserted images.
 
 ## Why This Document Exists
 
-この設計当時の仕様・前提には次があった。ADR 0020 後は、新規 paste / drop 画像の保存正本には使わない。
+この設計当時の仕様・前提には次があった。現行の [Image Storage Design](image-storage-design.md) では、新規 paste / drop 画像の保存正本には使わない。
 
 - 保存済み Markdown の隣接 assets ディレクトリへ相対 asset を出力する要件
 - ローカルファイルの同一性と snapshot-aware save を守る保存フロー
@@ -34,7 +34,7 @@ Partially superseded by [ADR 0020 Inline Image Storage And Assets Deprecation](a
 
 ## Historical Design Summary
 
-この節は ADR 0020 より前の historical materialization model である。新規 paste / drop 画像は inline image 表現を正本とし、この節の `assets/` 保存ルールは relative image 互換、draft workspace identity、resolver cleanup の背景として読む。ここにある `assets/` 保存、first-save materialization、assetId continuity の箇条書きは現行実装指示ではない。
+この節は現行の [Image Storage Design](image-storage-design.md) より前の historical materialization model である。新規 paste / drop 画像は inline image 表現を正本とし、この節の `assets/` 保存ルールは relative image 互換、draft workspace identity、resolver cleanup の背景として読む。ここにある `assets/` 保存、first-save materialization、assetId continuity の箇条書きは現行実装指示ではない。
 
 当時の結論:
 
@@ -81,7 +81,7 @@ Joplin は note に属さない resource を履歴ポリシーに従って削除
 
 ## Historical Workspace Model
 
-この節は新規 paste / drop 画像の canonical storage model ではない。ADR 0020 後は、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理を検討するときの historical workspace model として扱う。
+この節は新規 paste / drop 画像の canonical storage model ではない。現行の [Image Storage Design](image-storage-design.md) では、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理を検討するときの historical workspace model として扱う。
 
 ### Document Workspace Root
 
@@ -325,6 +325,8 @@ Phase 1 では binary 本文の直接 read はしない。モデルへ返すの�
 
 ### Initial Tool Surface
 
+This section and its approval / rename subsections are historical. The listed asset tools are not accepted current AI scope. Under the current [Image Storage Design](image-storage-design.md), user-facing asset / image-management tools are `backlog_state: future_requires_acceptance` and `contract_state: decision_change_required` until current-backlog accepts a new slice, the image storage design reclassifies the accepted user-facing surface as `active_contract`, and [AI Chat Design](ai-chat-design.md) accepts the AI tool schema, target rules, approval policy, and validation.
+
 初期追加候補:
 
 - list_assets
@@ -346,7 +348,7 @@ Phase 1 でやらないこと:
 - executable attachment の open / run
 - raw binary dump の model 返却
 
-### Approval Policy
+### Historical Approval Policy
 
 AI からの asset mutation は destructive class を分ける。
 
@@ -355,7 +357,7 @@ AI からの asset mutation は destructive class を分ける。
 - rename は affected links の preview を返したうえで承認対象
 - delete / move outside workspace は後続フェーズまで未実装
 
-### Why Rename Needs A Dedicated Tool
+### Historical Rename Tool Rationale
 
 rename を単純な file-system rename にすると、Markdown link rewrite、history の asset reference、open editor state が壊れる。したがって rename は asset manager が ownership を持つ。
 
@@ -420,7 +422,7 @@ saved-file workspace では manifest は optional にする。
 
 ## Historical Implementation Plan
 
-この plan は ADR 0020 より前の実装順であり、新規 paste / drop 画像の現行実装指示ではない。今後この節を参照する場合は、互換読み取り、draft workspace cleanup、deprecated asset materialization 経路の整理に限り、ADR 0020 の inline image storage contract と衝突しない範囲で扱う。
+この plan は現行の [Image Storage Design](image-storage-design.md) より前の実装順であり、新規 paste / drop 画像の現行実装指示ではない。今後この節を参照する場合は、互換読み取り、draft workspace cleanup、deprecated asset materialization 経路の整理に限り、Image Storage Design の inline image storage contract と衝突しない範囲で扱う。
 
 ### Phase 1
 
@@ -460,4 +462,4 @@ saved-file workspace では manifest は optional にする。
 
 ## Historical Next Step
 
-当時の recommended next step は「editor が file ではなく workspace に attach される」境界を最初に入れることだった。ADR 0020 後は、これは新規 paste / drop 画像の保存モデルとしては採らない。必要になった場合だけ、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理のための historical guidance として参照する。
+当時の recommended next step は「editor が file ではなく workspace に attach される」境界を最初に入れることだった。現行の [Image Storage Design](image-storage-design.md) では、これは新規 paste / drop 画像の保存モデルとしては採らない。必要になった場合だけ、relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理のための historical guidance として参照する。

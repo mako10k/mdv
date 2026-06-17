@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+Current implementation contract: [Image Storage Design](../image-storage-design.md). This ADR records the decision history and rationale.
+
 ## Context
 
 ADR 0010 と ADR 0012 では、paste / drop 画像を workspace の `assets/` 配下へ保存し、first save でその asset を materialize する方針を採っていた。
@@ -17,7 +19,7 @@ ADR 0010 と ADR 0012 では、paste / drop 画像を workspace の `assets/` �
 - 新規に paste / drop された画像の正本保存モデルとして、Markdown 隣接の `assets/` ディレクトリへ materialize する方式は deprecated とする。
 - 今後の正規 contract は、新規挿入画像を Markdown 上の inline image 表現で保持し、editor でも保存済み文書でもその表現を正本として扱うことを基準にする。
 - `assets/` 生成は release 合格条件や UX の期待値に含めない。
-- 既存の relative image / `assets/...` Markdown は後方互換の対象として残し、open、preview、export、必要な変換経路では読み取り互換を維持する。
+- 既存の relative image / `assets/...` Markdown は後方互換の対象として残し、open、preview、WYSIWYG 表示、fallback、export では読み取り互換を維持する。user-facing な export-to-file、asset manager、conversion UI はこの互換判断だけでは受理済み scope にならず、別途 backlog と design contract の受理を必要とする。
 - first save continuity の判定は「画像が保存後も見えること」と「editor 上で通常の画像として編集継続できること」を基準にし、asset materialization の有無を基準にしない。
 - 本 ADR は ADR 0010 および ADR 0012 のうち、新規挿入画像の正本保存モデルと first-save materialization 前提の判断を supersede する。
 

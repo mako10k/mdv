@@ -11,6 +11,10 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 ## Backlog Source Rules
 
 - product / workflow backlog の正式正本はこの文書とする
+- implementation permission、design contract、ADR / backlog / usernote の強さは [docs/decision-governance.md](decision-governance.md) を正とする。current-backlog は優先順位と受理状態の正本だが、current design / contract doc を上書きしない
+- Active Backlog と Active AI Backlog の numbered item は、明示的に `future_requires_acceptance`、`completed`、または historical と書かれていない限り `backlog_state: accepted_active` として扱う
+- この rule 導入前に記録された `完了済み` / `完了` label は、明示的な矛盾がない限り `backlog_state: completed` として扱う。次に該当項目を触る、または再棚卸する時に `contract_state` / `backlog_state` tuple を補う
+- `[棚卸待ち]` と `[残件棚卸待ち]` は `inventory_status` であり、backlog_state ではない。Active Backlog / Active AI Backlog 内では `backlog_state: accepted_active` + `inventory_status: inventory_pending` を意味し、棚卸結果を記録するまでは実装へ進まない
 - docs/usernote.md は user 要望の intake / triage 用メモであり、PBI 正本ではない
 - 個別 backlog 詳細文書は、この文書で受理済みの既存 backlog ID の受け入れ条件、詳細分解、補助設計だけを持つ subordinate 文書として扱う。新規 ID 付与や独自優先順位の確定は行わない
 - 個別 backlog 詳細文書に完了済み ID や歴史的分解が残ることはあるが、それらは historical anchor であり、active priority や正式登録の正本にはしない
@@ -19,21 +23,21 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ## Planning Rules
 
-- UI と編集体験の優先順位は [docs/adr/0009-ui-information-architecture-reset.md](docs/adr/0009-ui-information-architecture-reset.md) を正とする
+- UI と編集体験の現行優先順位はこの current-backlog を正とし、UI reset の判断履歴は [ADR 0009](adr/0009-ui-information-architecture-reset.md) を参照する
 - workspace-first へ寄せるが、viewer / editor の本来性を壊す常時多面表示は避ける
 - AI 機能の拡張より先に、Markdown エディタとしての日常価値を底上げする
 - separate chat window 前提の古い分解は履歴扱いとし、現行の assistant dock 前提へ読み替える
 
 ## Backlog Inventory Rules
 
-`[棚卸待ち]` は、その backlog item または slice が未実装だという意味ではない。現行実装、テスト、release memo、関連 docs と照合して、完了済み、一部完了・後続あり、未実装、または scope 再定義のどれかを current-backlog 上で確定する必要があるという意味で使う。`[残件棚卸待ち]` は、完了済み slice の記録を残したまま、残 scope だけを棚卸対象にするという意味で使う。
+`[棚卸待ち]` は、その backlog item または slice が未実装だという意味ではない。これは `inventory_status: inventory_pending` であり、現行実装、テスト、release memo、関連 docs と照合して、完了済み、一部完了・後続あり、未実装、scope 再定義、または `contract_state` / `backlog_state` を current-backlog 上で確定する必要があるという意味で使う。`[残件棚卸待ち]` は、完了済み slice の記録を残したまま、残 scope だけを棚卸対象にするという意味で使う。
 
 棚卸では次の順で確認する。
 
 1. current-backlog の該当 priority group と subordinate backlog detail の受け入れ条件を読む
 2. 実装、テスト、release note / release memo、ADR / design doc の根拠を探す
 3. 必要なら targeted validation を実行する
-4. 結果を current-backlog に `完了済み`、`一部完了・後続あり`、`未実装`、`scope 再定義` のいずれかで記録する
+4. 結果を [docs/decision-governance.md](decision-governance.md) の `contract_state` / `backlog_state` と照合し、current-backlog に `inventory_status: inventory_confirmed` と `contract_state` / `backlog_state` の tuple を記録する。`完了済み`、`一部完了・後続あり`、`未実装`、`scope 再定義` は summary label として併記できるが、state tuple の代替にはしない
 5. 完了済みなら active / recommended order から外し、後続があれば残 scope を独立 slice として残す
 
 棚卸順は priority group を優先する。まず P1 Editor Comfort、次に P2 Editor Expansion、Supporting Backlog、AI-P2、AI-P3、AI-CM、AI-P4 の順で確認する。これは全 backlog の棚卸完了まで実装を止めるという意味ではなく、次に実装対象にする priority group を先に棚卸し、確定した同 group の残 scope から実装へ進むという意味である。`[棚卸待ち]` または `[残件棚卸待ち]` が付いた項目は、実装着手前にこの確認を行う。
@@ -50,14 +54,14 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 - local exact find/replace、replace all、match case / regexp / 選択範囲オプション、検索結果ジャンプ回帰を実装
 - autosave、crash recovery、復元提案、stale recovery cleanup を実装し、Electron E2E で固定
 - Markdown insert command surface の first slice を実装し、見出し、リンク、画像、コードブロック、引用、水平線、脚注の selection / caret anchor を source と WYSIWYG の両方で回帰固定
-- 画像体験 bundle を実装し、inline image storage、source view の data image abbreviation、saved / draft relative image 解決、HTML export、broken / unresolved image fallback を回帰で固定し、draft workspace / imported asset cleanup flow を維持
+- 画像体験 bundle を実装し、inline image storage、source view の data image abbreviation、saved / draft relative image 解決、HTML export、broken / unresolved image fallback を回帰で固定し、既存 close / recovery / renderer flow の app-managed draft workspace / imported-asset temporary cleanup を維持
 - 起動時 placeholder ちらつき、同一ファイル再オープン時の focus dedupe、H3/H4 heading 表示崩れを修正済み
 
 このため、以後のバックログは「assistant を成立させるための初期土台」ではなく、「製品として何を次に良くするか」で切る。
 
 ## Active Backlog
 
-この節にある `[棚卸待ち]` は active candidate の未実装断定ではなく、実装前に現状確認と分類記録が必要な印である。既に完了済み slice が記録されている項目は `[残件棚卸待ち]` とし、既存の完了記録は維持したまま残 scope だけを確認する。
+この節と Active AI Backlog にある `[棚卸待ち]` は `backlog_state: accepted_active` + `inventory_status: inventory_pending` であり、未実装断定ではない。実装前に現状確認と分類記録が必要な印である。既に完了済み slice が記録されている項目は `[残件棚卸待ち]` とし、既存の完了記録は維持したまま残 scope だけを確認する。
 
 ### P0 Editor Core
 
@@ -88,16 +92,16 @@ bundle の狙い:
 v0.1.14 で閉じた最小範囲:
 
 - MD-BL-023 の WYSIWYG 実画像優先表示を saved file と draft workspace の両経路で安定化し、browser 回帰を release gate として固定した
-- MD-BL-005 の first release slice として、paste / drop / first save / export の画像 continuity を release-ready にした。ADR 0020 に従い、`assets/` materialization は新規挿入画像の正本モデルや release 合格条件に含めない
+- MD-BL-005 の first release slice として、paste / drop / first save / export の画像 continuity を release-ready にした。[docs/image-storage-design.md](image-storage-design.md) に従い、`assets/` materialization は新規挿入画像の正本モデルや release 合格条件に含めない
 - broken / unresolved image の fallback と、editor 上で未解決画像状態が判別できる状態可視化を揃え、「画像を扱うと壊れる」印象を残さない
 
 2026-06-17 棚卸結果:
 
-- MD-BL-005 の current accepted scope は完了済みとして active P1 から外す
+- MD-BL-005 の current accepted scope は `inventory_status: inventory_confirmed`、`backlog_state: completed` として active P1 から外す。`contract_state` は、新規 paste / drop の inline canonical storage が `active_contract`、既存 relative image の open / preview / WYSIWYG / export / fallback と app-managed temporary cleanup が `compatibility_only`、user-facing image management / export-to-file / conversion / repair-cleanup UI / user-managed asset deletion / new file mutation が `decision_change_required` である
 - paste / drop の正本 inline storage、source view の data image abbreviation、saved / draft relative image resolver、HTML export、broken / unresolved image fallback は実装と回帰で確認済み
-- 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` である
-- deprecated asset workspace / materialization は、新規画像の正本要件から外した。draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow にあり、追加 UI の前提として残さない
-- inline image の export-to-file、asset manager、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず、ADR 0020 の inline storage を前提にした新しい backlog slice として受理する
+- 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` / `opening a file from a clean untitled buffer cleans up the proactive draft workspace` / `closing a clean untitled buffer cleans up the proactive draft workspace`、`tests/node/electron-main-close-controller.spec.mjs` の `confirmEditorWindowClose closes clean editor windows immediately` / `confirmEditorWindowClose removes unreferenced imported assets after saving dirty editor windows` である
+- deprecated asset workspace / materialization は、新規画像の正本要件から外した。draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow の app-managed temporary cleanup に限って維持し、user-facing な削除 / 整理 / repair UI、user-managed `assets/` 削除、Markdown rewrite、変換 / extraction flow の前提として残さない
+- inline image の export-to-file、asset manager、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず、`backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として [docs/image-storage-design.md](image-storage-design.md) の inline storage contract を前提にした新しい backlog slice で受理する
 
 次に扱う最小範囲:
 
@@ -106,7 +110,7 @@ v0.1.14 で閉じた最小範囲:
 
 注記:
 
-- MD-BL-005 は ADR 0020 を前提にし、新規 paste / drop 画像は inline image 表現を正本とする。既存 relative image の互換表示、export、fallback は維持するが、`assets/` materialization や assetId continuity を新規挿入画像の正本要件として扱わない
+- MD-BL-005 は [docs/image-storage-design.md](image-storage-design.md) を前提にし、新規 paste / drop 画像は inline image 表現を正本とする。既存 relative image の互換表示、export、fallback は維持するが、`assets/` materialization や assetId continuity を新規挿入画像の正本要件として扱わない
 - MD-BL-023 は WYSIWYG 上の画像表現 fidelity を主対象にし、v0.1.14 first release slice で完了済み。追加の画像管理 UI は現時点の active backlog には含めない
 
 ### P2 Editor Expansion
@@ -139,7 +143,7 @@ v0.1.14 で閉じた最小範囲:
 
 注記:
 
-- REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](docs/adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
+- REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 - ENG-BL-001 の 2026-06-06 時点の進捗:
@@ -162,7 +166,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 1. 起動時に placeholder 文書がちらつく: MD-BL-012
 2. MDV topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
-3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005 の current accepted scope で完了。asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
+3. inline image 管理と relative image 互換: MD-BL-005 の current accepted scope で完了。当時 intake に含まれていた user-facing な退避 / 変換導線は current accepted scope では受理していない。asset manager、export-to-file、conversion UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で改めて受理する
 4. 検索ボックスの別 window 化検討: MD-BL-014
 5. 最上位 toolbox の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入が caret とずれる: MD-BL-004
@@ -170,7 +174,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
 9. 公開 README と開発文書の責務分離: DOC-BL-001
 10. iteration limit 到達時の継続 / 中断選択: AI-UX-004
-11. 破損画像や末尾添付の削除・整理導線: MD-BL-005 の current accepted scope で完了。追加の整理 UI が必要になった場合は別 slice として改めて受理する
+11. 破損画像 fallback と未解決状態の可視化: MD-BL-005 の current accepted scope で完了。当時 intake に含まれていた user-facing な削除 / 整理導線は current accepted scope では受理していない。追加の整理 UI、user-managed asset deletion、repair / cleanup UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で改めて受理する
 12. Electron 側肥大化の解消と TS ライブラリ化: ENG-BL-001
 13. Span comment / orphan comment / XDG 保存 / tool CRUD: MD-BL-021
 14. 同一ファイル再オープン時は既存 editor を focus: MD-BL-017
@@ -191,7 +195,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 補足:
 
 - 10 は editor backlog ではなく、assistant interaction の product gap として AI-P2 に置く
-- 11 は新しい独立 PBI を増やさず、MD-BL-005 の current accepted scope で閉じる。user-facing な asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
+- 11 は broken / unresolved image fallback と app-managed temporary cleanup の範囲では新しい独立 PBI を増やさず、MD-BL-005 の current accepted scope で閉じる。user-facing な asset manager、export-to-file、conversion UI、repair / cleanup UI、user-managed asset deletion が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で改めて受理する
 - 12 は user-facing 機能ではないため Supporting Backlog の ENG-BL-001 に置く
 - 13 は UI だけでなく AI tool surface と XDG 永続化を跨ぐため、単独 backlog として切り出す
 - 15 は MDV topbar の grouping とは分け、読みやすさと表示密度の調整として MD-BL-019 へ置く
@@ -247,9 +251,9 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。AI-P1 Response UX は完了済みなので、次の AI 作業ではこの束の優先順位再評価から着手できる。
 
-asset / image tool 群は、MD-BL-005 の current accepted scope が完了済みになったため AI-P2 の即時範囲から外す。将来、画像管理 / export-to-file / conversion surface を受理する場合は、[docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) の inline image storage を前提に editor backlog として scope 化し、その後に AI tool surface を派生させる。[docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料として参照する。
+asset / image tool 群は、MD-BL-005 の current accepted scope が完了済みになったため AI-P2 の即時範囲から外す。将来、画像管理 / export-to-file / conversion surface を受理する場合は、`backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として [docs/image-storage-design.md](image-storage-design.md) の inline image storage contract を前提に editor backlog で scope 化し、同 design doc が具体的な accepted surface を `active_contract` へ再分類した後に AI tool surface を派生させる。AI tool を追加するには、さらに [docs/ai-chat-design.md](ai-chat-design.md) で schema、target rules、approval policy、validation を受理してから実装する。[docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料として参照する。
 
-AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](docs/ai-tool-customization-backlog.md) を参照する。AI-UX-003 の explainer は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md)、決定記録は [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を正とする。release 前チェックは [docs/release-workflow.md](docs/release-workflow.md) で扱う。
+AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](ai-tool-customization-backlog.md) を参照する。AI-UX-003 の explainer は [docs/ai-customization-layering-design.md](ai-customization-layering-design.md)、決定記録は [docs/adr/0017-ai-customization-layer-boundaries.md](adr/0017-ai-customization-layer-boundaries.md) を正とする。release 前チェックは [docs/release-workflow.md](release-workflow.md) で扱う。
 
 注記:
 
@@ -261,7 +265,7 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 - AI-CFG-003 は固定 model 選択を置き換える product backlog とし、model ID、provider、context window、価格、deprecation 状態、default 推奨を registry 正本で管理する
 - AI-CFG-003 の release completeness は REL-BL-001 と release workflow 側で管理し、ここでは user-facing picker と metadata surface の整備を主対象にする
 - AI-ED-001 は AI tool 向け snapshot handle ベース undo / redo 要望を正式 backlog へ受理した first slice であり、current buffer、AI write 前 snapshot、AI write 後 snapshot、disk snapshot を比較する inspection contract を主対象にする
-- AI-ED-001 は MD-BL-020 の preview / merge foundation と [docs/adr/0006-local-file-sync-and-conflict-save.md](docs/adr/0006-local-file-sync-and-conflict-save.md) の snapshot-aware save contract に依存する
+- AI-ED-001 は MD-BL-020 の preview / merge foundation と [docs/adr/0006-local-file-sync-and-conflict-save.md](adr/0006-local-file-sync-and-conflict-save.md) の snapshot-aware save contract に依存する
 - AI-ED-002 は AI-ED-001 の inspection 結果を受けて restore / merge / discard / cancel を選べる apply / resolve action を扱う
 - AI-ED-003 は deferred item とし、snapshot restore 以外の concrete need が出るまで一般化 surface を前提にしない
 
@@ -273,7 +277,7 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 4. [棚卸待ち] IM-P1-004 Context Budget Manager
 5. [棚卸待ち] IM-P1-005 Protected Context Tools
 
-詳細は [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) を参照する。
+詳細は [docs/ai-impression-memory-phase1-backlog.md](ai-impression-memory-phase1-backlog.md) を参照する。
 
 ただしこれは、editor core の P0、完了済みの AI-P1、AI-P2 の後に着手する。理由は、長期文脈改善は重要だが、現時点では editor 本体の不足と tool surface の未完了が先に効くためである。
 
@@ -283,11 +287,11 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 2. [棚卸待ち] AI-CM-002 context 継続の永続化と復元 policy を定義し、customization provenance summary を保持する
 3. [棚卸待ち] AI-CM-003 古い context の archive / delete / retention / GC policy を定義する
 
-詳細は [docs/ai-context-lifecycle-design.md](docs/ai-context-lifecycle-design.md) を参照する。
+詳細は [docs/ai-context-lifecycle-design.md](ai-context-lifecycle-design.md) を参照する。
 
 AI-CM では durable / resumed thread に selected agent、invoked prompt、loaded skills、hook decision、instruction provenance を説明できる状態を残す。
 
-これらは [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) の Phase 1 範囲外であり、Phase 1 完了後の context lifecycle 拡張として扱う。
+これらは [docs/ai-impression-memory-phase1-backlog.md](ai-impression-memory-phase1-backlog.md) の Phase 1 範囲外であり、Phase 1 完了後の context lifecycle 拡張として扱う。
 
 ### AI-P4 Subagent Orchestration
 
@@ -297,7 +301,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 4. [棚卸待ち] AI-SA-004 specialist / evaluator の role model と objective review flow を定義する
 5. [棚卸待ち] AI-SA-005 subagent lifecycle、cancel、timeout、garbage collection を定義する
 
-詳細は [docs/ai-subagent-orchestration-design.md](docs/ai-subagent-orchestration-design.md) を参照する。
+詳細は [docs/ai-subagent-orchestration-design.md](ai-subagent-orchestration-design.md) を参照する。
 
 目的:
 
@@ -323,9 +327,9 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Historical Documents
 
-- [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md) は separate chat window 前提を含む初期分解であり、履歴資料として保持する
-- [docs/markdown-editor-fit-gap-backlog.md](docs/markdown-editor-fit-gap-backlog.md) は editor backlog の詳細定義として使う
-- [docs/ai-impression-memory-phase1-backlog.md](docs/ai-impression-memory-phase1-backlog.md) は context management Phase 1 の詳細定義として使う
+- [docs/ai-chat-task-breakdown.md](ai-chat-task-breakdown.md) は separate chat window 前提を含む初期分解であり、履歴資料として保持する
+- [docs/markdown-editor-fit-gap-backlog.md](markdown-editor-fit-gap-backlog.md) は editor backlog の詳細定義として使う
+- [docs/ai-impression-memory-phase1-backlog.md](ai-impression-memory-phase1-backlog.md) は context management Phase 1 の詳細定義として使う
 
 ## Recommended Execution Order
 
@@ -336,7 +340,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 5. AI-P3 context management の棚卸
 6. AI-CM context lifecycle の棚卸
 7. AI-P4 subagent orchestration の棚卸
-8. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定した項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
+8. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定し、かつ [docs/decision-governance.md](decision-governance.md) の contract gate / backlog gate を満たす項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
 
 注記:
 

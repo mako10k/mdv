@@ -4,7 +4,7 @@ Status: Partially superseded by [0020 Inline Image Storage And Assets Deprecatio
 
 ## Context
 
-The storage-model portions of this ADR are partially superseded by [0020 Inline Image Storage And Assets Deprecation](0020-inline-image-storage-and-assets-deprecation.md). The workspace boundary and asset-identity reasoning remain historical context until separately replaced.
+The storage-model portions of this ADR are partially superseded by [0020 Inline Image Storage And Assets Deprecation](0020-inline-image-storage-and-assets-deprecation.md). Current implementation authority for image storage is [Image Storage Design](../image-storage-design.md). Current implementation authority for AI tool surfaces is [AI Chat Design](../ai-chat-design.md). Decision authority and backlog acceptance are governed by [0022 Design Contract Authority And Change Workflow](0022-design-contract-authority-and-change-workflow.md) and [Decision Governance](../decision-governance.md). The workspace boundary and asset-identity reasoning remain historical context until separately replaced.
 
 MDV は relative image の export や local file sync は持っているが、paste、drag and drop、embed で入る local asset の正本保存先はまだ固定されていなかった。
 
@@ -19,7 +19,7 @@ MDV は relative image の export や local file sync は持っているが、pa
 
 ## Decision
 
-Storage-model decisions about paste / drop asset placement, first-save materialization, and assetId continuity are historical for newly inserted images. ADR 0020 supersedes them for new paste / drop storage; keep the superseded bullets as compatibility, workspace-boundary, and migration-cleanup context only. The only still-current decision here is the boundary principle that asset-like resources must not be folded into the editor text tool contract without an explicit resource/tool surface.
+Storage-model decisions about paste / drop asset placement, first-save materialization, and assetId continuity are historical for newly inserted images. ADR 0020 supersedes them for new paste / drop storage; keep the superseded bullets as compatibility, workspace-boundary, and migration-cleanup context only. The only still-current principle here is that asset-like resources must not be folded into the editor text tool contract without an explicitly accepted resource/tool surface.
 
 - Historical: editor は単なる current file path ではなく、asset を含む DocumentWorkspace に attach される
 - Historical: 保存済み文書では DocumentWorkspace の root は Markdown ファイルの親ディレクトリとする
@@ -28,13 +28,13 @@ Storage-model decisions about paste / drop asset placement, first-save materiali
 - Superseded for new paste / drop storage: asset identity は path ではなく assetId を正本にし、first save 前後では assetId を維持して path だけを更新する
 - Superseded for new paste / drop storage: draft から saved-file への materialize 後も history / recovery が assetId を再解決できるよう、assetId continuity map を app state cache に保持する
 - Historical: saved-file workspace に sidecar manifest は必須化しない。必要な index は live workspace または app state cache で補う
-- Current boundary principle: AI では asset を独立 resource kind として扱うが、mutation は text write contract に混ぜない
-- Current boundary principle: asset mutation は `list_assets`、`read_asset_metadata`、`copy_asset`、`rename_asset` のような専用 tool へ分離する
+- Current boundary principle: AI では asset を editor text tool contract に混ぜない
+- Future / illustrative only: asset mutation や metadata access を受理する場合は、`list_assets`、`read_asset_metadata`、`copy_asset`、`rename_asset` のような dedicated tool surface として、current-backlog と current design contract で別途受理する
 
 ## Consequences
 
 - Historical workspace model では、未保存文書でも relative path を維持したまま paste / drop / recovery / first save を一貫したモデルで扱える
 - MD-BL-005 は当時、単なる画像挿入 UI ではなく、draft workspace、asset manager、assetId continuity を含む foundation work として扱っていた
-- AI asset operation は editor text tool contract を汚さずに拡張できる
+- AI asset operation は editor text tool contract を汚さずに拡張できるが、現在受理済みの AI tool surface ではない。実装には current-backlog の受理と current design contract の更新が必要になる
 - Historical workspace model では、first save、history、recovery、AI rename/copy が shared asset identity に依存するため、main process の workspace / asset registry が必要になる
 - user 管理ディレクトリへの sidecar 強制は避けられるが、saved-file reopen 時の遅延 index 補修が必要になる

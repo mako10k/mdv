@@ -114,3 +114,54 @@ test('confirmEditorWindowClose closes clean editor windows immediately', async (
   assert.equal(window.closed, true)
   assert.equal(window.sent.some((entry) => entry.channel === 'mdv:window-close-approved'), true)
 })
+
+test('confirmEditorWindowClose removes unreferenced imported assets after saving dirty editor windows', async () => {
+  const approvedWindowCloseIds = new Set()
+  const effects = {
+    cleanupImportedAssetFiles: [],
+    clearAutosaveRecovery: [],
+  }
+
+  const controller = createCloseController({
+    approvedWindowCloseIds,
+    getMainI18n: createMessages,
+    showMessageBox: async () => ({ response: 0 }),
+    requestEditorWindowData: async () => ({
+      isDirty: true,
+      snapshot: {
+        currentFilePath: '/docs/current.md',
+        markdownText: '![keep](assets/keep.png)',
+        persistedMarkdown: '',
+        recoveryKey: 'rk1',
+        pendingImportedAssets: [
+          { filePath: '/tmp/keep.png', relativePath: 'assets/keep.png' },
+          { filePath: '/tmp/drop.png', relativePath: 'assets/drop.png' },
+        ],
+      },
+    }),
+    writeLog: () => {},
+    closeAuxiliaryWindowsForEditor: () => {},
+    cleanupDraftWorkspace: async () => {},
+    saveContentToPath: async () => ({
+      status: 'saved',
+      path: '/docs/current.md',
+      content: '![keep](assets/keep.png)',
+    }),
+    collectReferencedDraftAssetPaths: () => ['assets/keep.png'],
+    cleanupImportedAssetFiles: async (filePaths) => {
+      effects.cleanupImportedAssetFiles.push(filePaths)
+    },
+    clearAutosaveRecovery: (payload) => {
+      effects.clearAutosaveRecovery.push(payload)
+    },
+  })
+
+  const window = createWindow(8)
+  await controller.confirmEditorWindowClose(window)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.deepEqual(effects.cleanupImportedAssetFiles, [['/tmp/drop.png']])
+  assert.deepEqual(effects.clearAutosaveRecovery, [{ recoveryKey: 'rk1', filePath: '/docs/current.md' }])
+  assert.equal(approvedWindowCloseIds.has(8), true)
+  assert.equal(window.closed, true)
+})

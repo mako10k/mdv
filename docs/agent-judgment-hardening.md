@@ -6,6 +6,7 @@
 
 - 近くの file や symptom だけで話を閉じない。
 - 疑問、懸念、status check を実装や commit の明示指示として扱わない。
+- 実装候補を探す前に、[decision governance](decision-governance.md) の implementation gate、evidence lookup order、decision state を確認する。
 - 先に直接証拠を取り、その後で原因と対策を比べる。
 - 重要な説明や判断は、専門家レビューと plain-eye review の両方を通す。
 
@@ -24,6 +25,14 @@
 - `これは実装済みでは?`, `やり直していない?`, `次は何?`, `どう思う?` のような質問や懸念は、確認・説明・再評価の要求であり、それ自体を実装、scope 変更、commit の許可に変換しない。
 - user が懸念を出したら、まず衝突しうる実装や commit を止め、直接証拠を確認し、結果と次の選択肢を返す。既に別の明示指示があり、それが懸念解消後も明らかに有効な場合だけ、その指示の範囲で続ける。
 - repo の default commit workflow は、明示的な作業指示で発生した変更を 1 logical commit にまとめるための運用であり、質問や懸念を commit 指示へ格上げするルールではない。
+
+### Decision Authority Boundary
+
+- 実装指示が明示的でも、current design / contract doc を暗黙に変更してよいという意味にはしない。
+- ADR は decision record であり、現在の実装 contract は design / contract doc へ落ちている必要がある。ADR と design doc が衝突して見える場合は実装へ進まず整合更新を先に扱う。
+- backlog は受理状態と優先順位の正本だが、design contract を上書きしない。
+- `future_requires_acceptance`、`deprecated`、`decision_change_required` は実装可能な空き scope ではない。`compatibility_only` は新規 scope ではなく、設計 doc に明記された互換保守に限る。
+- 「必要になった場合は別 slice として受理する」は未受理状態であり、実装前に user の明示受理、current-backlog 反映、必要な design / ADR 更新を要求する。
 
 ### 1. Broad-First Interpretation
 

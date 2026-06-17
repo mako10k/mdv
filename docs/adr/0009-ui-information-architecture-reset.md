@@ -2,6 +2,8 @@
 
 - Status: Accepted
 
+Current UI / editor priority and accepted backlog state are governed by [Current Backlog](../current-backlog.md). This ADR records the reset direction and rationale; it is not a standalone implementation backlog.
+
 ## Context
 
 The current MDV UI grew by layering editor actions, preview actions, search, outline, settings entry, and AI chat entry onto a compact toolbar while also adding separate settings and fetch-permissions windows. At the same time, HTML trust boundaries now differ across runtime preview, AI chat rendering, and exported HTML.
@@ -24,6 +26,6 @@ Without an explicit reset, the product keeps three kinds of drift:
 ## Consequences
 
 - A future implementation can remove backward-compatibility constraints and optimize for clearer task flow, but should not trade away the core viewer/editor ergonomics just to make more surfaces visible at once.
-- The application will need coordinated updates across [src/App.tsx](src/App.tsx), [src/ai-chat/ChatApp.tsx](src/ai-chat/ChatApp.tsx), [src/settings/SettingsApp.tsx](src/settings/SettingsApp.tsx), [src/fetch-permissions/FetchPermissionsApp.tsx](src/fetch-permissions/FetchPermissionsApp.tsx), and the desktop menu/shortcut surface in [src/electron/main/window-controller.cts](src/electron/main/window-controller.cts).
+- The application will need coordinated updates across [src/App.tsx](../../src/App.tsx), [src/ai-chat/ChatApp.tsx](../../src/ai-chat/ChatApp.tsx), [src/settings/SettingsApp.tsx](../../src/settings/SettingsApp.tsx), [src/fetch-permissions/FetchPermissionsApp.tsx](../../src/fetch-permissions/FetchPermissionsApp.tsx), and the desktop menu/shortcut surface in [src/electron/main/window-controller.cts](../../src/electron/main/window-controller.cts).
 - HTML safety work is no longer an export-only concern; it becomes a shared rendering contract.
 - Documentation and release notes should describe this as a UI reset rather than incremental polish.

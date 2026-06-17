@@ -24,7 +24,7 @@ const areaRules = [
     name: 'Electron bridge and IPC',
     docs: ['src/electron/main.cts', 'electron/main.cjs', 'electron/preload.cjs', 'src/shims.d.ts'],
     patterns: [/^electron\//, /^src\/electron\//, /^src\/shims\.d\.ts$/],
-    validations: ['npm run lint', 'npm run build'],
+    validations: ['npm run lint', 'npm run build', 'npm run test:node'],
   },
   {
     name: 'Settings and fetch permissions',
@@ -45,9 +45,16 @@ const areaRules = [
     validations: ['npm run mdast:check', 'npm run build'],
   },
   {
+    name: 'Decision and design contracts',
+    docs: ['docs/decision-governance.md', 'docs/current-backlog.md', 'docs/image-storage-design.md', 'docs/ai-chat-design.md', 'docs/ai-chat-feasibility.md'],
+    patterns: [/^docs\/decision-governance\.md$/, /^docs\/current-backlog\.md$/, /^docs\/image-storage-design\.md$/, /^docs\/ai-chat-design\.md$/, /^docs\/ai-chat-feasibility\.md$/, /^docs\/local-asset-storage-design\.md$/, /^docs\/markdown-editor-fit-gap-backlog\.md$/],
+    validations: ['npm run lint', 'npm run build'],
+    reviewAgents: ['plain-eye-review'],
+  },
+  {
     name: 'Packaging and release',
-    docs: ['DEVELOPMENT.md', 'docs/release-workflow.md', 'docs/adr/0018-untracked-windows-release-artifacts-and-history-rewrite.md', 'docs/git-history-rewrite-recovery.md'],
-    patterns: [/^\.gitattributes$/, /^\.gitignore$/, /^package(-lock)?\.json$/, /^DEVELOPMENT\.md$/, /^docs\/release-workflow\.md$/, /^docs\/git-history-rewrite-recovery\.md$/, /^docs\/adr\/0018-untracked-windows-release-artifacts-and-history-rewrite\.md$/, /^scripts\/build-win-host\./, /^scripts\/prepare-github-release\.mjs$/, /^scripts\/check-release-candidate\.mjs$/, /^scripts\/release-utils\.mjs$/, /^release\//, /^build\//],
+    docs: ['DEVELOPMENT.md', 'docs/release-workflow.md', 'docs/image-storage-design.md', 'docs/adr/0018-untracked-windows-release-artifacts-and-history-rewrite.md', 'docs/git-history-rewrite-recovery.md'],
+    patterns: [/^\.gitattributes$/, /^\.gitignore$/, /^package(-lock)?\.json$/, /^DEVELOPMENT\.md$/, /^docs\/release-workflow\.md$/, /^docs\/image-storage-design\.md$/, /^docs\/git-history-rewrite-recovery\.md$/, /^docs\/adr\/0018-untracked-windows-release-artifacts-and-history-rewrite\.md$/, /^scripts\/build-win-host\./, /^scripts\/prepare-github-release\.mjs$/, /^scripts\/check-release-candidate\.mjs$/, /^scripts\/release-utils\.mjs$/, /^release\//, /^build\//],
     validations: ['npm run lint', 'npm run build', 'npm run test:release'],
     reviewAgents: ['packaging-review'],
   },
@@ -57,6 +64,12 @@ const areaRules = [
     patterns: [/^tests\/release\//],
     validations: ['npm run lint', 'npm run build', 'npm run test:release'],
     reviewAgents: ['packaging-review'],
+  },
+  {
+    name: 'Electron node tests',
+    docs: ['DEVELOPMENT.md', 'tests/node/', 'src/electron/main.cts'],
+    patterns: [/^tests\/node\//],
+    validations: ['npm run lint', 'npm run build', 'npm run test:node'],
   },
   {
     name: 'Renderer E2E tests',
@@ -78,8 +91,8 @@ const areaRules = [
   },
   {
     name: 'Agent and workflow guidance',
-    docs: ['AGENTS.md', 'docs/agent-judgment-hardening.md', 'docs/ai-development-settings.md', '.codex/agents/consistency-review.toml', '.codex/agents/plain-eye-review.toml', '.codex/agents/packaging-review.toml', '.agents/skills/write-adr/SKILL.md', '.github/agents/consistency-review.agent.md', '.github/agents/plain-eye-review.agent.md', '.github/agents/packaging-review.agent.md', '.github/prompts/write-adr.prompt.md'],
-    patterns: [/^AGENTS\.md$/, /^docs\/agent-judgment-hardening\.md$/, /^docs\/ai-development-settings\.md$/, /^\.codex\//, /^\.agents\//, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
+    docs: ['AGENTS.md', 'docs/decision-governance.md', 'docs/agent-judgment-hardening.md', 'docs/ai-development-settings.md', '.codex/agents/consistency-review.toml', '.codex/agents/plain-eye-review.toml', '.codex/agents/packaging-review.toml', '.agents/skills/write-adr/SKILL.md', '.github/agents/consistency-review.agent.md', '.github/agents/plain-eye-review.agent.md', '.github/agents/packaging-review.agent.md', '.github/prompts/write-adr.prompt.md'],
+    patterns: [/^AGENTS\.md$/, /^docs\/decision-governance\.md$/, /^docs\/agent-judgment-hardening\.md$/, /^docs\/ai-development-settings\.md$/, /^\.codex\//, /^\.agents\//, /^\.github\/agents\//, /^\.github\/prompts\//, /^docs\/adr\//, /^scripts\/codex-workspace\.mjs$/],
     validations: ['npm run lint', 'npm run build'],
     reviewAgents: ['plain-eye-review'],
   },
@@ -287,6 +300,7 @@ function printWorkspaceMap() {
   printList([
     'npm run build',
     'npm run lint when touching TypeScript, React, Electron, or build scripts',
+    'npm run test:node for Electron main-process node tests',
     'npm test for broad renderer E2E regression coverage',
     'npm run test:e2e:electron for Electron integration behavior',
     'npm run test:release for release workflow changes',

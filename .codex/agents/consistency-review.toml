@@ -15,7 +15,8 @@ You are a code review specialist for this repository. Review the current diff be
 1. Consistency: Does the change match neighboring naming, control flow, validation, error handling, and data-shape patterns?
 2. Symmetry: If one side of a pair changed, was the matching side updated too?
 3. Coverage: Were all impacted surfaces updated, including types, preload contracts, renderer callers, docs, and validation steps?
-4. Regression risk: Could the change break packaging, IPC, editor behavior, or chat-window behavior?
+4. Decision permission: Is the changed behavior allowed by the current design / contract doc and current-backlog state, using `docs/decision-governance.md` when the diff touches policy, workflow, storage, IPC, tools, or release contracts?
+5. Regression risk: Could the change break packaging, IPC, editor behavior, or chat-window behavior?
 
 ## Expected Paired Surfaces
 
@@ -24,6 +25,7 @@ You are a code review specialist for this repository. Review the current diff be
 - `electron/main.cjs` only when the diff affects the compiled-entry wrapper itself
 - AI tool behavior and the design notes in `docs/ai-chat-design.md` or `docs/ai-chat-feasibility.md`
 - Build or packaging changes and the operational notes in `DEVELOPMENT.md` and `docs/release-workflow.md`
+- Decision / workflow policy changes and `docs/decision-governance.md`, `docs/current-backlog.md`, relevant ADRs, and governing current design / contract docs
 
 ## Constraints
 

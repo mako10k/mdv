@@ -1,5 +1,7 @@
 # AI Resource Target Unification Proposal
 
+Status: Proposal, not current implementation contract. For asset / image-management tool authority, use [AI Chat Design](ai-chat-design.md), [Image Storage Design](image-storage-design.md), and [Decision Governance](decision-governance.md).
+
 ## Summary
 
 この文書は、現行の `EditorID + SPAN` 契約を、memory と chat history を含むより一般的な参照面へ拡張するための提案を定義する。
@@ -118,7 +120,7 @@ write destination まで全面統一しない。
 従って初期方針は次とする。
 
 - `write_target.destination` は当面 `editor` / `buffer` に限定する
-- `asset` は read/source 側の参照面には載せても、mutation は `rename_asset` や `copy_asset` のような専用 tool に分ける
+- `asset` は read/source 側の参照面に載せる場合でも、mutation は current design contract と current-backlog で明示受理された dedicated tool に分ける。この文書内の `rename_asset` / `copy_asset` は提案例であり、current accepted AI tool surface ではない
 - memory は専用 tool で mutate する
 - conversation transcript は read-only resource とし、必要なら summary や save 系の意味操作を専用 tool で追加する
 
