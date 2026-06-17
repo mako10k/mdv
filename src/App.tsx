@@ -1317,11 +1317,27 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
-type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote'
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table'
 
 type MarkdownInsertResult = {
   nextMarkdown: string
   selection: MdvAiNormalizedSpan | null
+  didFindTarget?: boolean
+}
+
+type MarkdownTableAlignment = 'default' | 'left' | 'center' | 'right'
+
+type MarkdownLineInfo = {
+  line: number
+  text: string
+  startOffset: number
+  endOffset: number
+}
+
+type MarkdownTableBlock = {
+  startLine: number
+  endLine: number
+  alignments: MarkdownTableAlignment[]
 }
 
 function ToolbarButton({ label, active = false, disabled = false, onClick, children }: ToolbarButtonProps) {
@@ -1569,6 +1585,285 @@ function insertImportedImageMarkdown(markdown: string, span: MdvAiNormalizedSpan
   return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, insertedEndOffset, insertedEndOffset)
 }
 
+function countPrecedingBackslashes(value: string, index: number): number {
+  let count = 0
+
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    count += 1
+  }
+
+  return count
+}
+
+function isEscapedMarkdownCharacter(value: string, index: number): boolean {
+  return countPrecedingBackslashes(value, index) % 2 === 1
+}
+
+function hasUnescapedMarkdownPipe(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '|' && !isEscapedMarkdownCharacter(value, index)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function trimMarkdownTableBoundaryPipes(line: string): string {
+  let content = line.trim()
+
+  if (content.startsWith('|')) {
+    content = content.slice(1)
+  }
+
+  const lastIndex = content.length - 1
+
+  if (lastIndex >= 0 && content[lastIndex] === '|' && !isEscapedMarkdownCharacter(content, lastIndex)) {
+    content = content.slice(0, lastIndex)
+  }
+
+  return content
+}
+
+function splitMarkdownTableRow(line: string): string[] | null {
+  if (!hasUnescapedMarkdownPipe(line)) {
+    return null
+  }
+
+  const content = trimMarkdownTableBoundaryPipes(line)
+  const cells: string[] = []
+  let currentCell = ''
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index]
+
+    if (character === '|' && !isEscapedMarkdownCharacter(content, index)) {
+      cells.push(currentCell.trim())
+      currentCell = ''
+      continue
+    }
+
+    currentCell += character
+  }
+
+  cells.push(currentCell.trim())
+
+  return cells.length >= 1 ? cells : null
+}
+
+function getMarkdownLineInfos(markdown: string): MarkdownLineInfo[] {
+  const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
+
+  return lineStartOffsets.map((startOffset, index) => {
+    const nextStartOffset = index + 1 < lineStartOffsets.length ? lineStartOffsets[index + 1] : markdown.length
+    const endOffset = nextStartOffset > startOffset && markdown[nextStartOffset - 1] === '\n'
+      ? nextStartOffset - 1
+      : nextStartOffset
+
+    return {
+      line: index + 1,
+      text: markdown.slice(startOffset, endOffset),
+      startOffset,
+      endOffset,
+    }
+  })
+}
+
+function getEffectiveSelectionEndLine(span: MdvAiNormalizedSpan): number {
+  if (span.isEmpty) {
+    return span.start.line
+  }
+
+  return span.end.column === 1 ? Math.max(span.start.line, span.end.line - 1) : span.end.line
+}
+
+function parseMarkdownTableAlignmentMarker(marker: string): MarkdownTableAlignment | null {
+  const compactMarker = marker.replace(/\s+/g, '')
+
+  if (!/^:?-+:?$/.test(compactMarker)) {
+    return null
+  }
+
+  if (compactMarker.startsWith(':') && compactMarker.endsWith(':')) {
+    return 'center'
+  }
+
+  if (compactMarker.startsWith(':')) {
+    return 'left'
+  }
+
+  if (compactMarker.endsWith(':')) {
+    return 'right'
+  }
+
+  return 'default'
+}
+
+function findMarkdownTableBlock(markdown: string, span: MdvAiNormalizedSpan): MarkdownTableBlock | null {
+  const lines = getMarkdownLineInfos(markdown)
+  const tokens = markdownParser.parse(markdown, {})
+  const selectionStartLine = span.start.line
+  const selectionEndLine = getEffectiveSelectionEndLine(span)
+
+  for (const token of tokens) {
+    if (token.type !== 'table_open' || token.level !== 0 || !token.map) {
+      continue
+    }
+
+    const startLine = token.map[0] + 1
+    const endLine = token.map[1]
+    const separatorLine = lines[startLine]?.text
+    const alignments = separatorLine
+      ? splitMarkdownTableRow(separatorLine)
+        ?.map(parseMarkdownTableAlignmentMarker)
+      : null
+
+    if (!alignments || alignments.some((alignment) => alignment === null)) {
+      continue
+    }
+
+    const intersectsSelection = startLine <= selectionEndLine && endLine >= selectionStartLine
+
+    if (intersectsSelection) {
+      return {
+        startLine,
+        endLine,
+        alignments: alignments.map((alignment) => alignment ?? 'default'),
+      }
+    }
+  }
+
+  return null
+}
+
+function getMarkdownTableAlignmentMarkerMinWidth(alignment: MarkdownTableAlignment): number {
+  if (alignment === 'center') {
+    return 5
+  }
+
+  if (alignment === 'left' || alignment === 'right') {
+    return 4
+  }
+
+  return 3
+}
+
+function formatMarkdownTableSeparatorCell(width: number, alignment: MarkdownTableAlignment): string {
+  if (alignment === 'center') {
+    return `:${'-'.repeat(Math.max(3, width - 2))}:`
+  }
+
+  if (alignment === 'left') {
+    return `:${'-'.repeat(Math.max(3, width - 1))}`
+  }
+
+  if (alignment === 'right') {
+    return `${'-'.repeat(Math.max(3, width - 1))}:`
+  }
+
+  return '-'.repeat(Math.max(3, width))
+}
+
+function padMarkdownTableCell(cell: string, width: number, alignment: MarkdownTableAlignment): string {
+  const padding = Math.max(0, width - cell.length)
+
+  if (alignment === 'right') {
+    return `${' '.repeat(padding)}${cell}`
+  }
+
+  if (alignment === 'center') {
+    const leftPadding = Math.floor(padding / 2)
+    const rightPadding = padding - leftPadding
+    return `${' '.repeat(leftPadding)}${cell}${' '.repeat(rightPadding)}`
+  }
+
+  return `${cell}${' '.repeat(padding)}`
+}
+
+function formatMarkdownTableLines(lines: string[], alignments: MarkdownTableAlignment[]): string[] {
+  const rows = lines.map((line, index) => {
+    if (index === 1) {
+      return []
+    }
+
+    const cells = splitMarkdownTableRow(line)
+    return cells ?? [line.trim()]
+  })
+  const normalizedColumnCount = Math.max(1, alignments.length)
+  const normalizedAlignments = Array.from(
+    { length: normalizedColumnCount },
+    (_, index) => alignments[index] ?? 'default',
+  )
+  const normalizedRows = rows.map((row) => Array.from({ length: normalizedColumnCount }, (_, index) => row[index]?.trim() ?? ''))
+  const widths = Array.from({ length: normalizedColumnCount }, (_, columnIndex) => {
+    return Math.max(
+      getMarkdownTableAlignmentMarkerMinWidth(normalizedAlignments[columnIndex]),
+      ...normalizedRows.map((row) => row[columnIndex].length),
+    )
+  })
+
+  return normalizedRows.map((row, rowIndex) => {
+    const cells = rowIndex === 1
+      ? widths.map((width, columnIndex) => formatMarkdownTableSeparatorCell(width, normalizedAlignments[columnIndex]))
+      : row.map((cell, columnIndex) => padMarkdownTableCell(cell, widths[columnIndex], normalizedAlignments[columnIndex]))
+
+    return `| ${cells.join(' | ')} |`
+  })
+}
+
+function formatMarkdownTableAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const tableBlock = findMarkdownTableBlock(markdown, span)
+
+  if (!tableBlock) {
+    return {
+      nextMarkdown: markdown,
+      selection: span,
+      didFindTarget: false,
+    }
+  }
+
+  const lines = getMarkdownLineInfos(markdown)
+  const tableLines = lines
+    .filter((line) => line.line >= tableBlock.startLine && line.line <= tableBlock.endLine)
+    .map((line) => line.text)
+  const formattedTable = formatMarkdownTableLines(tableLines, tableBlock.alignments).join('\n')
+  const startInfo = lines[tableBlock.startLine - 1]
+  const endInfo = lines[tableBlock.endLine - 1]
+  const nextMarkdown = replaceOffsets(markdown, startInfo.startOffset, endInfo.endOffset, formattedTable)
+  const selectionStartOffset = startInfo.startOffset
+  const selectionEndOffset = selectionStartOffset + formattedTable.length
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, selectionStartOffset, selectionEndOffset),
+    didFindTarget: true,
+  }
+}
+
+function insertMarkdownTableTemplate(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const { startOffset, endOffset } = getSpanOffsets(markdown, span)
+  const tableTemplate = [
+    '| Column 1 | Column 2 | Column 3 |',
+    '| --- | --- | --- |',
+    '| Cell | Cell | Cell |',
+  ].join('\n')
+  const leadingBreak = startOffset === 0
+    ? ''
+    : markdown[startOffset - 1] === '\n'
+      ? startOffset >= 2 && markdown[startOffset - 2] === '\n' ? '' : '\n'
+      : '\n\n'
+  const trailingBreak = endOffset >= markdown.length
+    ? '\n'
+    : markdown[endOffset] === '\n'
+      ? markdown[endOffset + 1] === '\n' ? '' : '\n'
+      : '\n\n'
+  const insertedText = `${leadingBreak}${tableTemplate}${trailingBreak}`
+  const headerStartOffset = startOffset + leadingBreak.length + '| '.length
+  const headerEndOffset = headerStartOffset + 'Column 1'.length
+
+  return createMarkdownInsertResult(markdown, startOffset, endOffset, insertedText, headerStartOffset, headerEndOffset)
+}
+
 function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
   const { startOffset, endOffset } = getSpanOffsets(markdown, span)
   const selectedText = markdown.slice(startOffset, endOffset)
@@ -1611,6 +1906,14 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
       nextMarkdown,
       selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
     }
+  }
+
+  if (command === 'table') {
+    return insertMarkdownTableTemplate(markdown, span)
+  }
+
+  if (command === 'format-table') {
+    return formatMarkdownTableAtSpan(markdown, span)
   }
 
   const footnoteId = getNextFootnoteId(markdown)
@@ -1883,6 +2186,24 @@ function HorizontalRuleCommandIcon() {
 
 function FootnoteCommandIcon() {
   return <span className="toolbar-text-icon" aria-hidden="true">FN</span>
+}
+
+function TableCommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4 10h16M4 14.5h16M9.5 5v14M14.5 5v14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function FormatTableCommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M5 5.5h14M5 10h9M5 14.5h14M5 19h9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M17 9.5v5M14.5 12H19.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 async function copyTextToClipboard(text: string) {
@@ -3673,6 +3994,11 @@ function App() {
     const selection = normalizeSelectionToMarkdownSpan(editor, liveMarkdown)
     const result = runMarkdownInsertCommand(command, liveMarkdown, selection)
 
+    if (result.nextMarkdown === liveMarkdown && result.didFindTarget === false) {
+      setStatusText(t.app.status.markdownCommandNoTarget(commandLabel))
+      return
+    }
+
     invalidateEditorSearch()
     updateMarkdownText(result.nextMarkdown)
     if (command === 'footnote' && editor.isWysiwygMode()) {
@@ -4633,6 +4959,12 @@ function App() {
                     </ToolbarButton>
                     <ToolbarButton label={t.app.insertFootnote} onClick={() => applyMarkdownInsertCommand('footnote', t.app.insertFootnote)}>
                       <FootnoteCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.insertTable} onClick={() => applyMarkdownInsertCommand('table', t.app.insertTable)}>
+                      <TableCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.formatTable} onClick={() => applyMarkdownInsertCommand('format-table', t.app.formatTable)}>
+                      <FormatTableCommandIcon />
                     </ToolbarButton>
                   </ToolbarGroup>
                 ) : null}

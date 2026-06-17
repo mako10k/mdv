@@ -52,7 +52,7 @@ MDV は次の点ですでに強い。
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
 | 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | remaining accepted-scope gap はなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する |
-| 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
+| 表編集 | Partial Fit | Toast UI Editor 標準の表編集はあり、MDV topbar からの Markdown table template 挿入と top-level rendered GFM table block の source 整形 first slice は完了 | 残 gap は列追加、行追加、明示的な alignment 変更 UI。Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA と照合してから扱う |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
 | 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
@@ -203,11 +203,15 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 - 目的: Markdown 表の作成・保守の負荷を下げる
 - 内容:
   - Toast UI Editor 標準の表 UI を補完する
-  - 表テンプレート挿入
-  - 列追加、行追加、alignment row 補助
-  - source 上の整形コマンド
-- 完了条件:
+  - first slice 完了済み: 表テンプレート挿入、source 上の整形コマンド
+  - 残 scope: 列追加、行追加、alignment row 補助
+- first slice 完了条件:
   - 少なくとも表の新規作成と整形が UI から実行できる
+- 2026-06-17 first slice:
+  - 実装済み: topbar の挿入操作から 3 列 Markdown table template を挿入できる
+  - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、その table block だけを alignment row に従って source 上で整形できる。blockquote / list / fenced code 内の table-like text は対象外
+  - 回帰: `tests/e2e/app-layout.spec.ts` の `table command inserts a Markdown table template and updates the preview`、`format table command aligns the current Markdown table block`、`format table command preserves adjacent non-table pipe blocks`、`format table command accepts GFM tables with short delimiters and pipe-less uneven body cells`
+  - 残 scope: 列追加、行追加、明示的な alignment 変更 UI は未実装。これは first slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残す。次に触る時は Toast UI 標準 UI との重複、topbar overflow、MD-BL-013 の command IA と照合してから扱う
 
 #### MD-BL-007 リスト継続と task list 操作補助
 
@@ -351,7 +355,7 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 
 残りの分析順:
 
-1. MD-BL-006 表編集補助
+1. MD-BL-006 残 scope: 列追加、行追加、明示的な alignment 変更 UI
 2. MD-BL-007 リスト継続と task list 操作補助
 3. MD-BL-013 workspace topbar grouping / overflow 再設計
 4. MD-BL-014 検索 surface の再設計

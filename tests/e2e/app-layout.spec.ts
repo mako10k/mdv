@@ -1754,4 +1754,95 @@ test.describe('markdown insert commands', () => {
 
     await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText(/before[\s\S]*---[\s\S]*after/)
   })
+
+  test('table command inserts a Markdown table template and updates the preview', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'before table')
+    await placeEditorCursorFromStart(page, 'before table'.length)
+
+    await page.locator('.topbar').getByRole('button', { name: /(表を挿入|Insert table)/ }).click()
+
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('Column 1')
+    await expect(editor).toContainText('Column 2')
+    await expect(editor).toContainText('Column 3')
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel table')).toHaveCount(1)
+    await expect(page.locator('.preview-panel th').nth(0)).toHaveText('Column 1')
+    await expect(page.locator('.preview-panel td').nth(0)).toHaveText('Cell')
+  })
+
+  test('format table command aligns the current Markdown table block', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      'Before',
+      '',
+      '| Name |Status|',
+      '| --- | ---: |',
+      '| Alpha |1|',
+      '| Beta value |20|',
+      '',
+      'After',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('Before')
+    expect(editorText).toContain('| Name       | Status |')
+    expect(editorText).toContain('| ---------- | -----: |')
+    expect(editorText).toContain('| Alpha      |      1 |')
+    expect(editorText).toContain('| Beta value |     20 |')
+    expect(editorText).toContain('After')
+  })
+
+  test('format table command preserves adjacent non-table pipe blocks', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Status |',
+      '| --- | --- |',
+      '| Alpha | Open |',
+      '> note | value',
+      '',
+      '- list | value',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('| Name  | Status |')
+    expect(editorText).toContain('| ----- | ------ |')
+    expect(editorText).toContain('| Alpha | Open   |')
+    expect(editorText).toContain('> note | value')
+    expect(editorText).toContain('- list | value')
+  })
+
+  test('format table command accepts GFM tables with short delimiters and pipe-less uneven body cells', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Score |',
+      '| - | -: |',
+      'Alpha',
+      '| Beta | 20 | ignored |',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表を整形|Format table)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('| Name  | Score |')
+    expect(editorText).toContain('| ----- | ----: |')
+    expect(editorText).toContain('| Alpha |       |')
+    expect(editorText).toContain('| Beta  |    20 |')
+    expect(editorText).not.toContain('ignored')
+  })
 })

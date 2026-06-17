@@ -69,7 +69,7 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ### P1 Editor Comfort
 
-1. [棚卸待ち] MD-BL-006 表編集補助
+1. [残件棚卸待ち] MD-BL-006 表編集補助
 2. [棚卸待ち] MD-BL-007 リスト継続と task list 操作補助
 
 P0 が完了済みのため、これらを現在の editor comfort 候補として扱う。いずれも「Markdown を書く速度」と日常編集の手間を直接下げる項目である。
@@ -103,9 +103,15 @@ v0.1.14 で閉じた最小範囲:
 - deprecated asset workspace / materialization は、新規画像の正本要件から外した。draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow の app-managed temporary cleanup に限って維持し、user-facing な削除 / 整理 / repair UI、user-managed `assets/` 削除、Markdown rewrite、変換 / extraction flow の前提として残さない
 - inline image の export-to-file、asset manager、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず、`backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として [docs/image-storage-design.md](image-storage-design.md) の inline storage contract を前提にした新しい backlog slice で受理する
 
+2026-06-17 MD-BL-006 棚卸 / first slice 結果:
+
+- MD-BL-006 の表テンプレート挿入と source table 整形 first slice は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` とする。topbar の挿入操作から 3 列 table template を挿入でき、caret / selection が top-level の rendered GFM table block と交差している場合は、その table block だけを alignment row に従って整形できる。blockquote / list / fenced code 内の table-like text はこの first slice の整形対象外である
+- 根拠 anchor は `src/App.tsx` の `table` / `format-table` Markdown insert command、`src/shared/i18n.ts` の insert / format table label、`tests/e2e/app-layout.spec.ts` の `table command inserts a Markdown table template and updates the preview` / `format table command aligns the current Markdown table block` / `format table command preserves adjacent non-table pipe blocks` / `format table command accepts GFM tables with short delimiters and pipe-less uneven body cells` である
+- 列追加、行追加、明示的な alignment 変更 UI はこの slice では未実装。これらは MD-BL-006 の残 scope として `backlog_state: accepted_active` + `inventory_status: inventory_pending` のまま残すが、実装準備済みではない。次に触る時は Toast UI 標準 UI との重複、topbar overflow、MD-BL-013 の command IA と照合してから、残 scope の allowed / blocked を確定する
+
 次に扱う最小範囲:
 
-- 表編集補助とリスト継続補助を、次の editor comfort 候補として棚卸する
+- MD-BL-006 の残 scope と MD-BL-007 リスト継続補助を、次の editor comfort 候補として棚卸する
 - topbar / Toast UI toolbar の大きな IA 整理は、挿入 contract 完了後の MD-BL-013 として扱う
 
 注記:
@@ -323,6 +329,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe は完了。OS second-instance launch と app 内 open dialog の両方で既存 editor window を focus し、重複 window を作らないことを Electron E2E で固定した。
 - MD-BL-018 H3/H4 heading 表示崩れ修正は完了。preview / WYSIWYG / AI chat の Markdown heading と inline code style の競合を scoped CSS と Playwright 回帰で固定した。
 - MD-BL-005 / MD-BL-023 の画像体験は完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定し、2026-06-17 棚卸で MD-BL-005 の current accepted scope を active P1 から外した。
+- MD-BL-006 表編集補助の first slice は完了。topbar から Markdown table template を挿入でき、top-level の rendered GFM table block を source 上で整形できるようにし、browser 回帰で preview table と source alignment を固定した。
 - AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
 ## Historical Documents
@@ -333,7 +340,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P1 Editor Comfort の棚卸: MD-BL-006、MD-BL-007
+1. P1 Editor Comfort の棚卸: MD-BL-006 残 scope、MD-BL-007
 2. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-013、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
 3. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
 4. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
@@ -345,7 +352,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
-- MD-BL-005 / MD-BL-023 は完了済み。recommended order で次に扱う P1 は表編集とリスト継続であり、画像管理 UI は現時点の active P1 に含めない
+- MD-BL-005 / MD-BL-023 は完了済み。MD-BL-006 の table template / source format first slice も完了済み。recommended order で次に扱う P1 は MD-BL-006 残 scope とリスト継続であり、画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
@@ -354,7 +361,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- P1 Editor Comfort の次 slice として、表編集補助とリスト継続補助を棚卸結果に沿って扱う
+- P1 Editor Comfort の次 slice として、MD-BL-006 残 scope とリスト継続補助を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善
