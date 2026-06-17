@@ -1885,6 +1885,93 @@ test.describe('markdown insert commands', () => {
     await expect(page.locator('.statusbar-status')).toContainText(/表の行を追加 できる対象がありません|No target for Add table row/)
   })
 
+  test('add table column command inserts an empty column after the current table column', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Status |',
+      '| --- | --- |',
+      '| Alpha | Open |',
+      '| Beta | Done |',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('| Name  |     | Status |')
+    expect(editorText).toContain('| ----- | --- | ------ |')
+    expect(editorText).toContain('| Alpha |     | Open   |')
+    expect(editorText).toContain('| Beta  |     | Done   |')
+
+    await page.locator('.view-switch button').nth(1).click()
+    await expect(page.locator('.preview-panel th')).toHaveCount(3)
+    await expect(page.locator('.preview-panel tbody tr').first().locator('td').nth(1)).toHaveText('')
+    await expect(page.locator('.preview-panel tbody tr').first().locator('td').nth(2)).toHaveText('Open')
+  })
+
+  test('add table column command preserves existing alignment and adjacent non-table pipe blocks', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Score |',
+      '| --- | ---: |',
+      '| Alpha | 10 |',
+      '| Beta | 200 |',
+      '> note | value',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('| Name  |     | Score |')
+    expect(editorText).toContain('| ----- | --- | ----: |')
+    expect(editorText).toContain('| Alpha |     |    10 |')
+    expect(editorText).toContain('| Beta  |     |   200 |')
+    expect(editorText).toContain('> note | value')
+  })
+
+  test('add table column command uses the selection end column as the insertion anchor', async ({ page }) => {
+    await openWritePanel(page)
+
+    const markdown = [
+      '| Name | Status |',
+      '| --- | --- |',
+      '| Alpha | Open |',
+      '| Beta | Done |',
+    ].join('\n')
+
+    await replaceMarkdownDocument(page, markdown, null)
+    await placeEditorCursorFromStart(page, markdown.indexOf('Alpha'))
+    await page.keyboard.down('Shift')
+
+    for (let index = 0; index < 'Alpha | Open'.length; index += 1) {
+      await page.keyboard.press('ArrowRight')
+    }
+
+    await page.keyboard.up('Shift')
+    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+
+    const editorText = await page.locator('.toastui-editor-md-container .toastui-editor').first().textContent()
+    expect(editorText).toContain('| Name  | Status |     |')
+    expect(editorText).toContain('| Alpha | Open   |     |')
+    expect(editorText).toContain('| Beta  | Done   |     |')
+  })
+
+  test('add table column command reports no target outside rendered table blocks', async ({ page }) => {
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, 'Paragraph | value')
+    await placeEditorCursorFromStart(page, 'Paragraph'.length)
+
+    await page.locator('.topbar').getByRole('button', { name: /(表の列を追加|Add table column)/ }).click()
+
+    await expect(page.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('Paragraph | value')
+    await expect(page.locator('.statusbar-status')).toContainText(/表の列を追加 できる対象がありません|No target for Add table column/)
+  })
+
   test('standard editor continues ordered, unordered, nested, and task list items', async ({ page }) => {
     await openWritePanel(page)
 

@@ -1317,7 +1317,7 @@ type ExactEditorSearchScope = {
   endOffset: number
 }
 
-type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'add-table-row' | 'toggle-task-list'
+type MarkdownInsertCommand = 'heading' | 'link' | 'image' | 'code-block' | 'quote' | 'horizontal-rule' | 'footnote' | 'table' | 'format-table' | 'add-table-row' | 'add-table-column' | 'toggle-task-list'
 
 type MarkdownInsertResult = {
   nextMarkdown: string
@@ -1338,6 +1338,11 @@ type MarkdownTableBlock = {
   startLine: number
   endLine: number
   alignments: MarkdownTableAlignment[]
+}
+
+type MarkdownTableCellRange = {
+  startIndex: number
+  endIndex: number
 }
 
 function ToolbarButton({ label, active = false, disabled = false, onClick, children }: ToolbarButtonProps) {
@@ -1651,6 +1656,44 @@ function splitMarkdownTableRow(line: string): string[] | null {
   return cells.length >= 1 ? cells : null
 }
 
+function getLastNonWhitespaceIndex(value: string): number {
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    if (!/\s/.test(value[index])) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function getMarkdownTableCellRanges(line: string): MarkdownTableCellRange[] {
+  if (!hasUnescapedMarkdownPipe(line)) {
+    return [{ startIndex: 0, endIndex: line.length }]
+  }
+
+  const firstNonWhitespaceIndex = line.search(/\S/)
+  const lastNonWhitespaceIndex = getLastNonWhitespaceIndex(line)
+  const startsWithBoundaryPipe = firstNonWhitespaceIndex >= 0 && line[firstNonWhitespaceIndex] === '|'
+  const endsWithBoundaryPipe = lastNonWhitespaceIndex >= 0
+    && line[lastNonWhitespaceIndex] === '|'
+    && !isEscapedMarkdownCharacter(line, lastNonWhitespaceIndex)
+  const contentStartIndex = startsWithBoundaryPipe ? firstNonWhitespaceIndex + 1 : 0
+  const contentEndIndex = endsWithBoundaryPipe ? lastNonWhitespaceIndex : line.length
+  const ranges: MarkdownTableCellRange[] = []
+  let cellStartIndex = contentStartIndex
+
+  for (let index = contentStartIndex; index < contentEndIndex; index += 1) {
+    if (line[index] === '|' && !isEscapedMarkdownCharacter(line, index)) {
+      ranges.push({ startIndex: cellStartIndex, endIndex: index })
+      cellStartIndex = index + 1
+    }
+  }
+
+  ranges.push({ startIndex: cellStartIndex, endIndex: contentEndIndex })
+
+  return ranges
+}
+
 function getMarkdownLineInfos(markdown: string): MarkdownLineInfo[] {
   const lineStartOffsets = getMarkdownLineStartOffsets(markdown)
 
@@ -1675,6 +1718,24 @@ function getEffectiveSelectionEndLine(span: MdvAiNormalizedSpan): number {
   }
 
   return span.end.column === 1 ? Math.max(span.start.line, span.end.line - 1) : span.end.line
+}
+
+function getEffectiveSelectionEndPosition(span: MdvAiNormalizedSpan, lines: MarkdownLineInfo[]): MdvAiMarkdownPos {
+  if (span.isEmpty) {
+    return span.start
+  }
+
+  if (span.end.column !== 1) {
+    return span.end
+  }
+
+  const line = Math.max(span.start.line, span.end.line - 1)
+  const lineText = lines[line - 1]?.text ?? ''
+
+  return {
+    line,
+    column: lineText.length + 1,
+  }
 }
 
 function parseMarkdownTableAlignmentMarker(marker: string): MarkdownTableAlignment | null {
@@ -1847,6 +1908,49 @@ function createMarkdownTableEmptyRow(columnCount: number): string {
   return `| ${cells.join(' | ')} |`
 }
 
+function normalizeMarkdownTableRowCells(line: string, columnCount: number): string[] {
+  const cells = splitMarkdownTableRow(line) ?? [line.trim()]
+
+  return Array.from({ length: columnCount }, (_, index) => cells[index]?.trim() ?? '')
+}
+
+function getMarkdownTableColumnIndexAtPosition(line: string, column: number, columnCount: number): number {
+  const ranges = getMarkdownTableCellRanges(line)
+  const normalizedColumnCount = Math.max(1, columnCount)
+  const targetIndex = Math.max(0, Math.min(line.length, column - 1))
+
+  for (let index = 0; index < ranges.length; index += 1) {
+    if (targetIndex <= ranges[index].endIndex) {
+      return Math.min(index, normalizedColumnCount - 1)
+    }
+  }
+
+  return normalizedColumnCount - 1
+}
+
+function createMarkdownTableRowWithInsertedColumn(line: string, columnCount: number, insertionColumnIndex: number): string {
+  const cells = normalizeMarkdownTableRowCells(line, columnCount)
+
+  cells.splice(insertionColumnIndex, 0, '')
+
+  return `| ${cells.join(' | ')} |`
+}
+
+function getMarkdownTableCellCaretIndex(line: string, columnIndex: number): number {
+  const ranges = getMarkdownTableCellRanges(line)
+  const range = ranges[Math.min(Math.max(0, columnIndex), ranges.length - 1)]
+
+  if (!range) {
+    return line.length
+  }
+
+  return Math.min(range.endIndex, range.startIndex + 1)
+}
+
+function getMarkdownLineRelativeStartOffset(lines: string[], lineIndex: number): number {
+  return lines.slice(0, lineIndex).reduce((offset, line) => offset + line.length + 1, 0)
+}
+
 function addMarkdownTableRowAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
   const tableBlock = findMarkdownTableBlock(markdown, span)
 
@@ -1873,6 +1977,59 @@ function addMarkdownTableRowAtSpan(markdown: string, span: MdvAiNormalizedSpan):
   return {
     nextMarkdown,
     selection: normalizeOffsetsToSpan(nextMarkdown, firstCellOffset, firstCellOffset),
+    didFindTarget: true,
+  }
+}
+
+function addMarkdownTableColumnAtSpan(markdown: string, span: MdvAiNormalizedSpan): MarkdownInsertResult {
+  const tableBlock = findMarkdownTableBlock(markdown, span)
+
+  if (!tableBlock) {
+    return {
+      nextMarkdown: markdown,
+      selection: span,
+      didFindTarget: false,
+    }
+  }
+
+  const lines = getMarkdownLineInfos(markdown)
+  const effectiveEndPosition = getEffectiveSelectionEndPosition(span, lines)
+  const targetLineNumber = Math.min(
+    Math.max(effectiveEndPosition.line, tableBlock.startLine),
+    tableBlock.endLine,
+  )
+  const targetLine = lines[targetLineNumber - 1]
+  const targetColumn = targetLineNumber === effectiveEndPosition.line
+    ? effectiveEndPosition.column
+    : targetLine.text.length + 1
+  const columnCount = tableBlock.alignments.length
+  const targetColumnIndex = getMarkdownTableColumnIndexAtPosition(targetLine.text, targetColumn, columnCount)
+  const insertionColumnIndex = targetColumnIndex + 1
+  const nextAlignments = [...tableBlock.alignments]
+
+  nextAlignments.splice(insertionColumnIndex, 0, 'default')
+
+  const augmentedTableLines = lines
+    .filter((line) => line.line >= tableBlock.startLine && line.line <= tableBlock.endLine)
+    .map((line, index) => index === 1
+      ? line.text
+      : createMarkdownTableRowWithInsertedColumn(line.text, columnCount, insertionColumnIndex))
+  const formattedTableLines = formatMarkdownTableLines(augmentedTableLines, nextAlignments)
+  const formattedTable = formattedTableLines.join('\n')
+  const startInfo = lines[tableBlock.startLine - 1]
+  const endInfo = lines[tableBlock.endLine - 1]
+  const nextMarkdown = replaceOffsets(markdown, startInfo.startOffset, endInfo.endOffset, formattedTable)
+  const caretLineNumber = targetLineNumber === tableBlock.startLine + 1
+    ? tableBlock.startLine
+    : targetLineNumber
+  const caretLineIndex = caretLineNumber - tableBlock.startLine
+  const caretLineStartOffset = startInfo.startOffset + getMarkdownLineRelativeStartOffset(formattedTableLines, caretLineIndex)
+  const caretIndex = getMarkdownTableCellCaretIndex(formattedTableLines[caretLineIndex] ?? '', insertionColumnIndex)
+  const caretOffset = caretLineStartOffset + caretIndex
+
+  return {
+    nextMarkdown,
+    selection: normalizeOffsetsToSpan(nextMarkdown, caretOffset, caretOffset),
     didFindTarget: true,
   }
 }
@@ -2011,6 +2168,10 @@ function runMarkdownInsertCommand(command: MarkdownInsertCommand, markdown: stri
 
   if (command === 'add-table-row') {
     return addMarkdownTableRowAtSpan(markdown, span)
+  }
+
+  if (command === 'add-table-column') {
+    return addMarkdownTableColumnAtSpan(markdown, span)
   }
 
   if (command === 'toggle-task-list') {
@@ -2312,6 +2473,15 @@ function AddTableRowCommandIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
       <rect x="4" y="5" width="16" height="12" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M4 9h16M4 13h16M9.5 5v12M14.5 5v12M12 18.5v3M10.5 20h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function AddTableColumnCommandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <rect x="4" y="5" width="12" height="14" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4 10h12M4 14.5h12M8 5v14M12 5v14M18.5 12h3M20 10.5v3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
 }
@@ -5087,6 +5257,9 @@ function App() {
                     </ToolbarButton>
                     <ToolbarButton label={t.app.addTableRow} onClick={() => applyMarkdownInsertCommand('add-table-row', t.app.addTableRow)}>
                       <AddTableRowCommandIcon />
+                    </ToolbarButton>
+                    <ToolbarButton label={t.app.addTableColumn} onClick={() => applyMarkdownInsertCommand('add-table-column', t.app.addTableColumn)}>
+                      <AddTableColumnCommandIcon />
                     </ToolbarButton>
                     <ToolbarButton label={t.app.toggleTaskCheckbox} onClick={() => applyMarkdownInsertCommand('toggle-task-list', t.app.toggleTaskCheckbox)}>
                       <TaskCheckboxCommandIcon />

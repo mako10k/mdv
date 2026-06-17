@@ -52,7 +52,7 @@ MDV は次の点ですでに強い。
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
 | 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | remaining accepted-scope gap はなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は `backlog_state: future_requires_acceptance`、`contract_state: decision_change_required` として別 slice で受理する |
-| 表編集 | Partial Fit | Toast UI Editor 標準の表編集はあり、MDV topbar からの Markdown table template 挿入、top-level rendered GFM table block の source 整形、current row 後ろへの空行追加は完了 | 残 gap は列追加と明示的な alignment 変更 UI。Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA と照合してから扱う |
+| 表編集 | Partial Fit | Toast UI Editor 標準の表編集はあり、MDV topbar からの Markdown table template 挿入、top-level rendered GFM table block の source 整形、current row 後ろへの空行追加、current column 後ろへの空列追加は完了 | 残 gap は column alignment selector。Toast UI 標準 UI / topbar overflow / MD-BL-013 command IA と照合してから扱う |
 | リスト継続補助 | Fit | Toast UI 標準 editor で unordered / ordered / nested / task list の Enter 継続が自然に動き、MDV topbar から current line / selected lines の task checkbox toggle を実行できる | remaining accepted-scope gap はなし。追加の list outdent / indent 専用 UI、task list bulk operations、list style conversion が必要になった場合は別 slice で受理する |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
 | 復旧性 | Fit | autosave、crash recovery、復元提案、stale recovery cleanup があり、既存の競合保存フローとも整合している | multi-document session restore は未対応だが、現時点では主要 gap ではない |
@@ -205,19 +205,25 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
   - Toast UI Editor 標準の表 UI を補完する
   - first slice 完了済み: 表テンプレート挿入、source 上の整形コマンド
   - row add slice 完了済み: current row 後ろへの空行追加
-  - 残 scope: 列追加、明示的な alignment row 補助
+  - column add slice 完了済み: current column 後ろへの空列追加
+  - 残 scope: column alignment selector。既存 table の列に対して default / left / center / right の alignment marker を選んで変更する UI
 - first slice 完了条件:
   - 少なくとも表の新規作成と整形が UI から実行できる
 - 2026-06-17 first slice:
   - 実装済み: topbar の挿入操作から 3 列 Markdown table template を挿入できる
   - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、その table block だけを alignment row に従って source 上で整形できる。blockquote / list / fenced code 内の table-like text は対象外
   - 回帰: `tests/e2e/app-layout.spec.ts` の `table command inserts a Markdown table template and updates the preview`、`format table command aligns the current Markdown table block`、`format table command preserves adjacent non-table pipe blocks`、`format table command accepts GFM tables with short delimiters and pipe-less uneven body cells`
-  - first slice 時点の残 scope: 列追加、行追加、明示的な alignment 変更 UI は未実装だった。これは first slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残した
+  - first slice 時点の残 scope: 列追加、行追加、column alignment selector は未実装だった。これは first slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残した
 - 2026-06-17 row add slice:
   - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、caret 行、または selection end が属する行の後ろへ空の body row を追加できる。header / separator 上では separator の後ろへ追加する
-  - 実装判断: 行追加は既存の table block 検出と source command surface だけで閉じ、既存 table command group へ単一の row action を足す範囲に留めるため、この slice では Toast UI 標準表 UI や MD-BL-013 の broader command IA と競合させない。ただし、列追加と明示的な alignment 変更 UI は column semantics / alignment UI / topbar density の影響が大きいため、引き続き棚卸待ちとする
+  - 実装判断: 行追加は既存の table block 検出と source command surface だけで閉じ、既存 table command group へ単一の row action を足す範囲に留めるため、この slice では Toast UI 標準表 UI や MD-BL-013 の broader command IA と競合させない。ただし、列追加と column alignment selector は column semantics / alignment UI / topbar density の影響が大きいため、row add slice 時点では棚卸待ちとした
   - 回帰: `tests/e2e/app-layout.spec.ts` の `add table row command inserts an empty row after the current table row`、`add table row command reports no target outside rendered table blocks`
-  - 残 scope: 列追加、明示的な alignment 変更 UI は未実装。これは row add slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残す
+  - row add slice 時点の残 scope: 列追加、column alignment selector は未実装だった。これは row add slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残した
+- 2026-06-17 column add slice:
+  - 実装済み: caret / selection が top-level の rendered GFM table block と交差している場合、caret または selection end が属する cell の後ろへ default alignment の空列を追加できる
+  - 実装判断: 列追加は既存の table block 検出と source command surface だけで閉じ、既存 table command group へ単一の column action を足す範囲に留めるため、この slice では Toast UI 標準表 UI や MD-BL-013 の broader command IA と競合させない。accepted scope の add-after row / add-after column はこの slice で閉じる。delete row / column、insert-before、bulk table operations、またはその他の構造操作はこの slice の完了範囲ではなく、必要なら MD-BL-013 の結果または別 backlog slice で受理する
+  - 回帰: `tests/e2e/app-layout.spec.ts` の `add table column command inserts an empty column after the current table column`、`add table column command preserves existing alignment and adjacent non-table pipe blocks`、`add table column command uses the selection end column as the insertion anchor`、`add table column command reports no target outside rendered table blocks`
+  - 残 scope: column alignment selector は未実装。これは column add slice の未完了ではなく、MD-BL-006 の残 scope として `accepted_active + inventory_pending` に残す。実装可否は MD-BL-013 command IA / overflow の棚卸で確定する
 
 #### MD-BL-007 リスト継続と task list 操作補助
 
@@ -368,13 +374,12 @@ Markdown 編集という観点での優先 gap は次の 2 つに集約される
 
 残りの分析順:
 
-1. MD-BL-006 残 scope: 列追加、明示的な alignment 変更 UI
-2. MD-BL-013 workspace topbar grouping / overflow 再設計
-3. MD-BL-014 検索 surface の再設計
-4. MD-BL-008 Preview 同期強化
-5. MD-BL-009 スペルチェック
-6. MD-BL-010 最近使った文書 / クイックオープン
-7. MD-BL-011 PDF 出力
+1. MD-BL-013 workspace topbar grouping / overflow 再設計。ここで MD-BL-006 column alignment selector の実装可否も確定する
+2. MD-BL-014 検索 surface の再設計
+3. MD-BL-008 Preview 同期強化
+4. MD-BL-009 スペルチェック
+5. MD-BL-010 最近使った文書 / クイックオープン
+6. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
