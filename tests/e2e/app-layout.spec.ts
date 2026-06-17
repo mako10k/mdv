@@ -761,6 +761,77 @@ test('preview fallback code blocks keep rendered content height', async ({ page 
   expect(fallbackCodeBlockMetrics?.preHeight).toBeGreaterThan(fallbackCodeBlockMetrics?.codeBlockHeight ?? 0)
 })
 
+test('preview code block shells keep height in long documents', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 720 })
+  await openWritePanel(page)
+
+  const filler = Array.from({ length: 48 }, (_, index) => `Paragraph ${index + 1} with enough text to make the preview taller than the panel.`)
+    .join('\n\n')
+
+  await replaceMarkdownDocument(
+    page,
+    [
+      '# Long rendered preview',
+      '',
+      filler,
+      '',
+      'Safety check:',
+      '',
+      '```bash',
+      'python3 scripts/check_ops_capabilities.py',
+      '```',
+      '',
+      'Import preview:',
+      '',
+      '```bash',
+      'python3 scripts/import_home_ops_repos.py --dry-run',
+      '```',
+      '',
+      'Secret key preview:',
+      '',
+      '```bash',
+      'python3 scripts/copy_secdat_domain_keys.py',
+      '```',
+      '',
+    ].join('\n'),
+    null,
+  )
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+  await expect(page.locator('.preview-panel .code-block-shell')).toHaveCount(3)
+
+  const bottomCodeBlockMetrics = await page.evaluate(() => {
+    const shell = Array.from(document.querySelectorAll<HTMLElement>('.preview-panel .code-block-shell')).at(-1)
+    const pre = shell?.querySelector<HTMLElement>('pre')
+    const code = shell?.querySelector<HTMLElement>('code')
+
+    if (!shell || !pre || !code) {
+      return null
+    }
+
+    const shellRect = shell.getBoundingClientRect()
+    const preRect = pre.getBoundingClientRect()
+    const codeRect = code.getBoundingClientRect()
+    const shellStyles = getComputedStyle(shell)
+
+    return {
+      codeHeight: codeRect.height,
+      flexShrink: shellStyles.flexShrink,
+      preHeight: preRect.height,
+      shellHeight: shellRect.height,
+      text: code.textContent ?? '',
+    }
+  })
+
+  expect(bottomCodeBlockMetrics).not.toBeNull()
+  expect(bottomCodeBlockMetrics?.flexShrink).toBe('0')
+  expect(bottomCodeBlockMetrics?.text).toContain('copy_secdat_domain_keys.py')
+  expect(bottomCodeBlockMetrics?.codeHeight).toBeGreaterThan(20)
+  expect(bottomCodeBlockMetrics?.preHeight).toBeGreaterThan(40)
+  expect(bottomCodeBlockMetrics?.shellHeight).toBeGreaterThan(70)
+})
+
 test('wysiwyg-focused H3 and H4 headings keep heading and inline-code reset chrome', async ({ page }) => {
   await openWritePanel(page)
   await replaceMarkdownDocument(

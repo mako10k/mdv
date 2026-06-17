@@ -769,6 +769,7 @@
 }
 
 .preview-scroll > * {
+  flex: 0 0 auto;
   width: min(100%, 980px);
   margin-inline: auto;
 }
