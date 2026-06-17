@@ -351,6 +351,16 @@ body,
   margin: 0;
 }
 
+.chat-bubble .markdown-fragment pre,
+.chat-tool-content .markdown-fragment pre {
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--code-shell-bg);
+  color: var(--code-shell-text);
+}
+
 .chat-bubble .markdown-fragment table,
 .chat-tool-content .markdown-fragment table {
   width: 100%;
@@ -371,11 +381,15 @@ body,
   white-space: break-spaces;
 }
 
+.chat-bubble .markdown-fragment pre code,
 .chat-tool-content .markdown-fragment pre code {
+  display: block;
   border: none;
   background: transparent;
-  color: var(--code-shell-text);
+  color: inherit;
   padding: 0;
+  border-radius: 0;
+  font: inherit;
 }
 
 .chat-bubble .code-block-shell,

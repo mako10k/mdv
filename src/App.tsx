@@ -2098,6 +2098,8 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
   const link = readVar('--link', '#0b5bd3')
   const codeBg = readVar('--code-bg', '#f4f0e8')
   const codeBorder = readVar('--code-border', border)
+  const codeShellBg = readVar('--code-shell-bg', surfaceStrong)
+  const codeShellText = readVar('--code-shell-text', text)
   const mono = readVar('--mono', "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace")
   const sans = readVar('--sans', "'Segoe UI', 'Noto Sans JP', sans-serif")
   const safeTitle = title.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char))
@@ -2195,13 +2197,33 @@ function buildExportHtmlDocument(title: string, bodyHtml: string): string {
         color: inherit;
         font: inherit;
       }
+      .markdown-fragment pre {
+        margin: 1em 0;
+        padding: 12px 14px;
+        overflow: auto;
+        border: 1px solid ${border};
+        border-radius: 12px;
+        background: ${codeShellBg};
+        color: ${codeShellText};
+        font: 12px/1.6 ${mono};
+      }
+      .markdown-fragment pre code {
+        display: block;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
       .code-block-shell {
         display: flex;
         flex-direction: column;
         border-radius: 12px;
         overflow: hidden;
         border: 1px solid ${border};
-        background: ${surfaceStrong};
+        background: ${codeShellBg};
+        color: ${codeShellText};
       }
       .code-block-header {
         padding: 6px 8px;

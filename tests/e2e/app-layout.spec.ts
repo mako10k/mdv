@@ -703,6 +703,64 @@ test('preview code fence and Mermaid blocks keep rendered content height', async
   expect(renderedBlockMetrics?.mermaidBlockHeight).toBeGreaterThan(renderedBlockMetrics?.mermaidSvgHeight ?? 0)
 })
 
+test('preview fallback code blocks keep rendered content height', async ({ page }) => {
+  await openWritePanel(page)
+  await replaceMarkdownDocument(
+    page,
+    [
+      '# Fallback code block',
+      '',
+      '```c++',
+      'int main() {',
+      '  return 0;',
+      '}',
+      '```',
+      '',
+    ].join('\n'),
+    null,
+  )
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
+  await expect(page.locator('.preview-panel .markdown-fragment pre code')).toBeVisible()
+  await expect(page.locator('.preview-panel .code-block-shell')).toHaveCount(0)
+
+  const fallbackCodeBlockMetrics = await page.evaluate(() => {
+    const codeBlock = document.querySelector<HTMLElement>('.preview-panel .markdown-fragment pre code')
+    const pre = document.querySelector<HTMLElement>('.preview-panel .markdown-fragment pre')
+
+    if (!codeBlock || !pre) {
+      return null
+    }
+
+    const preRect = pre.getBoundingClientRect()
+    const codeBlockRect = codeBlock.getBoundingClientRect()
+    const preStyles = getComputedStyle(pre)
+    const codeBlockStyles = getComputedStyle(codeBlock)
+
+    return {
+      codeBlockDisplay: codeBlockStyles.display,
+      codeBlockHeight: codeBlockRect.height,
+      codeBlockText: codeBlock.textContent ?? '',
+      preDisplay: preStyles.display,
+      preFontFamily: preStyles.fontFamily,
+      preFontSize: preStyles.fontSize,
+      preHeight: preRect.height,
+      preLineHeight: preStyles.lineHeight,
+    }
+  })
+
+  expect(fallbackCodeBlockMetrics).not.toBeNull()
+  expect(fallbackCodeBlockMetrics?.preDisplay).toBe('block')
+  expect(fallbackCodeBlockMetrics?.codeBlockDisplay).toBe('block')
+  expect(fallbackCodeBlockMetrics?.preFontFamily).toContain('Cascadia Code')
+  expect(fallbackCodeBlockMetrics?.preFontSize).toBe('13px')
+  expect(fallbackCodeBlockMetrics?.preLineHeight).toBe('20.8px')
+  expect(fallbackCodeBlockMetrics?.codeBlockText).toContain('return 0;')
+  expect(fallbackCodeBlockMetrics?.codeBlockHeight).toBeGreaterThan(60)
+  expect(fallbackCodeBlockMetrics?.preHeight).toBeGreaterThan(fallbackCodeBlockMetrics?.codeBlockHeight ?? 0)
+})
+
 test('wysiwyg-focused H3 and H4 headings keep heading and inline-code reset chrome', async ({ page }) => {
   await openWritePanel(page)
   await replaceMarkdownDocument(

@@ -1033,6 +1033,7 @@
 .editor-panel .toastui-editor-md-preview pre code,
 .editor-panel .ProseMirror pre code,
 .preview-panel .markdown-fragment pre code {
+  display: block;
   background: transparent;
   border: none;
   color: inherit;
@@ -1041,8 +1042,16 @@
   font: inherit;
 }
 
-.markdown-fragment pre {
-  display: none;
+.preview-panel .markdown-fragment pre {
+  display: block;
+  margin: 1em 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--code-shell-bg);
+  color: var(--code-shell-text);
+  font: var(--editor-font-size)/1.6 var(--mono);
 }
 
 .preview-panel .code-block-shell {
