@@ -27,7 +27,7 @@ MDV は次の点ですでに強い。
 - Mermaid、KaTeX、task list、footnote、container block の描画
 - HTML export、印刷、文書コピー
 
-一方で、Markdown エディタとして日常利用の快適さを決める「画像管理」「表 / リスト編集補助」「検索 surface」「preview 同期」「複数文書の往復」はまだ薄い。
+一方で、Markdown エディタとして日常利用の快適さを決める「表 / リスト編集補助」「検索 surface」「preview 同期」「複数文書の往復」はまだ薄い。
 
 ## 比較基準
 
@@ -51,7 +51,7 @@ MDV は次の点ですでに強い。
 | 文内検索 | Fit | core の exact search、replace、replace all、regexp、選択範囲置換はある | editor 内 search surface の情報密度、結果一覧の見やすさ、detached search を secondary mode として持つかは polish gap として未整理 |
 | 長文ナビゲーション | Partial Fit | 見出しアウトライン、見出しジャンプ、active heading 追従はある | TOC、filter / collapse、さらに長文での補助導線は必要になりうる |
 | Markdown 入力補助 | Partial Fit | MDV topbar の主要挿入コマンドは selection / caret anchor を source / WYSIWYG で回帰固定済み | command surface の grouping、overflow、MDV topbar と Toast UI toolbar の長期的な責務整理は MD-BL-013 側に残る |
-| 画像・添付資産 | Partial Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、saved / draft の relative image も WYSIWYG 実画像表示できる | inline image の管理 / 退避 / 変換導線、relative image 互換の整理、deprecated asset-workspace 前提の cleanup が未完 |
+| 画像・添付資産 | Fit | pasted / dropped image は Markdown 本文内の `![](data:image...)` を正本にする inline image 表現で保存後も見え続け、source view では inline data URL を abbreviated widget として扱い、saved / draft の relative image も WYSIWYG / preview / export で解決できる | current accepted scope ではなし。asset manager、export-to-file、退避 / 変換 UI が必要になった場合は別 slice として受理する |
 | 表編集 | Partial Fit | Toast UI Editor 標準の表編集はある | Markdown 表の新規作成、整形、列行操作を MDV 観点で素早く扱う補助が弱い |
 | リスト継続補助 | Partial Fit | 標準エディタの list 操作はある | 番号継続、インデント継続、checkbox toggle など Markdown 執筆向けの連続編集支援が弱い |
 | スペルチェック / 校正 | Gap | なし | Markdown 本文の誤字検出がない |
@@ -62,11 +62,12 @@ MDV は次の点ですでに強い。
 
 ## 結論
 
-Markdown 編集という観点での優先 gap は次の 3 つに集約される。
+Markdown 編集という観点での優先 gap は次の 2 つに集約される。
 
-1. 画像 / media asset workflow と参照管理の不足分
-2. 表編集、リスト継続、task list 操作などの日常編集補助
-3. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
+1. 表編集、リスト継続、task list 操作などの日常編集補助
+2. 検索 surface polish / topbar / preview 同期など workspace UX の整理不足
+
+画像 / media asset workflow は、ADR 0020 の inline image storage を正本にする範囲では完了済みとして扱う。asset manager や export-to-file のような追加 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず別 slice として受理する。
 
 見出しアウトラインと jump に加えて active heading 追従も完了したため、以後は「長文構造ナビゲーションそのもの」ではなく、filter / collapse のような副次改善が必要になったときだけ別途扱う。
 
@@ -140,14 +141,14 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 #### MD-BL-005 画像 / メディア asset workflow と参照管理
 
 - 種別: 追加
-- 状態: first release slice 完了、後続あり
+- 状態: 完了
 - 目的: Markdown 執筆で最も頻出な画像挿入を簡単にする
 - 内容:
   - ADR 0020 に従い、新規 paste / drop 画像は inline image 表現を正本として扱う
   - 既存 relative image / `assets/...` Markdown は後方互換として open / preview / WYSIWYG / export で読めるようにする
   - Markdown に `![](...)` を自動挿入
   - source view では inline data URL を abbreviated widget として扱い、巨大な base64 文字列で編集体験を壊さない
-  - inline image の管理 / 退避 / 変換導線、relative image 互換、deprecated asset-workspace 前提の cleanup を後続で扱う
+  - draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow で扱う
 - 完了条件:
   - paste / drop 画像が first save 後も見え、編集を継続できる
   - 既存 relative image は saved / draft の両経路で preview / WYSIWYG / export と整合する
@@ -161,16 +162,18 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
   - 破損 / 未解決画像の fallback と、editor 上で未解決画像状態が判別できる状態可視化を揃え、画像を入れたあとに「どこへ消えたか分からない」状態を避ける
   - `assets/` materialization は ADR 0020 で deprecated になったため、新規挿入画像の正本モデルや release 合格条件に含めない
 
-  後続 slice へ送ったもの:
+  2026-06-17 棚卸結果:
 
-  - inline image の管理 / 退避 / 変換導線
-  - relative image 互換 resolver と export / fallback の整理
-  - deprecated asset workspace / materialization 前提の実装と文書の段階的 cleanup
+  - current accepted scope は完了済みとして扱う
+  - relative image resolver、export、fallback は実装と回帰で確認済み
+  - 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` である
+  - deprecated asset workspace / materialization は新規画像の正本要件から外し、draft workspace と imported asset の cleanup は既存 flow で扱う
+  - asset manager、export-to-file、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として扱わず別 slice として受理する
 
 注記:
 
 - 新規 paste / drop 画像の正本保存モデルは [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) を正とする
-- [docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の補助資料としてだけ参照する。両者が衝突する場合は ADR 0020 を優先する
+- [docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料としてだけ参照する。両者が衝突する場合は ADR 0020 を優先する
 
 #### MD-BL-023 WYSIWYG 画像ウィジェットの実画像優先表示
 
@@ -192,7 +195,7 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
   - MD-BL-023 は単独 polish ではなく、MD-BL-005 の first release slice とセットで「画像体験 bundle」として出した
   - release readiness は saved file 経路だけでなく、untitled draft workspace 経路と browser 回帰まで含めて判断した
   - 画像管理 UI 全体を先に完成させるのではなく、まず「見える」「保存後も切れない」「壊れたら分かる」を優先した
-  - 後続の画像管理 / cleanup は ADR 0020 前提で MD-BL-005 に残す
+  - 追加の画像管理 UI は現時点の active backlog には含めない
 
 #### MD-BL-006 表編集補助
 
@@ -340,6 +343,7 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 完了済み:
 
 - MD-BL-004 Markdown command surface 統合と挿入アンカー安定化
+- MD-BL-005 画像 / メディア asset workflow と参照管理
 - MD-BL-012 起動時 placeholder ちらつき抑制
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe
 - MD-BL-018 H3/H4 heading 表示崩れ修正
@@ -347,15 +351,14 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
 残りの分析順:
 
-1. MD-BL-005 画像 / メディア asset workflow と参照管理 (first release slice は v0.1.14 で完了、後続 slice は inline image 管理 / relative image 互換 / deprecated asset-workspace cleanup)
-2. MD-BL-006 表編集補助
-3. MD-BL-007 リスト継続と task list 操作補助
-4. MD-BL-013 workspace topbar grouping / overflow 再設計
-5. MD-BL-014 検索 surface の再設計
-6. MD-BL-008 Preview 同期強化
-7. MD-BL-009 スペルチェック
-8. MD-BL-010 最近使った文書 / クイックオープン
-9. MD-BL-011 PDF 出力
+1. MD-BL-006 表編集補助
+2. MD-BL-007 リスト継続と task list 操作補助
+3. MD-BL-013 workspace topbar grouping / overflow 再設計
+4. MD-BL-014 検索 surface の再設計
+5. MD-BL-008 Preview 同期強化
+6. MD-BL-009 スペルチェック
+7. MD-BL-010 最近使った文書 / クイックオープン
+8. MD-BL-011 PDF 出力
 
 ## Usernote Mapping
 
@@ -365,13 +368,13 @@ Markdown 編集という観点での優先 gap は次の 3 つに集約される
 
 1. 起動時 placeholder のちらつき: MD-BL-012
 2. topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
-3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005
+3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005 の current accepted scope で完了。asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
 4. 検索ボックスの別 window 検討: MD-BL-014
 5. topbar の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入位置ずれ: MD-BL-004
 7. Ctrl/Cmd+N で editor mode の新規文書を開く: MD-BL-015
 8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
-9. 破損画像や末尾添付の削除・整理導線: MD-BL-005
+9. 破損画像や末尾添付の削除・整理導線: MD-BL-005 の current accepted scope で完了。追加の整理 UI が必要になった場合は別 slice として改めて受理する
 
 2026-06-10 の追加 intake のうち editor 関連でこの文書に接続する項目:
 

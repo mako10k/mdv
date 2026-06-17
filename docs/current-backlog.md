@@ -50,6 +50,7 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 - local exact find/replace、replace all、match case / regexp / 選択範囲オプション、検索結果ジャンプ回帰を実装
 - autosave、crash recovery、復元提案、stale recovery cleanup を実装し、Electron E2E で固定
 - Markdown insert command surface の first slice を実装し、見出し、リンク、画像、コードブロック、引用、水平線、脚注の selection / caret anchor を source と WYSIWYG の両方で回帰固定
+- 画像体験 bundle を実装し、inline image storage、source view の data image abbreviation、saved / draft relative image 解決、HTML export、broken / unresolved image fallback を回帰で固定し、draft workspace / imported asset cleanup flow を維持
 - 起動時 placeholder ちらつき、同一ファイル再オープン時の focus dedupe、H3/H4 heading 表示崩れを修正済み
 
 このため、以後のバックログは「assistant を成立させるための初期土台」ではなく、「製品として何を次に良くするか」で切る。
@@ -64,11 +65,10 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ### P1 Editor Comfort
 
-1. [残件棚卸待ち] MD-BL-005 画像 / メディア inline storage と relative image 互換の後続整理
-2. [棚卸待ち] MD-BL-006 表編集補助
-3. [棚卸待ち] MD-BL-007 リスト継続と task list 操作補助
+1. [棚卸待ち] MD-BL-006 表編集補助
+2. [棚卸待ち] MD-BL-007 リスト継続と task list 操作補助
 
-P0 が完了済みのため、これらを現在の editor comfort 候補として扱う。いずれも「Markdown を書く速度」と「資産投入の手間」を直接下げる項目である。
+P0 が完了済みのため、これらを現在の editor comfort 候補として扱う。いずれも「Markdown を書く速度」と日常編集の手間を直接下げる項目である。
 
 ここでいう inline image 表現は、Markdown 本文内の `![](data:image...)` を保存後も画像の正本として扱う方式である。editor-only widget や隠し app-managed blob を正本にする意味ではない。
 
@@ -91,22 +91,23 @@ v0.1.14 で閉じた最小範囲:
 - MD-BL-005 の first release slice として、paste / drop / first save / export の画像 continuity を release-ready にした。ADR 0020 に従い、`assets/` materialization は新規挿入画像の正本モデルや release 合格条件に含めない
 - broken / unresolved image の fallback と、editor 上で未解決画像状態が判別できる状態可視化を揃え、「画像を扱うと壊れる」印象を残さない
 
-後続 slice へ送ったもの:
+2026-06-17 棚卸結果:
 
-- inline image の管理 / 退避 / 変換導線
-- relative image 互換 resolver と export / fallback の整理
-- ADR 0020 で deprecated になった draft asset workspace / materialization 前提の実装と文書の段階的 cleanup
+- MD-BL-005 の current accepted scope は完了済みとして active P1 から外す
+- paste / drop の正本 inline storage、source view の data image abbreviation、saved / draft relative image resolver、HTML export、broken / unresolved image fallback は実装と回帰で確認済み
+- 根拠 anchor は [docs/release-work-memos/v0.1.14.md](release-work-memos/v0.1.14.md)、`tests/e2e/app-layout.spec.ts` の `editor source view abbreviates inline data image markdown` / `preview renders inline data image markdown as an image` / `WYSIWYG resolves saved relative images to actual image sources` / `WYSIWYG resolves draft-workspace relative images for unsaved documents`、`tests/e2e-electron/autosave-recovery.spec.ts` の `repeated pasted images into an unsaved document remain widgetized on first save` / `saved relative image export inlines image data` / `missing relative image shows a preview fallback when opening an existing file` / `repeated dropped images into a saved document do not leak inline image data` である
+- deprecated asset workspace / materialization は、新規画像の正本要件から外した。draft workspace と imported asset の cleanup は既存 close / recovery / renderer flow にあり、追加 UI の前提として残さない
+- inline image の export-to-file、asset manager、退避 / 変換 UI が必要になった場合は、MD-BL-005 の未完了として再実装せず、ADR 0020 の inline storage を前提にした新しい backlog slice として受理する
 
 次に扱う最小範囲:
 
-- MD-BL-005 の後続 slice として、inline image の管理導線、relative image 互換、deprecated asset-workspace cleanup を段階的に扱う
-- 表編集補助とリスト継続補助は、画像後続 UI の次の editor comfort 候補として扱う
+- 表編集補助とリスト継続補助を、次の editor comfort 候補として棚卸する
 - topbar / Toast UI toolbar の大きな IA 整理は、挿入 contract 完了後の MD-BL-013 として扱う
 
 注記:
 
 - MD-BL-005 は ADR 0020 を前提にし、新規 paste / drop 画像は inline image 表現を正本とする。既存 relative image の互換表示、export、fallback は維持するが、`assets/` materialization や assetId continuity を新規挿入画像の正本要件として扱わない
-- MD-BL-023 は WYSIWYG 上の画像表現 fidelity を主対象にし、v0.1.14 first release slice で完了済み。後続の画像管理 / cleanup は ADR 0020 前提で MD-BL-005 に残す
+- MD-BL-023 は WYSIWYG 上の画像表現 fidelity を主対象にし、v0.1.14 first release slice で完了済み。追加の画像管理 UI は現時点の active backlog には含めない
 
 ### P2 Editor Expansion
 
@@ -161,7 +162,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 1. 起動時に placeholder 文書がちらつく: MD-BL-012
 2. MDV topbar と Toast UI toolbar の責務重複: MD-BL-004, MD-BL-013
-3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005
+3. inline image 管理、relative image 互換、必要な退避 / 変換導線: MD-BL-005 の current accepted scope で完了。asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
 4. 検索ボックスの別 window 化検討: MD-BL-014
 5. 最上位 toolbox の grouping / menu / overflow: MD-BL-013
 6. footnote 挿入が caret とずれる: MD-BL-004
@@ -169,7 +170,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 8. Save / 外部編集追従 / merge preview の polish: MD-BL-016
 9. 公開 README と開発文書の責務分離: DOC-BL-001
 10. iteration limit 到達時の継続 / 中断選択: AI-UX-004
-11. 破損画像や末尾添付の削除・整理導線: MD-BL-005
+11. 破損画像や末尾添付の削除・整理導線: MD-BL-005 の current accepted scope で完了。追加の整理 UI が必要になった場合は別 slice として改めて受理する
 12. Electron 側肥大化の解消と TS ライブラリ化: ENG-BL-001
 13. Span comment / orphan comment / XDG 保存 / tool CRUD: MD-BL-021
 14. 同一ファイル再オープン時は既存 editor を focus: MD-BL-017
@@ -190,7 +191,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 補足:
 
 - 10 は editor backlog ではなく、assistant interaction の product gap として AI-P2 に置く
-- 11 は新しい独立 PBI を増やさず、MD-BL-005 の inline image 管理、relative image 互換、cleanup refinement として吸収する
+- 11 は新しい独立 PBI を増やさず、MD-BL-005 の current accepted scope で閉じる。user-facing な asset manager、export-to-file、conversion UI が必要になった場合は別 slice として改めて受理する
 - 12 は user-facing 機能ではないため Supporting Backlog の ENG-BL-001 に置く
 - 13 は UI だけでなく AI tool surface と XDG 永続化を跨ぐため、単独 backlog として切り出す
 - 15 は MDV topbar の grouping とは分け、読みやすさと表示密度の調整として MD-BL-019 へ置く
@@ -246,7 +247,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 
 この束は「assistant をもっと賢くする」前に、「現行 dock assistant の操作面を完成させる」ための backlog である。AI-P1 Response UX は完了済みなので、次の AI 作業ではこの束の優先順位再評価から着手できる。
 
-asset / image tool 群は MD-BL-005 の後続 implementation phase に従属させ、AI-P2 の一部として扱う。新規 paste / drop 画像の正本 contract は [docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) の inline image storage を優先し、[docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の補助資料としてだけ参照する。
+asset / image tool 群は、MD-BL-005 の current accepted scope が完了済みになったため AI-P2 の即時範囲から外す。将来、画像管理 / export-to-file / conversion surface を受理する場合は、[docs/adr/0020-inline-image-storage-and-assets-deprecation.md](adr/0020-inline-image-storage-and-assets-deprecation.md) の inline image storage を前提に editor backlog として scope 化し、その後に AI tool surface を派生させる。[docs/local-asset-storage-design.md](local-asset-storage-design.md) は relative image 互換、draft workspace identity、resolver cleanup、deprecated asset-workspace 整理の履歴補助資料として参照する。
 
 AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件は [docs/ai-tool-customization-backlog.md](docs/ai-tool-customization-backlog.md) を参照する。AI-UX-003 の explainer は [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md)、決定記録は [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md) を正とする。release 前チェックは [docs/release-workflow.md](docs/release-workflow.md) で扱う。
 
@@ -317,7 +318,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-012 起動時 placeholder ちらつき抑制は完了。fresh untitled document を blank start に寄せ、placeholder-only surface が新規文書で見えないことを browser / Electron E2E で固定した。
 - MD-BL-017 同一ファイル再オープン時の editor focus dedupe は完了。OS second-instance launch と app 内 open dialog の両方で既存 editor window を focus し、重複 window を作らないことを Electron E2E で固定した。
 - MD-BL-018 H3/H4 heading 表示崩れ修正は完了。preview / WYSIWYG / AI chat の Markdown heading と inline code style の競合を scoped CSS と Playwright 回帰で固定した。
-- MD-BL-005 / MD-BL-023 の画像体験 first release slice は v0.1.14 で完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定した。
+- MD-BL-005 / MD-BL-023 の画像体験は完了。saved / draft の WYSIWYG 実画像表示、paste / drop / first save / export の continuity、broken / unresolved image fallback を release gate として固定し、2026-06-17 棚卸で MD-BL-005 の current accepted scope を active P1 から外した。
 - AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
 ## Historical Documents
@@ -328,7 +329,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P1 Editor Comfort の棚卸: MD-BL-005 後続 slice、MD-BL-006、MD-BL-007
+1. P1 Editor Comfort の棚卸: MD-BL-006、MD-BL-007
 2. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-013、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
 3. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
 4. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
@@ -340,7 +341,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
-- MD-BL-005 / MD-BL-023 は first release slice 完了済み。recommended order で次に扱う画像系は、MD-BL-005 に残る inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup の後続 slice だけを指す
+- MD-BL-005 / MD-BL-023 は完了済み。recommended order で次に扱う P1 は表編集とリスト継続であり、画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
@@ -349,7 +350,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- 画像体験 bundle の後続として、inline image 管理導線、relative image 互換、deprecated asset-workspace cleanup を段階的に扱う
+- P1 Editor Comfort の次 slice として、表編集補助とリスト継続補助を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善
