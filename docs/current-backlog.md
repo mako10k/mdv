@@ -138,7 +138,7 @@ v0.1.14 で閉じた最小範囲:
 
 次に扱う最小範囲:
 
-- P2 Editor Expansion のうち MD-BL-019 workspace topbar / outline / typography density 整理を棚卸する
+- P2 Editor Expansion のうち MD-BL-020 変更プレビューと merge UI 基盤を棚卸する
 - MD-BL-013 の broader UI reset、global command palette、shortcut overlay、全 command surface 再編は current accepted scope には含めず、必要になった場合に別 slice で受理する
 
 注記:
@@ -148,7 +148,7 @@ v0.1.14 で閉じた最小範囲:
 
 ### P2 Editor Expansion
 
-1. [棚卸待ち] MD-BL-019 workspace topbar / outline / typography density 整理
+1. [棚卸確認済み / current accepted scope 完了] MD-BL-019 workspace topbar / outline / typography density 整理
 2. [棚卸待ち] MD-BL-020 変更プレビューと merge UI 基盤
 3. [棚卸待ち] MD-BL-021 Span comment と orphan 管理
 4. [current accepted gate 完了] MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
@@ -163,9 +163,17 @@ v0.1.14 で閉じた最小範囲:
 注記:
 
 - MD-BL-014 は現行の editor 内検索 surface を捨てる話ではなく、workspace-first を既定に保ったまま、必要なら detached search window を secondary mode として評価する
-- MD-BL-019 には outline の行間見直し、editor / AI chat 別 font size、AI chat の padding / margin / 説明文削減を含める
+- MD-BL-019 は outline の行間見直し、editor / AI chat 別 font size、AI chat の padding / margin / 説明文削減を current accepted scope として完了済み
 - MD-BL-020 は save conflict preview だけでなく、AI 書き込みや将来の hunk apply/discard/edit を支える merge UI foundation として扱う
 - MD-BL-021 は XDG 永続化、span 自動追従、orphaned comment 管理、AI tool CRUD surface をまとめて扱う
+
+2026-06-18 MD-BL-019 棚卸結果:
+
+- MD-BL-019 の current accepted scope は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` として active P2 から外す。workspace topbar の density は MD-BL-013 current accepted gate で command grouping / Table actions menu により閉じ、MD-BL-019 では読みやすさと表示密度の調整範囲を確認した
+- outline は header padding、list gap、item padding、outline label font size / line-height を compact 化済みで、editor / preview 本文は `--editor-font-size` / `--editor-line-height` に接続されている
+- editor と AI chat の文字サイズは `editor.fontSizePx` と `ai.chatFontSizePx` として settings / sanitizer / root CSS variables / focus-aware Ctrl/Cmd typography shortcut で分離済みである
+- embedded AI chat は header eyebrow / subtitle を dock 表示では隠し、shell padding、bubble spacing、Markdown line-height、tool JSON font size を compact 化済みである
+- 根拠 anchor は `src/App.css` の `.outline-panel` / `.outline-list` / `.outline-item` / `.compact-preview` / `.assistant-dock .ai-chat-shell.embedded`、`src/ai-chat/chat.css` の embedded chat typography、`src/shared/desktopTypography.ts` の editor / chat font variables、`src/settings/SettingsApp.tsx` の typography controls、`src/App.tsx` の focus-aware typography shortcuts、`src/electron/main/settings-controller.cts` の font size sanitizer、`tests/e2e/app-layout.spec.ts` の `editor mode uses denser outline and editor typography` / `embedded AI chat trims header chrome and uses denser message spacing`、`tests/node/electron-main-settings-controller.spec.mjs` の settings clamp 回帰である
 
 ### Supporting Backlog
 
@@ -359,6 +367,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-006 表編集補助の table template / source format first slice、row add slice、column add slice、column alignment selector は完了。Table actions menu から Markdown table template を挿入でき、top-level の rendered GFM table block を source 上で整形し、current table row の後ろへ空行を追加し、current table column の後ろへ空列を追加し、current table column の alignment marker を変更できるようにした。
 - MD-BL-013 current accepted gate は完了。table command family を Table actions menu に集約し、table option set を topbar 直置き button ではなく menu item として扱うことを ADR 0009 に接続した。
 - MD-BL-007 リスト継続と task list 操作補助は完了。Toast UI 標準の list continuation を棚卸で確認し、topbar の task checkbox toggle を current line / selected lines で実行できるようにした。
+- MD-BL-019 の outline / typography density 整理は完了。topbar density は MD-BL-013 current accepted gate で閉じたものとして参照し、MD-BL-019 では outline の compact 表示、editor / AI chat 文字サイズ分離、embedded AI chat の header chrome 削減と message spacing compact 化を実装済みとして 2026-06-18 棚卸で確認した。
 - AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
 ## Historical Documents
@@ -369,7 +378,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P2 Editor Expansion の棚卸: MD-BL-019、MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
+1. P2 Editor Expansion の棚卸: MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
 2. Supporting Backlog の棚卸: ENG-BL-001、REL-BL-001
 3. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
 4. AI-P3 context management の棚卸
@@ -380,7 +389,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
-- MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate は完了済み。recommended order で次に扱う group は P2 Editor Expansion であり、画像管理 UI は現時点の active P1 に含めない
+- MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate、MD-BL-019 は完了済み。recommended order で次に扱う group は P2 Editor Expansion であり、画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
