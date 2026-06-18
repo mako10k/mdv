@@ -28,6 +28,7 @@ Status: Accepted
 - `read` の返却上限は inline transport と同程度の token budget に制限し、続きを取るための cursor を返す
 - `write` は複数 source を受けられるようにし、source は `literal` と `slice-ref` を混在可能にする
 - `write` の mode は `replace`、`insert`、`append` を持ち、任意位置 insert は `destination.span` で表現する
+- `write` は `dryRun` を持ち、source materialization と destination span 解決後の bounded post-write `markdownPreview`、preview 後 Markdown 座標の `span`、変更前 Markdown 座標の `replacedSpan`、source content の UTF-8 byte 数である `wouldWriteBytes` を返せるが、destination target は変更せず、full source `text` も通常の reusable `target` も返さない。dryRun は source read より先に実 write と同じ destination write permission gate を通り、active editor preview では post-write preview のために active document read permission も要求する
 - `active:document` や `active:selection` は compatibility alias として残し、main process で canonical target へ変換する
 - tool help は専用の `get_tool_help` で返し、action tool schema には help 分岐を混ぜない
 - tool の引数エラーと実行エラーは、reason、fix、help 導線を含む構造化 error payload として `function_call_output` へ返し、orchestration 全体はその場で abort しない
@@ -37,9 +38,11 @@ Status: Accepted
 - transcript が大きい本文で膨らみにくくなり、model input の token 制御がしやすくなる
 - tool 結果を temp buffer としてつなげることで、`grep`、`nl`、`cut`、`sort` のような加工系 tool を自然に追加できる
 - main process に editor registry、buffer registry、span normalization、token budget policy が必要になる
+- model-facing public-display redaction は bounded read と active selection / active document の permission split を維持する必要がある。temp buffer は main process、active editor は renderer の current Markdown state で対象 page slice を redaction し、redaction のためだけに active document 全体を main process へ materialize しない
 - OpenAI system prompt には「hint を見たら必要箇所だけ read する」方針を明示する必要がある
 - OpenAI system prompt と tool descriptions には、`target` は follow-up 用、`pageTarget` は返却ページ再利用用という使い分けを明示する必要がある
 - write source が複合化するため、oversize source と破壊的 destination の validation を強化する必要がある
+- `dryRun` preview は宛先を変更しない確認材料を提供するが、large / abbreviated preview のために raw preview を別の session temp buffer に置く場合がある。その `previewTarget` は `read_target` pagination 用の参照だが、model-facing `read_target` 表示には通常の public-display redaction を適用する。write source として使う場合は通常の bounded source read 制約に従う。approval 強制や hunk 単位の apply / discard / edit UI は別の renderer-side merge surface として実装する必要がある
 - `append` は mode の sugar として保ちつつ、位置指定の責務は `destination.span` に集約する必要がある
 - tool description と help payload の両方を維持する必要があり、schema 変更時は get_tool_help、examples、error guidance も同期が必要になる
 - tool failure が会話終了ではなく追加の model 入力になるため、error payload は短くても自己修正に十分な情報量を持つ必要がある

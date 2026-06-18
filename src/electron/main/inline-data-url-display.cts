@@ -55,9 +55,55 @@ function abbreviateInlineDataImageMarkdownInText(text: string): string {
   return text.replace(INLINE_DATA_IMAGE_DATA_URL_PATTERN, (fullMatch) => abbreviateInlineDataImageDataUrl(fullMatch))
 }
 
+function abbreviateInlineDataImageMarkdownSlice(text: string, startOffset: number, endOffset: number): string {
+  const normalizedStartOffset = Math.min(Math.max(0, Math.trunc(Number(startOffset) || 0)), text.length)
+  const normalizedEndOffset = Math.min(Math.max(normalizedStartOffset, Math.trunc(Number(endOffset) || normalizedStartOffset)), text.length)
+
+  if (!text || !text.includes('data:image/')) {
+    return text.slice(normalizedStartOffset, normalizedEndOffset)
+  }
+
+  let output = ''
+  let cursor = normalizedStartOffset
+
+  INLINE_DATA_IMAGE_DATA_URL_PATTERN.lastIndex = 0
+
+  for (const match of text.matchAll(INLINE_DATA_IMAGE_DATA_URL_PATTERN)) {
+    const fullMatch = match[0]
+    const matchStartOffset = match.index ?? 0
+    const matchEndOffset = matchStartOffset + fullMatch.length
+
+    if (matchEndOffset <= normalizedStartOffset) {
+      continue
+    }
+
+    if (matchStartOffset >= normalizedEndOffset) {
+      break
+    }
+
+    const visiblePrefixEndOffset = Math.min(matchStartOffset, normalizedEndOffset)
+
+    if (cursor < visiblePrefixEndOffset) {
+      output += text.slice(cursor, visiblePrefixEndOffset)
+    }
+
+    output += matchStartOffset >= normalizedStartOffset
+      ? abbreviateInlineDataImageDataUrl(fullMatch)
+      : 'data:image/*;base64,<continued data image omitted>'
+    cursor = Math.min(matchEndOffset, normalizedEndOffset)
+  }
+
+  if (cursor < normalizedEndOffset) {
+    output += text.slice(cursor, normalizedEndOffset)
+  }
+
+  return output
+}
+
 export {
   INLINE_DATA_IMAGE_DATA_URL_PATTERN,
   abbreviateInlineDataImageDataUrl,
   abbreviateInlineDataImageMarkdown,
   abbreviateInlineDataImageMarkdownInText,
+  abbreviateInlineDataImageMarkdownSlice,
 }

@@ -280,6 +280,7 @@ type MdvAiEditorRequest =
       target: MdvAiEditorTarget
       cursor?: MdvAiCursor | null
       maxTokens?: number
+      publicDisplay?: boolean
     }
   | {
       requestId: string
@@ -440,15 +441,49 @@ type MdvAiReadPayload = {
   nextCursor?: MdvAiCursor | null
 }
 
-type MdvAiWritePayload = {
+type MdvAiWriteBasePayload = {
   editorId: MdvAiEditorId
   span: MdvAiNormalizedSpan
-  target?: MdvAiEditorTarget
-  text: string
   mode: 'replace' | 'insert' | 'append'
   bytesWritten: number
-  created?: boolean
+  preview?: string
+  title?: string
 }
+
+type MdvAiWriteAppliedPayload = MdvAiWriteBasePayload & {
+  dryRun?: false
+  target?: MdvAiEditorTarget
+  text: string
+  created?: boolean
+  wouldWriteBytes?: never
+  markdownPreview?: never
+  markdownPreviewTruncated?: never
+  markdownPreviewAbbreviated?: never
+  previewTarget?: never
+  previewBufferId?: never
+  replacedSpan?: never
+  replacedTextPreview?: never
+  wouldCreate?: never
+}
+
+type MdvAiWriteDryRunPayload = MdvAiWriteBasePayload & {
+  dryRun: true
+  target?: never
+  text?: never
+  bytesWritten: 0
+  wouldWriteBytes: number
+  markdownPreview: string
+  markdownPreviewTruncated: boolean
+  markdownPreviewAbbreviated: boolean
+  previewTarget?: MdvAiEditorTarget
+  previewBufferId?: MdvAiEditorId
+  replacedSpan: MdvAiNormalizedSpan
+  replacedTextPreview: string
+  created?: never
+  wouldCreate?: boolean
+}
+
+type MdvAiWritePayload = MdvAiWriteAppliedPayload | MdvAiWriteDryRunPayload
 
 type MdvAiListBuffersPayload = {
   buffers: MdvAiBufferSummary[]
@@ -595,7 +630,7 @@ interface Window {
     semanticSearchAiSlice: (payload: { target: MdvAiEditorTarget; query: string; maxResults?: number; persistBuffer?: boolean }) => Promise<MdvAiSemanticSearchPayload | null>
     writeAiActiveDocument: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
-    writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode: 'replace' | 'insert' | 'append'; title?: string }) => Promise<MdvAiWritePayload | null>
+    writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode?: 'replace' | 'insert' | 'append'; title?: string; dryRun?: boolean }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
     sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
     debug?: {

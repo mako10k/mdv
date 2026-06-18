@@ -182,7 +182,7 @@ type MainIpcContext = {
   getEditorWindowForAiAction: (window: BrowserWindowLike | null) => BrowserWindowLike | null
   requestEditorContext: (window: BrowserWindowLike | null) => Promise<unknown>
   ensureEditorRuntimeState: (window: BrowserWindowLike | null) => EditorRuntimeState
-  readAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
+  readAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown, options?: { publicDisplay?: boolean }) => Promise<unknown>
   exactSearchForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
   statsAiSliceForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
   semanticSearchForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
@@ -553,7 +553,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     return formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'document' } },
       cursor: null,
-    }))
+    }, { publicDisplay: true }))
   })
 
   ipcMain.handle('mdv:ai-chat-read-active-selection', async (event: unknown) => {
@@ -562,10 +562,10 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     return formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(editorWindow, {
       target: { editorId: runtimeState.editorId, span: { kind: 'selection' } },
       cursor: null,
-    }))
+    }, { publicDisplay: true }))
   })
 
-  ipcMain.handle('mdv:ai-chat-read-target', async (event: unknown, payload: unknown) => formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload)))
+  ipcMain.handle('mdv:ai-chat-read-target', async (event: unknown, payload: unknown) => formatAiReadPayloadForExternalDisplay(await readAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload, { publicDisplay: true })))
   ipcMain.handle('mdv:ai-chat-grep-slice', async (event: unknown, payload: unknown) => formatAiExactSearchPayloadForExternalDisplay(await exactSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload)))
   ipcMain.handle('mdv:ai-chat-stats-slice', async (event: unknown, payload: unknown) => statsAiSliceForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
   ipcMain.handle('mdv:ai-chat-semantic-search', async (event: unknown, payload: unknown) => semanticSearchForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))

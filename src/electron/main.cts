@@ -46,7 +46,10 @@ const { createCloseController } = require('./main/close-controller.cjs')
 const { createSettingsController } = require('./main/settings-controller.cjs')
 const { createUpdaterController } = require('./main/updater-controller.cjs')
 const { createWindowController } = require('./main/window-controller.cjs')
-const { abbreviateInlineDataImageMarkdownInText } = require('./main/inline-data-url-display.cjs')
+const {
+  abbreviateInlineDataImageMarkdownInText,
+  abbreviateInlineDataImageMarkdownSlice,
+} = require('./main/inline-data-url-display.cjs')
 
 const runtime = createMainProcessRuntime(app)
 const {
@@ -1393,6 +1396,20 @@ function resolveSpanToOffsets(markdown, span) {
   throw new Error(`Unsupported non-editor span kind: ${span.kind}`)
 }
 
+function resolveNormalizedSpanToOffsets(markdown, span) {
+  if (!span || typeof span !== 'object' || !isMarkdownPos(span.start) || !isMarkdownPos(span.end)) {
+    throw new Error('Normalized AI span is required')
+  }
+
+  const startOffset = markdownPosToOffset(markdown, span.start)
+  const endOffset = markdownPosToOffset(markdown, span.end)
+
+  return {
+    startOffset: Math.min(startOffset, endOffset),
+    endOffset: Math.max(startOffset, endOffset),
+  }
+}
+
 function applyCursorToOffsets(markdown, offsets, cursor) {
   if (!cursor || typeof cursor !== 'object') {
     return offsets
@@ -1405,7 +1422,7 @@ function applyCursorToOffsets(markdown, offsets, cursor) {
   }
 }
 
-function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens) {
+function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens, options = {}) {
   const resolvedOffsets = applyCursorToOffsets(markdown, resolveSpanToOffsets(markdown, span), cursor)
   const maxChars = resolveReadTokenBudget(maxTokens) * DEFAULT_TOKEN_TO_CHAR_RATIO
   const availableText = markdown.slice(resolvedOffsets.startOffset, resolvedOffsets.endOffset)
@@ -1419,13 +1436,17 @@ function buildBoundedReadPayload(editorId, markdown, span, cursor, maxTokens) {
     span: normalizeAiSpanRef(span),
   }
 
+  const payloadText = options.publicDisplay === true
+    ? abbreviateInlineDataImageMarkdownSlice(markdown, resolvedOffsets.startOffset, finalEndOffset)
+    : text
+
   return {
     editorId,
     span: normalizedSpan,
     target: requestedTarget,
     pageTarget: buildAiTargetRef(editorId, normalizedSpan),
-    text,
-    estimatedTokens: estimateTokenCount(text),
+    text: payloadText,
+    estimatedTokens: estimateTokenCount(payloadText),
     truncated,
     nextCursor: truncated ? { after: offsetToMarkdownPos(markdown, finalEndOffset) } : null,
   }
@@ -2422,7 +2443,7 @@ const openAiChatInstructions = [
   'Treat transcript entries labeled as tool context as trusted application-provided context.',
   'Large context hints that include EditorID and SPAN are references, not full text; call read_target when you need the actual text.',
   'Prefer exact_search or semantic_search to narrow large documents before reading wide spans.',
-  'For follow-up tool calls, prefer the returned target object exactly as-is; resolved span objects with start/end/isEmpty are output metadata, not SPAN input schema.',
+  'For follow-up tool calls, prefer the returned target object exactly as-is; resolved span objects with start/end/isEmpty are output metadata, not SPAN input schema. write_target dryRun does not return a normal target because it does not mutate destination content; use previewTarget with read_target pagination when a large or abbreviated dryRun preview is returned. read_target still applies normal public-display redaction.',
   'For read_target pagination, reuse the returned target together with nextCursor; when you need exactly the returned page as a new input, use pageTarget.',
   'Selection is a live-editor-only SPAN. For temp buffers and other non-editor targets, use document, pageTarget, or an explicit range; if selection is supplied for a temp buffer, it is treated as document.',
   'For mdast structure work, prefer list_structure_map or query_structure before mutating. Structure handles are session-scoped exact node references and become stale after the document changes.',
@@ -2718,12 +2739,13 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'write_target',
-    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window. Prefer target refs returned by earlier tools.',
+    description: 'Write text to an EditorID + SPAN destination, including :new for a new editor window. Prefer target refs returned by earlier tools. Set dryRun=true to preview the resulting Markdown without mutating the destination target.',
     parameters: buildAiToolParameters({
         destination: buildRequiredAiToolParameter({ type: 'object', description: aiDestinationDescription }),
         sources: buildRequiredAiToolParameter({ type: 'array', description: `Array of literal sources like {"type":"literal","text":"..."} or slice-ref sources. ${aiSliceRefSourceDescription}` }),
         mode: { type: 'string', enum: ['replace', 'insert', 'append'] },
         title: { type: 'string' },
+        dryRun: { type: 'boolean', description: 'Optional. When true, return bounded markdownPreview, preview-after span, before-coordinate replacedSpan, and wouldWriteBytes without mutating the destination target or returning full source text. Dry-run checks the same destination write permission gates as a real write before source reads; active-editor dry runs also require active document read permission to build the post-write preview. Dry-run does not return a reusable target; large or abbreviated previews may be stored as raw session temp buffers referenced by previewTarget for read_target pagination, but read_target still applies public-display redaction and normal bounded source-read limits apply if previewTarget is later used as a slice-ref source.' },
       }),
   },
   {
@@ -3037,9 +3059,11 @@ const aiToolHelpDocs = {
       { name: 'sources', required: true, type: 'array', description: 'One or more sources. Each source must be {"type":"literal","text":"..."} or a slice-ref object.' },
       { name: 'mode', required: false, type: 'string', description: 'Optional. "replace", "insert", or "append". Defaults to replace. Use destination.span.kind="point" for arbitrary insert positions.' },
       { name: 'title', required: false, type: 'string', description: 'Optional title when destination.editorId is :new.' },
+      { name: 'dryRun', required: false, type: 'boolean', description: 'Optional. Return bounded markdownPreview, preview-after span, before-coordinate replacedSpan, and wouldWriteBytes without mutating the destination target or returning full source text. Dry-run checks the same destination write permission gates as a real write before source reads; active-editor dry runs also require active document read permission to build the post-write preview. Dry-run does not return a reusable target; large or abbreviated previews may be stored as raw session temp buffers referenced by previewTarget for read_target pagination, but read_target still applies public-display redaction and normal bounded source-read limits apply if previewTarget is later used as a slice-ref source.' },
     ],
     examples: [
       { description: 'Replace active selection with literal text', args: { destination: { editorId: 'editor:active', span: { kind: 'selection' } }, sources: [{ type: 'literal', text: 'Updated text' }], mode: 'replace' } },
+      { description: 'Preview replacing the active document before writing', args: { destination: { editorId: 'editor:active', span: { kind: 'document' } }, sources: [{ type: 'literal', text: '# Draft\n' }], mode: 'replace', dryRun: true } },
       { description: 'Append to the end of the active document', args: { destination: { editorId: 'editor:active', span: { kind: 'document' } }, sources: [{ type: 'literal', text: '\n## Notes\n' }], mode: 'append' } },
       { description: 'Create a new document', args: { destination: { editorId: ':new', span: { kind: 'document' } }, sources: [{ type: 'literal', text: '# Draft\n' }], title: 'Draft.md' } },
     ],
@@ -4308,6 +4332,7 @@ function summarizeAiToolArgsForLog(toolName, args) {
     return {
       destination: summarizeTargetForLog(args?.destination),
       mode: args?.mode === 'insert' || args?.mode === 'append' ? args.mode : 'replace',
+      dryRun: args?.dryRun === true,
       sourceCount: Array.isArray(args?.sources) ? args.sources.length : 0,
       sources: summarizeAiWriteSourcesForLog(args?.sources),
     }
@@ -4452,9 +4477,14 @@ function summarizeAiToolResultForLog(toolName, result) {
     return {
       editorId: typeof result?.editorId === 'string' ? result.editorId : null,
       target: summarizeTargetForLog(result?.target),
+      previewTarget: summarizeTargetForLog(result?.previewTarget),
+      previewBufferId: typeof result?.previewBufferId === 'string' ? result.previewBufferId : null,
       pageTarget: summarizeTargetForLog(result?.pageTarget),
       bytesWritten: Number.isFinite(Number(result?.bytesWritten)) ? Number(result.bytesWritten) : null,
+      wouldWriteBytes: Number.isFinite(Number(result?.wouldWriteBytes)) ? Number(result.wouldWriteBytes) : null,
+      dryRun: result?.dryRun === true,
       created: result?.created === true,
+      wouldCreate: result?.wouldCreate === true,
       mode: typeof result?.mode === 'string' ? result.mode : null,
     }
   }
@@ -4661,7 +4691,7 @@ async function executeAiToolCall(editorWindow, toolName, args) {
         target: normalizeToolTarget({ target: requireObjectArg(toolName, args, 'target', '{"editorId":"editor:active","span":{"kind":"document"}}') }),
         cursor: args?.cursor ?? null,
         maxTokens: args?.maxTokens,
-      }))
+      }, { publicDisplay: true }))
     } else if (toolName === 'write_target') {
       const destination = requireObjectArg(toolName, args, 'destination', '{"editorId":"editor:active","span":{"kind":"selection"}}')
       const sources = requireArrayArg(toolName, args, 'sources', '[{"type":"literal","text":"..."}]')
@@ -4675,6 +4705,7 @@ async function executeAiToolCall(editorWindow, toolName, args) {
         sources: sources.map((source) => normalizeAiSliceRefSource(source)),
         mode: args?.mode === 'insert' || args?.mode === 'append' ? args.mode : 'replace',
         title: typeof args?.title === 'string' ? args.title : undefined,
+        dryRun: args?.dryRun === true,
       })
     } else if (toolName === 'exact_search') {
       result = formatAiExactSearchPayloadForExternalDisplay(await exactSearchForWindow(editorWindow, {
@@ -5073,7 +5104,7 @@ async function requestEditorContext(editorWindow) {
   }
 }
 
-async function readAiTargetForWindow(editorWindow, payload) {
+async function readAiTargetForWindow(editorWindow, payload, options = {}) {
   const runtimeState = touchEditorRuntimeState(editorWindow)
   const resolvedTarget = resolveTargetForSession(editorWindow, payload?.target)
 
@@ -5084,6 +5115,7 @@ async function readAiTargetForWindow(editorWindow, payload) {
       resolvedTarget.span,
       payload?.cursor,
       payload?.maxTokens,
+      { publicDisplay: options.publicDisplay === true },
     )
   }
 
@@ -5103,6 +5135,7 @@ async function readAiTargetForWindow(editorWindow, payload) {
     },
     cursor: payload?.cursor ?? null,
     maxTokens: resolveReadTokenBudget(payload?.maxTokens),
+    publicDisplay: options.publicDisplay === true,
   })
 
   return readResult
@@ -5147,6 +5180,58 @@ async function materializeWriteSources(editorWindow, sources) {
   }
 
   return output
+}
+
+function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolvedOffsets, content, mode, options = {}) {
+  const startOffset = mode === 'append' ? resolvedOffsets.endOffset : resolvedOffsets.startOffset
+  const endOffset = mode === 'replace'
+    ? resolvedOffsets.endOffset
+    : mode === 'append'
+      ? resolvedOffsets.endOffset
+      : resolvedOffsets.startOffset
+  const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
+  const writtenSpan = normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length)
+  const replacedSpan = normalizeOffsetsToSpan(currentText, startOffset, endOffset)
+  const publicPreviewText = abbreviateInlineDataImageMarkdownInText(nextText)
+  const maxPreviewChars = getInlineTokenBudget() * DEFAULT_TOKEN_TO_CHAR_RATIO
+  const markdownPreview = publicPreviewText.slice(0, maxPreviewChars)
+  const markdownPreviewTruncated = publicPreviewText.length > markdownPreview.length
+  const markdownPreviewAbbreviated = publicPreviewText !== nextText
+  const shouldCreatePreviewBuffer = markdownPreviewTruncated || markdownPreviewAbbreviated
+  const previewBufferRecord = shouldCreatePreviewBuffer
+    ? createSessionBuffer(editorWindow, {
+        title: typeof options.title === 'string' && options.title.trim().length > 0
+          ? `write_target dryRun: ${options.title.trim()}`
+          : 'write_target dryRun preview',
+        text: nextText,
+      })
+    : null
+  const result = {
+    editorId,
+    span: writtenSpan,
+    mode,
+    bytesWritten: 0,
+    wouldWriteBytes: Buffer.byteLength(content, 'utf8'),
+    dryRun: true,
+    wouldCreate: options.wouldCreate === true,
+    markdownPreview,
+    markdownPreviewTruncated,
+    markdownPreviewAbbreviated,
+    preview: createPreviewText(publicPreviewText),
+    replacedSpan,
+    replacedTextPreview: createPreviewText(abbreviateInlineDataImageMarkdownSlice(currentText, startOffset, endOffset)),
+  }
+
+  if (previewBufferRecord) {
+    result.previewBufferId = previewBufferRecord.editorId
+    result.previewTarget = buildAiTargetRef(previewBufferRecord.editorId, { kind: 'document' })
+  }
+
+  if (typeof options.title === 'string' && options.title.trim().length > 0) {
+    result.title = options.title.trim()
+  }
+
+  return result
 }
 
 function waitForWindowDidFinishLoad(targetWindow) {
@@ -5206,12 +5291,12 @@ async function createNewEditorWindowFromContent(content, title) {
 async function writeAiTargetForWindow(editorWindow, payload) {
   const runtimeState = touchEditorRuntimeState(editorWindow)
   const destination = payload?.destination
+  const dryRun = payload?.dryRun === true
+  const nextMode = payload?.mode === 'insert' || payload?.mode === 'append' ? payload.mode : 'replace'
 
   if (!destination || typeof destination !== 'object') {
     throw new Error('AI write destination is required')
   }
-
-  const content = await materializeWriteSources(editorWindow, payload?.sources)
 
   if (destination.editorId === ':new') {
     if (!settingsState.ai.toolPermissions.writeNewDocument) {
@@ -5220,6 +5305,15 @@ async function writeAiTargetForWindow(editorWindow, payload) {
 
     if (isManagedClient()) {
       throw new Error('AI new document creation is unavailable in managed-client mode')
+    }
+
+    const content = await materializeWriteSources(editorWindow, payload?.sources)
+
+    if (dryRun) {
+      return buildAiWritePreviewPayload(editorWindow, ':new', '', { startOffset: 0, endOffset: 0 }, content, 'replace', {
+        wouldCreate: true,
+        title: payload?.title,
+      })
     }
 
     if (settingsState.safety.confirmBeforeNewDocumentFromAi) {
@@ -5245,8 +5339,13 @@ async function writeAiTargetForWindow(editorWindow, payload) {
   const resolvedTarget = resolveTargetForSession(editorWindow, destination)
 
   if (resolvedTarget.kind === 'temp-buffer') {
-    const nextMode = payload?.mode === 'insert' || payload?.mode === 'append' ? payload.mode : 'replace'
     const currentText = resolvedTarget.bufferRecord.text
+    const content = await materializeWriteSources(editorWindow, payload?.sources)
+
+    if (dryRun) {
+      return buildAiWritePreviewPayload(editorWindow, resolvedTarget.editorId, currentText, resolveSpanToOffsets(currentText, resolvedTarget.span), content, nextMode)
+    }
+
     const resolvedOffsets = resolveSpanToOffsets(currentText, resolvedTarget.span)
     const startOffset = nextMode === 'append' ? resolvedOffsets.endOffset : resolvedOffsets.startOffset
     const endOffset = nextMode === 'replace'
@@ -5278,7 +5377,30 @@ async function writeAiTargetForWindow(editorWindow, payload) {
     throw new Error('Active document write is disabled in settings')
   }
 
-  if (payload?.mode !== 'insert' && payload?.mode !== 'append' && settingsState.safety.confirmBeforeFullDocumentOverwrite) {
+  if (dryRun && !settingsState.ai.toolPermissions.readActiveDocument) {
+    throw new Error('Active document read is disabled in settings')
+  }
+
+  const content = await materializeWriteSources(editorWindow, payload?.sources)
+
+  if (dryRun) {
+    const fullDocumentTarget = await readFullTargetTextForWindow(editorWindow, {
+      target: {
+        editorId: resolvedTarget.editorId,
+        span: { kind: 'document' },
+      },
+    })
+    const writeOffsets = resolvedTarget.kind === 'editor-window' && resolvedTarget.span?.kind === 'selection'
+      ? resolveNormalizedSpanToOffsets(fullDocumentTarget.text, await readFullEditorWindowSpan(editorWindow, {
+          editorId: resolvedTarget.editorId,
+          span: resolvedTarget.span,
+        }))
+      : resolveSpanToOffsets(fullDocumentTarget.text, resolvedTarget.span)
+
+    return buildAiWritePreviewPayload(editorWindow, resolvedTarget.editorId, fullDocumentTarget.text, writeOffsets, content, nextMode)
+  }
+
+  if (nextMode === 'replace' && settingsState.safety.confirmBeforeFullDocumentOverwrite) {
     const fullDocumentTarget = await readFullTargetTextForWindow(editorWindow, {
       target: {
         editorId: resolvedTarget.editorId,
@@ -5324,7 +5446,7 @@ async function writeAiTargetForWindow(editorWindow, payload) {
         text: content,
       },
     ],
-    mode: payload?.mode === 'insert' || payload?.mode === 'append' ? payload.mode : 'replace',
+    mode: nextMode,
     title: resolvedTarget.editorId === ':new' && typeof payload?.title === 'string' ? payload.title : undefined,
   })
 

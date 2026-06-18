@@ -12,7 +12,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
 
-今回の structure-tool hardening では、exact single replace を broad query の multi replace に広げないことを最優先にする。
+この文書には既存の structure-tool hardening も残すが、MD-BL-020 の current slice では `write_target dryRun` preview foundation を正本化する。
 
 注記:
 
@@ -24,6 +24,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - `replace_structure` / `replace_all_structures` の分離は、2026-06-03 の Windows ホストアプリログで観測された、single replace 失敗後に broad query のまま再試行されて 79 ノード置換まで広がった失敗様式を tool 契約で封じるためのものとする
 - `replace_structure` は単一置換専用で、必ず handle を要求する。query は受け付けず、1 ノード以外を置換してはならない。
 - `replace_all_structures` は複数置換専用で、必ず query と `expectedMatchCount` を要求する。実マッチ数が一致しない場合は失敗する。
+- `write_target` は `dryRun=true` を受け付け、source materialization と destination span 解決後の bounded `markdownPreview`、preview 後 Markdown 座標の `span`、変更前 Markdown 座標の `replacedSpan`、`wouldWriteBytes` を返すが、destination target は変更しない。dryRun result は full source `text` も通常の reusable `target` も返さない。dryRun は source read より先に実 write と同じ destination write permission gate を通り、active editor preview では post-write preview のために active document read permission も要求する。inline preview が truncation または inline data image abbreviation を必要とする場合は、raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す。ただし model-facing `read_target` 表示は通常どおり public-display redaction を適用する。これは preview foundation であり、現時点では approval / merge UI を強制せず、non-dryRun writes は既存の direct apply path を維持する。
 - `replace_structure` / `replace_all_structures` はどちらも `dryRun=true` を受け付け、実ファイルを書き換えずに置換予定結果を返せる。
 - tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
@@ -440,6 +441,7 @@ type ChatMessage = {
 - 返却上限は inline と同程度に抑える
 - 全量取得が必要でも `cursor` を進めて取り直せるようにする
 - `cursor` は `point` と同じ Markdown 座標で表現し、renderer に特殊オフセット型を漏らさない
+- model-facing public-display redaction は bounded read と selection/document permission split を壊してはならない。temp buffer は main process が保持する raw text の対象 page slice を redaction し、active editor は renderer が既に保持している Markdown state の対象 page slice を redaction する。redaction のためだけに main process が active document 全体を pagination 取得してはならない
 
 ### write
 
@@ -531,12 +533,22 @@ type ChatMessage = {
 
 - 任意位置 insert は `mode: "insert"` と `destination.span.kind: "point"` を組み合わせる
 - `append` は destination span の end へ追加する sugar として扱う
+- `dryRun: true` は source を解決し、書き込み後 Markdown preview を作るが、destination target である editor window、既存 temp buffer、または `:new` document window は変更しない
+- `dryRun` は source read より先に実 write と同じ destination write permission gate を通る。`:new` dry run は new-document write permission と unmanaged client を要求し、mode は `replace` として扱う。active editor dry run は post-write preview を作るため active document read permission も要求する
+- `dryRun` の inline `markdownPreview` は inline token budget policy に従う post-write target Markdown の bounded representation であり、truncation または inline data image abbreviation が必要な場合は raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す
+- `wouldWriteBytes` は source materialization 後に destination へ挿入 / 置換 / 追加される content の UTF-8 byte 数であり、preview 後の全文サイズや disk write size ではない
+- `dryRun` result は full source `text` も通常の reusable `target` も返さない。small preview は `markdownPreview` で確認し、large / abbreviated preview は `previewTarget` を `read_target` で page-by-page に読む。ただし `read_target` は data image などに通常の public-display redaction を適用し、raw content は bounded `slice-ref` source reuse または後続 renderer merge UI のために保持される
 
 出力:
 
 ```json
 {
   "editorId": "editor:active",
+  "span": {
+    "start": { "line": 12, "column": 1 },
+    "end": { "line": 18, "column": 1 },
+    "isEmpty": false
+  },
   "target": {
     "editorId": "editor:active",
     "span": {
@@ -545,15 +557,42 @@ type ChatMessage = {
       "end": { "line": 18, "column": 1 }
     }
   },
+  "text": "Updated text",
+  "mode": "replace",
+  "created": false,
+  "bytesWritten": 120
+}
+```
+
+`dryRun` 出力:
+
+```json
+{
+  "editorId": "editor:active",
   "span": {
     "start": { "line": 12, "column": 1 },
     "end": { "line": 18, "column": 1 },
     "isEmpty": false
   },
-  "created": false,
-  "bytesWritten": 120
+  "replacedSpan": {
+    "start": { "line": 12, "column": 1 },
+    "end": { "line": 16, "column": 1 },
+    "isEmpty": false
+  },
+  "bytesWritten": 0,
+  "wouldWriteBytes": 120,
+  "dryRun": true,
+  "markdownPreview": "# bounded preview",
+  "markdownPreviewTruncated": false,
+  "markdownPreviewAbbreviated": false,
+  "preview": "# bounded preview",
+  "replacedTextPreview": "old text"
 }
 ```
+
+`span` is the inserted / replaced range in the preview-after Markdown coordinate space. `replacedSpan` is the range that would be replaced in the before Markdown coordinate space; for `insert` and `append` it is an empty span at the insertion point. `markdownPreview` is the bounded post-write target Markdown representation. `preview` is a short redacted display summary for transcript/log UI, not authoritative replacement text. `replacedTextPreview` is the same kind of short redacted display summary for the before-text at `replacedSpan`; it is not authoritative diff text. Dry-run output does not include a normal `target`, because the would-be destination content does not exist yet. For `destination.editorId=":new"` dry runs, `created` is not set and `mode` is reported as `replace`; `wouldCreate: true` indicates that a non-dry run would create a new document window.
+
+When `markdownPreviewTruncated` or `markdownPreviewAbbreviated` is true, the result also includes `previewTarget` and `previewBufferId`. `previewTarget` points at a raw session temp buffer for the post-write preview, but model-facing `read_target` pagination still applies normal public-display redaction. It can be used as a `slice-ref` write source only when that preview span fits the normal write-source bounded read budget; large previews must be narrowed first by reading a page and using its `pageTarget`, by constructing an explicit smaller range, or by handing the raw preview to the future renderer merge UI.
 
 `sources` の型:
 
@@ -567,7 +606,7 @@ type WriteSource =
 設計方針:
 
 - write は source を複数受けられるようにして、直値と EditorID+SPAN の混在を許す
-- 返却された `target` は destination だけでなく `slice-ref` source にもそのまま再利用できるようにする
+- non-dry write で返却された `target` は destination だけでなく `slice-ref` source にもそのまま再利用できるようにする。dryRun は通常の `target` を返さず、実在する preview content が必要な場合だけ `previewTarget` を返す
 - temp buffer で `selection` が来た場合は live selection が存在しないため `document` として正規化する
 - 実行前に main process がすべての `slice-ref` を bounded に resolve し、必要なら追加 `read` を促す
 - source が大きすぎるときは失敗ではなく validation error として返し、model に再取得方針を促す
@@ -989,6 +1028,7 @@ slice tool と workspace grep の境界を分けないと、広い検索がそ�
 - source resolve 時にサイズ上限をかける
 - 大きすぎる場合は追加 read を促す
 - destination span は常に normalized して監査ログへ残す
+- 破壊的 write の前段で利用できる preview foundation として `write_target dryRun` を用意する。これは現時点では optional であり、non-dryRun writes は既存の direct apply path を維持する。hunk 単位の apply / discard / edit は MD-BL-020 の後続 renderer merge UI で扱う
 
 ### 5. Token Budget Drift
 

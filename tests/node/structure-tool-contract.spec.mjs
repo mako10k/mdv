@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const mainSource = fs.readFileSync(new URL('../../src/electron/main.cts', import.meta.url), 'utf8')
+const appSource = fs.readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 
 test('replace_structure schema requires handle and omits selector caps', () => {
   assert.match(mainSource, /name: 'replace_structure',[\s\S]*handle: buildRequiredAiToolParameter\(\{ type: 'string', description: 'Exact structure handle from a previous structure result\.'/)
@@ -29,4 +30,44 @@ test('structure help explains single-node and multi-node replace split', () => {
   assert.match(mainSource, /replace_structure replaces exactly one structure node and requires one exact handle from a prior structure read\./)
   assert.match(mainSource, /replace_all_structures replaces every node matched by one query only when the actual normalized match count equals expectedMatchCount exactly\./)
   assert.match(mainSource, /replace_all_structures fails when expectedMatchCount does not match the actual normalized query match count\./)
+})
+
+test('write_target exposes dryRun preview contract', () => {
+  const previewFunctionSource = mainSource.match(/function buildAiWritePreviewPayload[\s\S]*?\n}\n\nfunction waitForWindowDidFinishLoad/)?.[0] || ''
+  const writeFunctionSource = mainSource.match(/async function writeAiTargetForWindow[\s\S]*?\n}\n\nasync function listAiBuffersForWindow/)?.[0] || ''
+
+  assert.match(mainSource, /name: 'write_target',[\s\S]*dryRun: \{ type: 'boolean', description: 'Optional\. When true, return bounded markdownPreview, preview-after span, before-coordinate replacedSpan, and wouldWriteBytes without mutating the destination target or returning full source text\. Dry-run checks the same destination write permission gates as a real write before source reads; active-editor dry runs also require active document read permission to build the post-write preview\. Dry-run does not return a reusable target; large or abbreviated previews may be stored as raw session temp buffers referenced by previewTarget for read_target pagination, but read_target still applies public-display redaction and normal bounded source-read limits apply if previewTarget is later used as a slice-ref source\.' \}/)
+  assert.match(mainSource, /write_target: \{[\s\S]*\{ name: 'dryRun', required: false, type: 'boolean', description: 'Optional\. Return bounded markdownPreview, preview-after span, before-coordinate replacedSpan, and wouldWriteBytes without mutating the destination target or returning full source text\. Dry-run checks the same destination write permission gates as a real write before source reads; active-editor dry runs also require active document read permission to build the post-write preview\. Dry-run does not return a reusable target; large or abbreviated previews may be stored as raw session temp buffers referenced by previewTarget for read_target pagination, but read_target still applies public-display redaction and normal bounded source-read limits apply if previewTarget is later used as a slice-ref source\.' \}/)
+  assert.match(mainSource, /dryRun: args\?\.dryRun === true/)
+  assert.match(mainSource, /dryRun: result\?\.dryRun === true/)
+  assert.doesNotMatch(mainSource, /function resolveAnySpanToOffsets/)
+  const newDocumentPermissionIndex = writeFunctionSource.indexOf("if (!settingsState.ai.toolPermissions.writeNewDocument)")
+  const firstMaterializeIndex = writeFunctionSource.indexOf('const content = await materializeWriteSources(editorWindow, payload?.sources)')
+  const activeReadPermissionIndex = writeFunctionSource.indexOf("if (dryRun && !settingsState.ai.toolPermissions.readActiveDocument)")
+  const activeMaterializeIndex = writeFunctionSource.lastIndexOf('const content = await materializeWriteSources(editorWindow, payload?.sources)')
+
+  assert.notEqual(newDocumentPermissionIndex, -1)
+  assert.notEqual(firstMaterializeIndex, -1)
+  assert.notEqual(activeReadPermissionIndex, -1)
+  assert.notEqual(activeMaterializeIndex, -1)
+  assert.ok(newDocumentPermissionIndex < firstMaterializeIndex)
+  assert.ok(activeReadPermissionIndex < activeMaterializeIndex)
+  assert.match(mainSource, /const markdownPreview = publicPreviewText\.slice\(0, maxPreviewChars\)/)
+  assert.doesNotMatch(previewFunctionSource, /\btext: content\b/)
+  assert.doesNotMatch(previewFunctionSource, /\btarget = buildAiTargetRef\(editorId, writtenSpan\)/)
+  assert.match(previewFunctionSource, /preview: createPreviewText\(publicPreviewText\)/)
+  assert.match(previewFunctionSource, /replacedTextPreview: createPreviewText\(abbreviateInlineDataImageMarkdownSlice\(currentText, startOffset, endOffset\)\)/)
+  assert.match(mainSource, /previewTarget = buildAiTargetRef\(previewBufferRecord\.editorId, \{ kind: 'document' \}\)/)
+  assert.match(mainSource, /wouldCreate: options\.wouldCreate === true/)
+  assert.match(mainSource, /bytesWritten: 0,\s*wouldWriteBytes: Buffer\.byteLength\(content, 'utf8'\),\s*dryRun: true/)
+})
+
+test('read_target public display preserves bounded active-editor reads', () => {
+  const readFunctionSource = mainSource.match(/async function readAiTargetForWindow[\s\S]*?\n}\n\nasync function materializeWriteSources/)?.[0] || ''
+  const rendererReadSource = appSource.match(/if \(request\.type === 'read'\) \{[\s\S]*?\n\s+if \(request\.type === 'write'\)/)?.[0] || ''
+
+  assert.match(readFunctionSource, /publicDisplay: options\.publicDisplay === true/)
+  assert.doesNotMatch(readFunctionSource, /if \(options\.publicDisplay === true\)[\s\S]*readFullTargetTextForWindow/)
+  assert.match(rendererReadSource, /request\.publicDisplay === true[\s\S]*abbreviateInlineDataImageMarkdownSlice\(markdownText, resolvedOffsets\.startOffset, finalEndOffset\)/)
+  assert.match(appSource, /'data:image\/\*;base64,<continued data image omitted>'/)
 })

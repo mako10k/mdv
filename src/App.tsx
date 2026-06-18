@@ -87,6 +87,7 @@ const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
 
 const INLINE_DATA_IMAGE_WIDGET_PATTERN = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/
 const INLINE_DATA_IMAGE_DATA_URL_PATTERN = /^data:image\/[a-zA-Z0-9.+-]+(?:;[a-zA-Z0-9.+-]+(?:=[^,()\s]*)?)*,[^()\s]+$/
+const INLINE_DATA_IMAGE_MARKDOWN_DATA_URL_PATTERN = /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g
 
 function estimateInlineDataImageBytes(base64Text: string): number {
   if (base64Text.length === 0) {
@@ -127,6 +128,51 @@ function abbreviateInlineDataImageDataUrl(dataUrl: string): string {
   const byteSizeLabel = formatInlineDataImageBytes(estimateInlineDataImageBytes(base64Text))
 
   return `data:${mimeType};base64,<${byteSizeLabel} omitted>`
+}
+
+function abbreviateInlineDataImageMarkdownSlice(text: string, startOffset: number, endOffset: number): string {
+  const normalizedStartOffset = Math.min(Math.max(0, Math.trunc(Number(startOffset) || 0)), text.length)
+  const normalizedEndOffset = Math.min(Math.max(normalizedStartOffset, Math.trunc(Number(endOffset) || normalizedStartOffset)), text.length)
+
+  if (!text || !text.includes('data:image/')) {
+    return text.slice(normalizedStartOffset, normalizedEndOffset)
+  }
+
+  let output = ''
+  let cursor = normalizedStartOffset
+
+  INLINE_DATA_IMAGE_MARKDOWN_DATA_URL_PATTERN.lastIndex = 0
+
+  for (const match of text.matchAll(INLINE_DATA_IMAGE_MARKDOWN_DATA_URL_PATTERN)) {
+    const fullMatch = match[0]
+    const matchStartOffset = match.index ?? 0
+    const matchEndOffset = matchStartOffset + fullMatch.length
+
+    if (matchEndOffset <= normalizedStartOffset) {
+      continue
+    }
+
+    if (matchStartOffset >= normalizedEndOffset) {
+      break
+    }
+
+    const visiblePrefixEndOffset = Math.min(matchStartOffset, normalizedEndOffset)
+
+    if (cursor < visiblePrefixEndOffset) {
+      output += text.slice(cursor, visiblePrefixEndOffset)
+    }
+
+    output += matchStartOffset >= normalizedStartOffset
+      ? abbreviateInlineDataImageDataUrl(fullMatch)
+      : 'data:image/*;base64,<continued data image omitted>'
+    cursor = Math.min(matchEndOffset, normalizedEndOffset)
+  }
+
+  if (cursor < normalizedEndOffset) {
+    output += text.slice(cursor, normalizedEndOffset)
+  }
+
+  return output
 }
 
 function createInlineDataImageWidget(text: string): HTMLElement {
@@ -4865,6 +4911,9 @@ function App() {
         const finalEndOffset = resolvedOffsets.startOffset + nextText.length
         const truncated = availableText.length > nextText.length
         const returnedSpan = normalizeOffsetsToSpan(markdownText, resolvedOffsets.startOffset, finalEndOffset)
+        const responseText = request.publicDisplay === true
+          ? abbreviateInlineDataImageMarkdownSlice(markdownText, resolvedOffsets.startOffset, finalEndOffset)
+          : nextText
 
         window.mdvDesktop?.sendAiEditorResponse({
           requestId: request.requestId,
@@ -4884,8 +4933,8 @@ function App() {
                 end: returnedSpan.end,
               },
             },
-            text: nextText,
-            estimatedTokens: estimateTokenCount(nextText),
+            text: responseText,
+            estimatedTokens: estimateTokenCount(responseText),
             truncated,
             nextCursor: truncated
               ? { after: offsetToMarkdownPos(markdownText, finalEndOffset) }

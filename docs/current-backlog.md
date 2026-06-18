@@ -138,7 +138,7 @@ v0.1.14 で閉じた最小範囲:
 
 次に扱う最小範囲:
 
-- P2 Editor Expansion のうち MD-BL-020 変更プレビューと merge UI 基盤を棚卸する
+- P2 Editor Expansion のうち MD-BL-020 は棚卸済みで、first slice として `write_target dryRun` preview foundation まで完了した。次の最小範囲はその後続 slice として renderer-side reusable change preview / merge UI surface を扱う
 - MD-BL-013 の broader UI reset、global command palette、shortcut overlay、全 command surface 再編は current accepted scope には含めず、必要になった場合に別 slice で受理する
 
 注記:
@@ -149,7 +149,7 @@ v0.1.14 で閉じた最小範囲:
 ### P2 Editor Expansion
 
 1. [棚卸確認済み / current accepted scope 完了] MD-BL-019 workspace topbar / outline / typography density 整理
-2. [棚卸待ち] MD-BL-020 変更プレビューと merge UI 基盤
+2. [棚卸確認済み / 一部完了・後続あり] MD-BL-020 変更プレビューと merge UI 基盤
 3. [棚卸待ち] MD-BL-021 Span comment と orphan 管理
 4. [current accepted gate 完了] MD-BL-013 workspace topbar の grouping / overflow / command IA 整理
 5. [棚卸待ち] MD-BL-014 検索 surface の再設計
@@ -174,6 +174,14 @@ v0.1.14 で閉じた最小範囲:
 - editor と AI chat の文字サイズは `editor.fontSizePx` と `ai.chatFontSizePx` として settings / sanitizer / root CSS variables / focus-aware Ctrl/Cmd typography shortcut で分離済みである
 - embedded AI chat は header eyebrow / subtitle を dock 表示では隠し、shell padding、bubble spacing、Markdown line-height、tool JSON font size を compact 化済みである
 - 根拠 anchor は `src/App.css` の `.outline-panel` / `.outline-list` / `.outline-item` / `.compact-preview` / `.assistant-dock .ai-chat-shell.embedded`、`src/ai-chat/chat.css` の embedded chat typography、`src/shared/desktopTypography.ts` の editor / chat font variables、`src/settings/SettingsApp.tsx` の typography controls、`src/App.tsx` の focus-aware typography shortcuts、`src/electron/main/settings-controller.cts` の font size sanitizer、`tests/e2e/app-layout.spec.ts` の `editor mode uses denser outline and editor typography` / `embedded AI chat trims header chrome and uses denser message spacing`、`tests/node/electron-main-settings-controller.spec.mjs` の settings clamp 回帰である
+
+2026-06-18 MD-BL-020 棚卸 / first slice 結果:
+
+- MD-BL-020 は `inventory_status: inventory_confirmed`、`backlog_state: accepted_active`、`contract_state: active_contract` として扱う。既に MD-BL-016 で save conflict dialog、merge save preview、merge preview から Save As への分岐、clean buffer の外部変更自動反映は完了しているため、これを MD-BL-020 の未実装として再実装しない。MD-BL-016 側の根拠 anchor は `src/electron/main/file-controller.cts` の conflict save / merge preview path、`src/electron/main/i18n.cts` の `buildMergePreviewText` / save conflict copy、`tests/e2e-electron/autosave-recovery.spec.ts` の `merge preview can redirect conflict save into Save As before writing` / `clean tracked files auto-reload on-disk changes and report the refresh`、`tests/node/electron-main-i18n.spec.mjs` の `buildMergePreviewText prints four labeled sections` である
+- AI 書き込みは `write_target` / structure mutation tools / renderer `write` request まで実装済みだが、既存の実書き込みは direct apply が中心で、`confirmBeforeFullDocumentOverwrite` は byte 数確認に留まり、user-facing な hunk apply / discard / edit UI は未実装である
+- first slice として `write_target dryRun` を追加し、source materialization と destination span 解決後の bounded post-write `markdownPreview`、preview 後 Markdown 座標の `span`、変更前 Markdown 座標の `replacedSpan`、source content の UTF-8 byte 数である `wouldWriteBytes` を返しつつ、destination target である editor window、既存 temp buffer、新規 document window は変更しない preview contract を固定した。dryRun result は full source `text` も通常の reusable `target` も返さない。dryRun は source read より先に実 write と同じ destination write permission gate を通り、active editor preview では post-write preview のために active document read permission も要求する。inline preview が truncation または inline data image abbreviation を必要とする場合は、raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す。`previewTarget` は `read_target` pagination 用の参照だが、model-facing `read_target` 表示には通常の public-display redaction を適用する。write source として使う場合は通常の bounded source read 制約に従う。これは non-dryRun writes の approval / merge UI を強制するものではなく、既存の direct apply path は維持する
+- 根拠 anchor は `src/electron/main.cts` の `writeAiTargetForWindow` / `buildAiWritePreviewPayload` / `write_target` tool schema と help、`src/App.tsx` の `read` public-display page redaction、`src/shims.d.ts` の `MdvAiWritePayload` / `writeAiTarget` dryRun 型、`docs/adr/0002-editor-handle-and-span-tool-contract.md` と `docs/ai-chat-design.md` の dryRun contract、`tests/node/structure-tool-contract.spec.mjs` の `write_target exposes dryRun preview contract` / `read_target public display preserves bounded active-editor reads`、`tests/node/electron-main-inline-data-url-display.spec.mjs` の `abbreviateInlineDataImageMarkdownSlice redacts pages starting inside data image base64`、`tests/e2e-electron/new-document.spec.ts` の `AI write_target dryRun previews without mutating the active document` / `AI write_target dryRun reports insert and append spans without mutating the active document` / `AI write_target dryRun previews live selection without mutating the active document` / `AI write_target dryRun checks destination write permission before source reads` / `AI read active selection public display does not require active document read permission` / `AI read_target public display redacts active editor data image continuation pages` / `AI write_target dryRun exposes large previews through a temp buffer` / `AI write_target dryRun previews temp buffer writes without mutating the buffer` / `AI write_target dryRun stores full inline data image preview behind previewTarget` / `AI write_target dryRun redacts replaced text preview inside inline data images` / `AI write_target dryRun for :new reports wouldCreate without opening a window` である
+- 後続 scope は renderer-side の reusable change preview / merge UI surface と hunk 単位 apply / discard / edit である。AI snapshot restore の preview / resolve action はこの reusable merge UI の downstream consumer 候補だが、AI-ED 側の棚卸前に MD-BL-020 accepted scope として先取りしない。これらは MD-BL-020 の後続 slice として扱い、MD-BL-016 の save conflict polish と混同しない
 
 ### Supporting Backlog
 
@@ -368,6 +376,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 - MD-BL-013 current accepted gate は完了。table command family を Table actions menu に集約し、table option set を topbar 直置き button ではなく menu item として扱うことを ADR 0009 に接続した。
 - MD-BL-007 リスト継続と task list 操作補助は完了。Toast UI 標準の list continuation を棚卸で確認し、topbar の task checkbox toggle を current line / selected lines で実行できるようにした。
 - MD-BL-019 の outline / typography density 整理は完了。topbar density は MD-BL-013 current accepted gate で閉じたものとして参照し、MD-BL-019 では outline の compact 表示、editor / AI chat 文字サイズ分離、embedded AI chat の header chrome 削減と message spacing compact 化を実装済みとして 2026-06-18 棚卸で確認した。
+- MD-BL-020 は一部完了・後続あり。MD-BL-016 の save conflict merge preview は完了済みとして再実装せず、first slice では AI `write_target dryRun` による destination 非破壊の optional Markdown preview foundation を追加した。
 - AI-RT-001 / AI-RT-002 / AI-RT-003 / AI-RT-004 は完了。main process から request-scoped stream event を配送し、renderer は assistant bubble の先行生成、text delta 追記、tool event 途中表示、deferred Markdown render、flush cadence 制御を行う。
 
 ## Historical Documents
