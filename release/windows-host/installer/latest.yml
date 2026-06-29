@@ -1,9 +1,9 @@
-version: 0.1.17
+version: 0.1.18
 files:
-  - url: MarkDownViewer-0.1.17-win.exe
-    sha512: cxMP7Ce18nxZzJ/AaBjzwFdR5sUKOzz1HbRKCrnE2lTrsA8jYqR0objhqwm2iHbuOmfwklpLq8nIDy7R/S6KmQ==
-    size: 137078572
-    blockMapSize: 144172
-path: MarkDownViewer-0.1.17-win.exe
-sha512: cxMP7Ce18nxZzJ/AaBjzwFdR5sUKOzz1HbRKCrnE2lTrsA8jYqR0objhqwm2iHbuOmfwklpLq8nIDy7R/S6KmQ==
-releaseDate: 2026-06-18T00:41:03.310Z
+  - url: MarkDownViewer-0.1.18-win.exe
+    sha512: I4NXdHmFf7JjJi1Jx+kwSdJPVF8ZHouHiwh6P5/mptNeEXRv3NTxTsLsWzicnC8N2NUMrC4atTAfT9gSq7NKLw==
+    size: 137080215
+    blockMapSize: 144061
+path: MarkDownViewer-0.1.18-win.exe
+sha512: I4NXdHmFf7JjJi1Jx+kwSdJPVF8ZHouHiwh6P5/mptNeEXRv3NTxTsLsWzicnC8N2NUMrC4atTAfT9gSq7NKLw==
+releaseDate: 2026-06-29T07:12:46.550Z
