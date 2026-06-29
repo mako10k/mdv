@@ -199,6 +199,7 @@ type MdvMenuAction =
   | 'redo'
   | 'new-document'
   | 'open'
+  | 'reload-file'
   | 'save'
   | 'save-as'
   | 'open-settings'

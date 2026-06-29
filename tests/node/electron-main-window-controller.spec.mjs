@@ -102,6 +102,26 @@ function createBrowserWindowHarness() {
   return { BrowserWindow: FakeBrowserWindow, allWindows }
 }
 
+function createMenuMessages() {
+  return {
+    menu: {
+      file: 'File',
+      newDocument: 'New Document',
+      open: 'Open',
+      reloadFile: 'Reload File',
+      save: 'Save',
+      saveAs: 'Save As',
+      settings: 'Settings',
+      view: 'View',
+      aiChat: 'AI Chat',
+      editor: 'Editor',
+      renderedPreview: 'Rendered Preview',
+      help: 'Help',
+      about: 'About MDV',
+    },
+  }
+}
+
 test('openSettingsWindow reuses a single auxiliary window', () => {
   const { BrowserWindow, allWindows } = createBrowserWindowHarness()
   const controller = createWindowController({
@@ -139,6 +159,57 @@ test('openSettingsWindow reuses a single auxiliary window', () => {
   assert.deepEqual(second, { status: 'focused' })
   assert.equal(allWindows.length, 2)
   assert.equal(controller.getSettingsWindow().loadFileCalls[0], '/tmp/dist/settings.html')
+})
+
+test('application menu dispatches F5 reload-file action', () => {
+  const { BrowserWindow } = createBrowserWindowHarness()
+  let applicationMenu = null
+  const controller = createWindowController({
+    BrowserWindow,
+    Menu: {
+      setApplicationMenu: (menu) => {
+        applicationMenu = menu
+      },
+      buildFromTemplate: (template) => template,
+    },
+    isDev: false,
+    windowIcon: '/tmp/icon.png',
+    preloadPath: '/tmp/preload.cjs',
+    rendererDistPath: '/tmp/dist',
+    writeLog: () => {},
+    getMainI18n: createMenuMessages,
+    focusWindow: (window) => window.focus(),
+    approveWindowClose: () => {},
+    approvedWindowCloseIds: new Set(),
+    pendingWindowCloseIds: new Set(),
+    resolveInitialPanelForLaunch: () => 'write',
+    findEditorWindowByTrackedFilePath: () => null,
+    getPendingLaunchRequest: () => null,
+    setPendingLaunchRequest: () => {},
+    launchStateByWindowId: new Map(),
+    hiddenLaunchRevealTimerByWindowId: new Map(),
+    emitDebugChannelEvent: () => {},
+    confirmEditorWindowClose: async () => {},
+    clearEditorRuntimeState: () => {},
+    isManagedClient: () => false,
+    registerManagedClient: async () => {},
+    setManagedMainWindow: () => {},
+  })
+  const editorWindow = new BrowserWindow()
+  const sent = []
+  editorWindow.webContents.send = (channel, payload) => {
+    sent.push({ channel, payload })
+  }
+
+  controller.createApplicationMenu()
+
+  const fileMenu = applicationMenu.find((item) => item.label === 'File')
+  const reloadItem = fileMenu.submenu.find((item) => item.label === 'Reload File')
+  assert.equal(reloadItem.accelerator, 'F5')
+
+  reloadItem.click()
+
+  assert.deepEqual(sent, [{ channel: 'mdv:menu-action', payload: 'reload-file' }])
 })
 
 test('queueOrDispatchOpenFile queues until an editor window is ready', () => {

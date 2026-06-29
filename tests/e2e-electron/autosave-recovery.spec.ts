@@ -85,6 +85,47 @@ function acceptBrowserDialogs(page: import('@playwright/test').Page) {
   })
 }
 
+async function stubMainReadFileForManualReload(
+  app: import('playwright').ElectronApplication,
+  targetFileName: string,
+  content: string,
+  contentHashes: string[] = [],
+) {
+  await app.evaluate(({ ipcMain }, { content: nextContent, contentHashes: nextContentHashes, targetFileName: nextTargetFileName }) => {
+    let readFileCallCount = 0
+
+    ipcMain.removeHandler('mdv:read-file')
+    Reflect.set(globalThis, '__mdvManualReloadReadFileCallCount', () => readFileCallCount)
+
+    ipcMain.handle('mdv:read-file', async (_event, filePath: unknown) => {
+      readFileCallCount += 1
+
+      if (typeof filePath !== 'string' || !filePath.replaceAll('\\', '/').endsWith(`/${nextTargetFileName}`)) {
+        return null
+      }
+
+      return {
+        path: filePath,
+        content: nextContent,
+        snapshot: {
+          path: filePath,
+          contentHash: nextContentHashes[readFileCallCount - 1] ?? `manual-reload-${readFileCallCount}`,
+          size: new TextEncoder().encode(nextContent).length,
+          mtimeMs: Date.now(),
+        },
+      }
+    })
+  }, { content, contentHashes, targetFileName })
+}
+
+async function getManualReloadReadFileCallCount(app: import('playwright').ElectronApplication) {
+  return app.evaluate(() => {
+    const getCount = Reflect.get(globalThis, '__mdvManualReloadReadFileCallCount')
+
+    return typeof getCount === 'function' ? getCount() : 0
+  })
+}
+
 async function readRecoveryStoreEntries(userDataDir: string) {
   const recoveryPath = path.join(userDataDir, 'autosave-recovery-v1.json')
 
@@ -422,6 +463,56 @@ test('clean tracked files auto-reload on-disk changes and report the refresh', a
     await expect(page.locator('.statusbar-status')).toContainText(/(自動反映|Auto-reloaded)/)
     await expect(page.locator('.statusbar-status')).toContainText('external-refresh.md')
     await expect.poll(async () => page.title()).toContain('external-refresh.md - MDV')
+  } finally {
+    await forceCloseApp(app)
+    await app.close().catch(() => {})
+    await fs.rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('manual file reload refreshes clean files, reports unchanged files, and preserves dirty buffers', async () => {
+  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const userDataDir = path.join(tempRoot, 'user-data')
+  const filePath = path.join(tempRoot, 'manual-reload.md')
+  const reloadedContent = '# Manual Reload\n\nmanual bridge reload\n'
+
+  await fs.mkdir(userDataDir, { recursive: true })
+  await fs.writeFile(filePath, '# Manual Reload\n\nbase\n', 'utf8')
+
+  const app = await launchElectronApp({
+    userDataDir,
+    args: [filePath],
+  })
+
+  try {
+    const page = await app.firstWindow()
+
+    acceptBrowserDialogs(page)
+
+    await openWritePanel(page)
+    const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('base')
+
+    await stubMainReadFileForManualReload(app, 'manual-reload.md', reloadedContent, ['manual-reload-refreshed', 'manual-reload-refreshed'])
+    await page.locator('button[title*="F5"]').first().click()
+
+    await expect.poll(async () => getManualReloadReadFileCallCount(app)).toBeGreaterThan(0)
+    await expect(editor).toContainText('manual bridge reload')
+    await expect(page.locator('.statusbar-status')).toContainText(/(再読み込み|Reloaded)/)
+
+    await page.locator('button[title*="F5"]').first().click()
+    await expect.poll(async () => getManualReloadReadFileCallCount(app)).toBe(2)
+    await expect(page.locator('.statusbar-status')).toContainText(/(最新|up to date)/)
+
+    await replaceMarkdownDocument(page, '# Manual Reload\n\nunsaved edit\n')
+    await expect.poll(async () => page.title()).toContain('manual-reload.md* - MDV')
+    const readFileCallCountBeforeF5 = await getManualReloadReadFileCallCount(app)
+    await page.keyboard.press('F5')
+
+    await expect(editor).toContainText('unsaved edit')
+    await expect(editor).not.toContainText('manual bridge reload')
+    await expect.poll(async () => getManualReloadReadFileCallCount(app)).toBe(readFileCallCountBeforeF5)
+    await expect(page.locator('.statusbar-status')).toContainText(/(未保存|unsaved)/)
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

@@ -56,6 +56,7 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 - Markdown insert command surface の first slice を実装し、見出し、リンク、画像、コードブロック、引用、水平線、脚注の selection / caret anchor を source と WYSIWYG の両方で回帰固定
 - 画像体験 bundle を実装し、inline image storage、source view の data image abbreviation、saved / draft relative image 解決、HTML export、broken / unresolved image fallback を回帰で固定し、既存 close / recovery / renderer flow の app-managed draft workspace / imported-asset temporary cleanup を維持
 - 起動時 placeholder ちらつき、同一ファイル再オープン時の focus dedupe、H3/H4 heading 表示崩れを修正済み
+- F5 / Reload File で保存済み current file を手動再読み込みでき、watcher notification に依存しない clean buffer の同期 fallback を持つ。dirty buffer は破棄せず reload を拒否し、保存時の conflict policy を維持する
 
 このため、以後のバックログは「assistant を成立させるための初期土台」ではなく、「製品として何を次に良くするか」で切る。
 
@@ -135,6 +136,14 @@ v0.1.14 で閉じた最小範囲:
 - task checkbox toggle は既存 task item の `[ ]` / `[x]` を切り替え、通常の unordered / ordered list item は unchecked task item に変換する。list item ではない行は変更対象にしない
 - 根拠 anchor は `src/App.tsx` の `toggle-task-list` Markdown insert command、`src/shared/i18n.ts` の toggle task checkbox label、`tests/e2e/app-layout.spec.ts` の `standard editor continues ordered, unordered, nested, and task list items` / `task checkbox command toggles the current task item and updates the preview` / `task checkbox command converts selected list items and toggles existing tasks` である
 - 追加の list outdent / indent 専用 UI、task list bulk operations、list style conversion が必要になった場合は、MD-BL-007 の未完了として再実装せず、`backlog_state: future_requires_acceptance` として別 slice で受理する
+
+2026-06-29 MD-BL-016 手動再読み込み fallback / architecture check 結果:
+
+- user 直接依頼により、F5 / Reload File の current-file 手動再読み込み fallback は `inventory_status: inventory_confirmed`、`contract_state: active_contract`、`backlog_state: completed` とする。new user-facing command であるため maintenance exception ではなく、受理済み scope として扱う
+- design_contract は [docs/local-file-sync-design.md](local-file-sync-design.md) とし、ADR は [docs/adr/0006-local-file-sync-and-conflict-save.md](adr/0006-local-file-sync-and-conflict-save.md) に記録する。既存の local file snapshot / dirty-state / conflict-save contract に接続し、新規 preload IPC は追加せず、renderer は既存 `read-file` snapshot path で現在 attached された保存済み file だけを再読み込みする
+- allowed_scope は topbar Reload File、File menu Reload File、F5 による clean buffer の current file reload、content hash が同一の場合の snapshot baseline 更新、dirty buffer での reload skip と status 表示に限る
+- blocked_scope は UNC watcher / `fs.watch` の実装修正や backend-specific watcher 動作保証、polling、設定追加、dirty buffer の強制破棄 reload、新しい file write / mutation、save conflict policy の変更、global command palette / shortcut overlay / command surface 再編である。これらが必要になった場合は別 slice で受理する
+- 根拠 anchor は `src/App.tsx` の `reload-file` shortcut / `handleReloadCurrentFile` / Reload File toolbar button、`src/electron/main/window-controller.cts` の File menu Reload File、`src/electron/main/i18n.cts` と `src/shared/i18n.ts` の文言、`src/shims.d.ts` の `MdvMenuAction`、`tests/e2e-electron/autosave-recovery.spec.ts` の `manual file reload refreshes clean files, reports unchanged files, and preserves dirty buffers`、`tests/node/electron-main-window-controller.spec.mjs` の `application menu dispatches F5 reload-file action` である
 
 次に扱う最小範囲:
 
@@ -365,7 +374,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 - DOC-BL-001 README と開発文書の責務分離は完了。README を project overview と関連資料リンクへ絞り、セットアップ、build、test、packaging の正本と、release の運用入口を DEVELOPMENT.md へ移した。
 - MD-BL-002 見出しアウトライン追従強化は完了。outline pane に active heading 表示を追加し、editor caret に追従して現在位置の見出しを強調できるようにした。
-- MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。
+- MD-BL-016 保存同期と外部変更追従の polish は完了。save conflict の action copy と merge preview を整理し、clean buffer の外部更新は editor に自動反映しつつ status で明示するようにした。2026-06-29 の user 直接依頼では、watcher notification に依存しない手動 reload fallback として F5 / Reload File を追加し、dirty buffer を破棄しない architecture check を local file sync design と ADR 0006 に接続した。
 - MD-BL-015 新規ドキュメント作成導線は完了。Ctrl/Cmd+N、File menu、topbar から untitled document を editor mode で開けるようにし、既存の unsaved-changes 確認と cleanup を維持した。
 - MD-BL-004 Markdown command surface の first slice は完了。主要 Markdown insert command の selection / caret anchor を source / WYSIWYG で固定し、脚注挿入時の source mode fallback と Playwright 回帰を追加した。
 - MD-BL-012 起動時 placeholder ちらつき抑制は完了。fresh untitled document を blank start に寄せ、placeholder-only surface が新規文書で見えないことを browser / Electron E2E で固定した。

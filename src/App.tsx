@@ -1205,7 +1205,15 @@ function isPrimaryModifierPressed(event: KeyboardEvent): boolean {
 }
 
 function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
-  if (event.defaultPrevented || event.isComposing || !isPrimaryModifierPressed(event)) {
+  if (event.defaultPrevented || event.isComposing) {
+    return null
+  }
+
+  if (event.key === 'F5' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+    return 'reload-file'
+  }
+
+  if (!isPrimaryModifierPressed(event)) {
     return null
   }
 
@@ -2525,6 +2533,15 @@ function OpenIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
       <path d="M4 8.5h5l1.6 2H20v7A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
       <path d="M4 8V6.5A1.5 1.5 0 0 1 5.5 5H9l1.5 2H18.5A1.5 1.5 0 0 1 20 8.5V10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ReloadFileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M19 12a7 7 0 1 1-2-4.9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M17 3.8v4.1h-4.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -4193,6 +4210,45 @@ function App() {
     loadFilePayload(payload ?? null)
   }
 
+  const handleReloadCurrentFile = async () => {
+    const trackedPath = currentFilePathRef.current
+
+    if (!trackedPath) {
+      setStatusText(t.app.status.noFileToReload)
+      return
+    }
+
+    const currentName = basename(trackedPath)
+    const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+
+    if (liveMarkdown !== persistedMarkdownRef.current) {
+      setStatusText(t.app.status.reloadBlockedByUnsavedChanges(currentName))
+      return
+    }
+
+    let payload: MdvFilePayload | null
+
+    try {
+      payload = await window.mdvDesktop?.readFile(trackedPath) ?? null
+    } catch (error) {
+      setStatusText(t.app.status.reloadFileFailed(error instanceof Error ? error.message : String(error)))
+      return
+    }
+
+    if (!payload || currentFilePathRef.current !== trackedPath) {
+      return
+    }
+
+    if (currentFileSnapshotRef.current && payload.snapshot.contentHash === currentFileSnapshotRef.current.contentHash) {
+      currentFileSnapshotRef.current = payload.snapshot
+      setStatusText(t.app.status.reloadFileUnchanged(currentName))
+      return
+    }
+
+    loadFilePayloadRef.current(payload)
+    setStatusText(t.app.status.reloadedFile(currentName))
+  }
+
   const handleCreateNewDocument = async () => {
     if (window.mdvDesktop?.newDocumentWindow) {
       const result = await window.mdvDesktop.newDocumentWindow()
@@ -5020,6 +5076,11 @@ function App() {
       return
     }
 
+    if (action === 'reload-file') {
+      void handleReloadCurrentFile()
+      return
+    }
+
     if (action === 'save') {
       void handleSave(false)
       return
@@ -5450,6 +5511,9 @@ function App() {
                   </ToolbarButton>
                   <ToolbarButton label={`${t.common.open} (Ctrl/Cmd+O)`} onClick={handleOpen}>
                     <OpenIcon />
+                  </ToolbarButton>
+                  <ToolbarButton label={`${t.app.reloadFile} (F5)`} disabled={!currentFilePath} onClick={() => void handleReloadCurrentFile()}>
+                    <ReloadFileIcon />
                   </ToolbarButton>
                   {activePanel === 'write' ? (
                     <ToolbarButton label={`${t.common.save} (Ctrl/Cmd+S)`} disabled={!hasUnsavedChanges} onClick={() => void handleSave(false)}>

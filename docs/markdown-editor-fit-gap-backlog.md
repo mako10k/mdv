@@ -311,9 +311,11 @@ Markdown 編集という観点で、表編集補助の current accepted scope �
   - save conflict dialog に各 action の説明を追加
   - merge save 前に結果 preview を確認し、そこから Save As へ分岐できるようにした
   - clean buffer の on-disk change は editor へ自動反映し、status で明示するようにした
+  - watcher notification に依存しない fallback として、F5 / Reload File で clean buffer の current file を手動再読み込みできるようにした
   - dirty buffer の on-disk change は保存時に競合確認が入ることを status で維持した
 - 完了条件:
   - clean buffer の外部変更が自然に画面へ反映される
+  - watcher notification に依存せず user action で current file の baseline を再同期できる
   - merge save 経路で何が起きるかを user が判別できる
   - 既存の保守的 conflict save policy を壊さない
 

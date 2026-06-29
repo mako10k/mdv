@@ -17,6 +17,7 @@ type MainI18n = {
     file: string
     newDocument: string
     open: string
+    reloadFile: string
     save: string
     saveAs: string
     settings: string
@@ -124,6 +125,7 @@ const MAIN_I18N: Record<LocaleCode, MainI18n> = {
       file: 'ファイル',
       newDocument: '新規文書',
       open: '開く',
+      reloadFile: 'ファイルを再読み込み',
       save: '保存',
       saveAs: '名前を付けて保存',
       settings: '設定',
@@ -221,6 +223,7 @@ const MAIN_I18N: Record<LocaleCode, MainI18n> = {
       file: 'File',
       newDocument: 'New Document',
       open: 'Open',
+      reloadFile: 'Reload File',
       save: 'Save',
       saveAs: 'Save As',
       settings: 'Settings',

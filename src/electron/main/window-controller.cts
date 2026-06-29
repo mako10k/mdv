@@ -9,6 +9,7 @@ type MenuMessages = {
   file: string
   newDocument: string
   open: string
+  reloadFile: string
   save: string
   saveAs: string
   settings: string
@@ -437,6 +438,11 @@ function createWindowController({
             label: messages.open,
             accelerator: 'CmdOrCtrl+O',
             click: () => sendMenuAction('open'),
+          },
+          {
+            label: messages.reloadFile,
+            accelerator: 'F5',
+            click: () => sendMenuAction('reload-file'),
           },
           {
             label: messages.save,
