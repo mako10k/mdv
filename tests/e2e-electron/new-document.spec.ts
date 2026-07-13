@@ -679,7 +679,7 @@ test('AI write_target dryRun exposes large previews through a temp buffer', asyn
 
   try {
     const page = await app.firstWindow()
-    const largeText = `# Large Preview\n\n${'A'.repeat(30_000)}\n`
+    const largeText = `# Large Preview\n\n${'A'.repeat(250_000)}\n`
 
     const writeResult = await page.evaluate(async (content) => {
       return window.mdvDesktop?.writeAiTarget({
