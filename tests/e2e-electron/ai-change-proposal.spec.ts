@@ -14,6 +14,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const baselineMarkdown = '# Proposal\n\nalpha\none\ntwo\nthree\nfour\nfive\neight\nnine\nlambda\nomega\n'
 const discardedProposalSecret = 'RAW_PROPOSAL_DISCARDED_SECRET'
 const appliedProposalSecret = 'RAW_PROPOSAL_APPLIED_SECRET'
+const manualEditSecret = 'RAW_MANUAL_HUNK_EDIT_SECRET'
 const siblingSideEffectSecret = 'RAW_SIBLING_SIDE_EFFECT_SECRET'
 const provisionalReplySecret = 'RAW_PROVISIONAL_TOOL_ITERATION_SECRET'
 const noAutomaticContinuationObservationMs = 500
@@ -182,7 +183,7 @@ async function setupProposalTest() {
   }
 }
 
-test('runs a model-created change proposal through real Electron IPC and applies only the selected hunk', async () => {
+test('revalidates a manual hunk edit through real Electron IPC and applies only that selected hunk', async () => {
   const fixture = await setupProposalTest()
 
   try {
@@ -230,15 +231,25 @@ test('runs a model-created change proposal through real Electron IPC and applies
     expect(genericToolEventContent).not.toContain(siblingSideEffectSecret)
     expect(genericToolEventContent).not.toContain(provisionalReplySecret)
 
+    await dialog.getByRole('button', { name: /(変更 2\/2 を編集|Edit change 2 of 2)/ }).click()
+    const editTextarea = dialog.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    await editTextarea.fill(manualEditSecret)
+    await expect(page.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ })).toBeDisabled()
+    await expect.poll(() => readActiveMarkdown(page)).toBe(baselineMarkdown)
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+    await expect(editTextarea).toHaveCount(0)
+    await expect(dialog).toContainText(manualEditSecret)
+
     await hunkToggles.nth(0).click()
     await page.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ }).click()
 
-    const expectedAppliedMarkdown = baselineMarkdown.replace('lambda', appliedProposalSecret)
+    const expectedAppliedMarkdown = baselineMarkdown.replace('lambda', manualEditSecret)
     await expect(dialog).toHaveCount(0)
     await expect.poll(() => readActiveMarkdown(page)).toBe(expectedAppliedMarkdown)
     await expect(transcript.locator('.chat-tool-entry').last()).toContainText(/適用しました|Applied/i)
     await expect(transcript).not.toContainText(discardedProposalSecret)
     await expect(transcript).not.toContainText(appliedProposalSecret)
+    await expect(transcript).not.toContainText(manualEditSecret)
     await expect(transcript).not.toContainText(siblingSideEffectSecret)
     await expect(transcript).not.toContainText(provisionalReplySecret)
 
@@ -248,9 +259,14 @@ test('runs a model-created change proposal through real Electron IPC and applies
       proposalId: proposalOpen.proposalId,
       originRequestId: proposalOpen.originRequestId,
       status: 'applied',
+      revision: 2,
       appliedHunkCount: 1,
       selectedHunkIds: [`${proposalOpen.proposalId}:hunk:2`],
     })
+    expect(resolution?.proposalFingerprint).not.toBe(proposalOpen.proposalFingerprint)
+    expect(typeof resolution?.proposalFingerprint).toBe('string')
+    expect(JSON.stringify(appliedObservation.streamEvents)).not.toContain(manualEditSecret)
+    expect(JSON.stringify(resolution)).not.toContain(manualEditSecret)
     await expectOpenAiRequestCountToRemain(fixture.openAiServer, 1)
 
     const outgoingRequest = fixture.openAiServer.requests[0]
@@ -261,12 +277,14 @@ test('runs a model-created change proposal through real Electron IPC and applies
     expect(outgoingRequest.rawBody).not.toContain(appliedProposalSecret)
     expect(outgoingRequest.rawBody).not.toContain(siblingSideEffectSecret)
     expect(outgoingRequest.rawBody).not.toContain(provisionalReplySecret)
+    expect(outgoingRequest.rawBody).not.toContain(manualEditSecret)
 
     const logText = await fs.readFile(path.join(fixture.userDataDir, 'logs', 'mdv.log'), 'utf8')
     expect(logText).not.toContain(discardedProposalSecret)
     expect(logText).not.toContain(appliedProposalSecret)
     expect(logText).not.toContain(siblingSideEffectSecret)
     expect(logText).not.toContain(provisionalReplySecret)
+    expect(logText).not.toContain(manualEditSecret)
   } finally {
     await forceCloseApp(fixture.app)
     await fixture.app.close().catch(() => {})
@@ -291,6 +309,13 @@ test('fails Apply closed when the live document drifts after proposal capture', 
     await expect(dialog).toBeVisible()
     await expect(page.locator('.change-preview-toggle input')).toHaveCount(2)
 
+    await dialog.getByRole('button', { name: /(変更 2\/2 を編集|Edit change 2 of 2)/ }).click()
+    const editTextarea = dialog.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    await editTextarea.fill(manualEditSecret)
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+    await expect(editTextarea).toHaveCount(0)
+    await expect(dialog).toContainText(manualEditSecret)
+
     const driftMarkdown = '\nLIVE_BASELINE_DRIFT\n'
     await page.evaluate(async (drift) => {
       await window.mdvDesktop?.writeAiTarget({
@@ -308,6 +333,7 @@ test('fails Apply closed when the live document drifts after proposal capture', 
 
     await expect(dialog).toHaveCount(0)
     await expect.poll(() => readActiveMarkdown(page)).toBe(`${baselineMarkdown}${driftMarkdown}`)
+    expect((await readActiveMarkdown(page)) ?? '').not.toContain(manualEditSecret)
     await expect(page.locator('.statusbar-status')).toContainText(/(文書が変更されたため|document changed)/i)
     await expect(page.locator('.assistant-dock .chat-tool-entry').last()).toContainText(/適用しませんでした|Did not apply/i)
 
@@ -318,9 +344,15 @@ test('fails Apply closed when the live document drifts after proposal capture', 
       originRequestId: proposalOpen?.originRequestId,
       status: 'stale',
       reason: 'baseline-changed',
+      revision: 2,
     })
+    expect(observation.resolutions.at(-1)?.proposalFingerprint).not.toBe(proposalOpen?.proposalFingerprint)
     expect(observation.streamEvents.some((event) => event.type === 'completed')).toBe(false)
+    expect(JSON.stringify(observation)).not.toContain(manualEditSecret)
     await expectOpenAiRequestCountToRemain(fixture.openAiServer, 1)
+
+    const logText = await fs.readFile(path.join(fixture.userDataDir, 'logs', 'mdv.log'), 'utf8')
+    expect(logText).not.toContain(manualEditSecret)
   } finally {
     await forceCloseApp(fixture.app)
     await fixture.app.close().catch(() => {})

@@ -98,6 +98,10 @@
   opacity: 0.58;
 }
 
+.change-preview-hunk.editing {
+  opacity: 1;
+}
+
 .change-preview-hunk-header {
   display: flex;
   align-items: center;
@@ -113,6 +117,11 @@
   gap: 10px;
 }
 
+.change-preview-hunk-header .change-preview-hunk-controls {
+  align-items: center;
+  flex: 0 0 auto;
+}
+
 .change-preview-hunk-header span {
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -126,6 +135,25 @@
   font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.change-preview-edit-button,
+.change-preview-editor-actions button {
+  padding: 6px 10px;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.change-preview-edit-button:disabled,
+.change-preview-editor-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .change-preview-code {
@@ -174,6 +202,56 @@
 .change-preview-line-text {
   padding-right: 16px;
   white-space: pre;
+}
+
+.change-preview-editor {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: rgb(127 127 127 / 5%);
+  border-top: 1px solid var(--border);
+}
+
+.change-preview-editor > label {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.change-preview-editor > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.change-preview-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  padding: 10px;
+  color: var(--text);
+  background: var(--bg-editor, var(--bg-panel));
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  font: 0.8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.change-preview-editor textarea:focus {
+  outline: 2px solid var(--bg-active);
+  outline-offset: 1px;
+}
+
+.change-preview-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.change-preview-editor-actions .primary-button {
+  color: var(--bg-active-text);
+  background: var(--bg-active);
+  border-color: var(--bg-active);
 }
 
 .change-preview-error {

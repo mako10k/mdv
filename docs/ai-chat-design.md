@@ -52,7 +52,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / replace_all_structures / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
-- eligible な live active-editor `write_target dryRun` を main-owned change proposal として表示し、line hunk 単位で apply / discard を選んで最終適用または取消できること
+- eligible な live active-editor `write_target dryRun` を main-owned change proposal として表示し、line hunk 単位で apply / discard、main-side revalidation を伴う manual edit、最終適用または取消ができること
 - latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
 - editor window から Ctrl+, で settings window を開けること
 - fetch ACL / timeout は dedicated auxiliary window から編集できること
@@ -599,17 +599,19 @@ For non-interactive dry runs, when `markdownPreviewTruncated` or `markdownPrevie
 
 `contract_state: active_contract`
 
-対象は model tool loop から呼ばれた `write_target(dryRun: true)` のうち、destination が呼び出し元 window の live active editor で、before / after が異なるものに限る。`:new`、session temp buffer、structure mutation tool、non-dry write、save-conflict flow、snapshot restore、global suggest mode は proposal を作らない。manual hunk text editing も current slice の非範囲である。
+対象は model tool loop から呼ばれた `write_target(dryRun: true)` のうち、destination が呼び出し元 window の live active editor で、before / after が異なるものに限る。`:new`、session temp buffer、structure mutation tool、non-dry write、save-conflict flow、snapshot restore、global suggest mode は proposal を作らない。
 
-proposal の authoritative state は main process が所有する。作成時に typed atomic capture request で renderer から document instance identity、current path (`null` を含む)、exact baseline Markdown を同じ観測として受け取り、source materialization 後の proposed Markdown と canonical line hunks を opaque proposal ID に束縛する。proposal は chat request / source window / target editor にも束縛し、full before / after Markdown と authoritative hunk body は OpenAI input、chat transcript、generic `tool-event` JSON、log に載せない。model-facing dry-run result は従来の bounded preview と proposal の opaque identity / status metadata だけを扱う。
+proposal の authoritative state は main process が所有する。作成時に typed atomic capture request で renderer から document instance identity、current path (`null` を含む)、exact baseline Markdown を同じ観測として受け取り、source materialization 後の proposed Markdown と canonical line hunks を opaque proposal ID に束縛する。exact baseline、document identity / path、provenance、各 hunk の baseline 上の編集 envelope は immutable とし、current candidate body、`revision`、全 hunk 適用時 candidate の `proposalFingerprint` は main-owned mutable state とする。各 envelope は元の structured diff hunk の最初の changed line から最後の changed line までとし、外側 context は含めず、同一 hunk 内の change run 間の行は含める。hunk ID と envelope は proposal lifetime 中固定し、先行 hunk の行数変更後も selection identity を維持する。proposal は chat request / source window / target editor にも束縛し、full before / after Markdown と authoritative hunk body は OpenAI input、chat transcript、generic `tool-event` JSON、log に載せない。model-facing dry-run result は従来の bounded preview と proposal の opaque identity / status metadata だけを扱う。
 
 同じ model response に eligible active-editor dry-run proposal candidate と sibling tool call が並ぶ場合は、全 candidate を model response 内の順序を保ったまま全 sibling より先に評価する。これは tool call が相互に独立しているという前提ではなく、review 対象になり得る変更より先に sibling の副作用を実行しないための approval barrier である。その代わり model が示した candidate / sibling 間の順序は維持されない。先行 sibling に依存する candidate は、その sibling より先に実行されて失敗し得る。その後 sibling が実行されても同じ turn では candidate を再試行しない。先行 candidate が validation / capture で proposal を作れなくても、後続 candidate より先に sibling を実行しない。最初の proposal が作成された時点で、その model turn は残る candidate を含む全 sibling tool call と次の OpenAI iteration より前に終了する。assistant stream は `proposal-pending` を terminal branch として配送し、tool-call iteration の provisional prose は final transcript に採用せず、renderer が locale に応じた canonical pending copy で sending state を解放する。chat transcript には、proposal を作成した turn が終了して自動再開しないことと、依頼に残作業がある場合は新しい user message が必要であることを proposal 作成時と resolution 時に永続表示する。Apply / Cancel 後に停止した turn を自動再開せず、`onAiChangeProposalResolved` が受け取る typed resolution metadata を後続 chat turn の文脈にできるようにする。`indeterminate` は適用済みの可能性を明記し、現在の文書を確認するまで新しい proposal を依頼しないよう案内する。
 
-UI は `onAiChangeProposalOpen` で proposal ID を受けた時点で loading modal を直ちに開き、`getAiChangeProposal` で typed detail を取得する。detail 取得失敗時は dedicated Cancel を main process へ送る。fallback Cancel の terminal resolution まで確認できた場合だけ local UI を閉じ、Cancel 自体が失敗または未確認なら active proposal ID と modal を維持して error と再試行可能な Cancel を表示する。review surface は keyboard focus を内部へ移して閉じ込め、背面 workspace を inert にする操作上の modal とする。renderer shortcut / menu action は proposal decision 中の背面操作を拒否し、main process も native menu と auxiliary-window action を owner window 単位で拒否して window reload roles を無効化する。review surface は `expiresAt` と期限切れ時に選択が失われることを表示する。line-oriented hunk は初期状態で全て selected とし、各 hunk の Apply / Discard を切り替えられる。final Apply は proposal を consume して未選択 hunk を恒久的に破棄することを明示し、selected hunk が 0 件なら無効化する。`applyAiChangeProposal` へは proposal ID と selected hunk IDs だけを渡し、replacement Markdown や編集済み hunk body を renderer から main process へ渡さない。`cancelAiChangeProposal` は変更せず proposal を終了する。
+UI は `onAiChangeProposalOpen` で proposal ID を受けた時点で loading modal を直ちに開き、`getAiChangeProposal` で typed detail を取得する。detail 取得失敗時は dedicated Cancel を main process へ送る。fallback Cancel の terminal resolution まで確認できた場合だけ local UI を閉じ、Cancel 自体が失敗または未確認なら active proposal ID と modal を維持して error と再試行可能な Cancel を表示する。review surface は keyboard focus を内部へ移して閉じ込め、背面 workspace を inert にする操作上の modal とする。renderer shortcut / menu action は proposal decision 中の背面操作を拒否し、main process も native menu と auxiliary-window action を owner window 単位で拒否して window reload roles を無効化する。review surface は `expiresAt` と期限切れ時に選択が失われることを表示する。line-oriented hunk は初期状態で全て selected とし、各 hunk の Apply / Discard を切り替えられる。renderer が authoritative state として保持できるのは main が最後に返した typed detail だけで、未保存 textarea draft は一度に 1 hunk の local state に限る。draft 中または edit 保存中は final Apply を無効化し、Escape は proposal Cancel より先に local edit を取り消す。final Apply は proposal を consume して未選択 hunk を恒久的に破棄することを明示し、selected hunk が 0 件なら無効化する。
 
-Apply は main process が `pending -> applying` を compare-and-swap し、selected IDs を canonical hunks と照合して final Markdown を導出した後、target renderer へ typed atomic apply request を送る。renderer は同じ handler 内で document instance、path、exact baseline Markdown を再検証してから適用する。不一致は書き込まず `stale`、成功は `applied` とする。dispatch 後に delivery / acknowledgement が確定しない場合は `indeterminate` とし、自動 retry しない。
+manual edit は Apply と分離した `reviseAiChangeProposalHunk` IPC で main-owned pending proposal に保存する。request は proposal ID、stable hunk ID、expected revision、expected proposal fingerprint、`replace-hunk-body` の canonical Markdown body だけを持ち、renderer 由来の span、offset、patch、全文 candidate は受け付けない。IPC 上の edit body は LF-only とし、CR / NUL、owner / state / ID / revision / fingerprint 不一致、baseline と同一になる no-op、再構成後の raw size 超過、diff 再生成失敗を reject する。非 final envelope の non-empty body が LF で終わらない場合は、main が envelope 外の次行と結合しないよう trailing LF を補完する。document baseline が一貫した CRLF の場合だけ LF body を CRLF に materialize し、それ以外は LF とする。main は immutable baseline と全 stable envelope から candidate 全文と表示用 diff を一度生成・検証し、`pending@r -> pending@(r+1)` として body、revision、proposal fingerprint を atomic 更新して、その検証済み detail を返す。検証失敗時は state を変更せず、TTL も延長しない。IPC error / acknowledgement loss 時は renderer が authoritative detail を再取得し、revision / fingerprint が進んでいれば main state へ同期し、進んでいなければ local draft と retryable error を維持する。保存済み edit は hunk の選択を off / on しても保持し、破棄は final Apply でその hunk を未選択にした時点で確定する。
 
-lifecycle は `pending -> applying -> applied | stale | indeterminate` または `pending -> cancelled | invalidated` の single-use transition とする。terminal proposal への duplicate apply / cancel / replay は拒否する。editor close / renderer loss / expiry / newer proposal により pending proposal を invalidate するが、Apply dispatch 後の window close / renderer loss は outcome 不明の `indeterminate` とする。document replacement は renderer の instance identity を更新し、後続 Apply を書き込みなしの `stale` にする。pending proposal は editor ごとに 1 件、TTL は 10 分、authoritative before + after の UTF-8 raw payload 合計は 2 MiB を上限とする。上限超過時は通常の bounded dry-run result と、truncation / abbreviation 時の temp-buffer preview behavior へ戻し、interactive proposal は作らない。
+`applyAiChangeProposal` request は proposal ID、expected revision、expected proposal fingerprint、selected hunk IDs のみを持ち、replacement Markdown や edited body を含めない。Apply は main process がこれらを照合して `pending -> applying` を compare-and-swap し、selected envelope の current candidate body だけを immutable baseline へ後方から合成して final Markdown を導出した後、target renderer へ typed atomic apply request を送る。renderer は同じ handler 内で document instance、path、exact baseline Markdown を再検証してから適用する。不一致は書き込まず `stale`、成功は `applied` とする。dispatch 後に delivery / acknowledgement が確定しない場合は `indeterminate` とし、自動 retry しない。`baselineFingerprint` は immutable baseline、`proposalFingerprint` は current all-hunks candidate、terminal `resultFingerprint` は実際に部分適用された結果だけを指す。
+
+lifecycle は edit の `pending@r -> pending@(r+1)` と、single-use の `pending -> applying -> applied | stale | indeterminate` または `pending -> cancelled | invalidated` から成る。terminal proposal への duplicate edit / apply / cancel / replay は拒否する。editor close / renderer loss / expiry / newer proposal により pending proposal を invalidate するが、Apply dispatch 後の window close / renderer loss は outcome 不明の `indeterminate` とする。document replacement は renderer の instance identity を更新し、後続 Apply を書き込みなしの `stale` にする。pending proposal は editor ごとに 1 件、TTL は 10 分、authoritative baseline + current all-hunks candidate の UTF-8 raw payload 合計は 2 MiB を上限とし、edit 成功前にも同じ上限を再検証する。作成時の上限超過は通常の bounded dry-run result と、truncation / abbreviation 時の temp-buffer preview behavior へ戻し、interactive proposal は作らない。
 
 `sources` の型:
 
@@ -961,6 +963,7 @@ assistant surface から main process へ送る操作:
 
 - sendChatMessage
 - getAiChangeProposal
+- reviseAiChangeProposalHunk
 - applyAiChangeProposal
 - cancelAiChangeProposal
 
@@ -1048,7 +1051,7 @@ slice tool と workspace grep の境界を分けないと、広い検索がそ�
 
 ### 4. Unsafe Writes
 
-current slice は eligible active-editor dry run に user-facing hunk selection を提供するが、すべての write を global suggest mode へ切り替えるものではない。
+current contract は eligible active-editor dry run に user-facing hunk selection と hunk envelope 内の manual edit を提供するが、すべての write を global suggest mode へ切り替えるものではない。
 
 加えて、`write.sources` に large slice をそのまま混ぜられると token と破壊範囲が読みにくくなる。
 
@@ -1057,9 +1060,10 @@ current slice は eligible active-editor dry run に user-facing hunk selection 
 - source resolve 時にサイズ上限をかける
 - 大きすぎる場合は追加 read を促す
 - destination span は常に normalized して監査ログへ残す
-- 破壊的 write の前段で利用できる preview foundation として `write_target dryRun` を用意し、eligible な model-loop active-editor dry run は main-owned proposal と canonical line hunks を使って apply / discard を user に委ねる
+- 破壊的 write の前段で利用できる preview foundation として `write_target dryRun` を用意し、eligible な model-loop active-editor dry run は main-owned proposal と stable hunk envelope を使って apply / discard / manual edit を user に委ねる
+- manual edit は dedicated revision IPC で main 側の canonical candidate に確定し、final Apply payload に renderer-side replacement text を混ぜない
 - Apply 時は proposal の document instance / path / exact baseline を renderer で再照合し、stale state への write や proposal replay を fail closed にする
-- non-dryRun writes は既存の direct apply path を維持し、manual hunk text editing は MD-BL-020 の後続 slice とする
+- non-dryRun writes は既存の direct apply path を維持する
 
 ### 5. Token Budget Drift
 

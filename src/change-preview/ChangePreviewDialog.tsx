@@ -10,6 +10,13 @@ type ChangePreviewDialogLabels = {
   contextLine: string
   addedLine: string
   removedLine: string
+  editHunk: (index: number, total: number) => string
+  editBody: string
+  editDescription: string
+  saveEdit: string
+  cancelEdit: string
+  savingEdit: string
+  unsavedEdit: string
   cancel: string
   applySelected: (count: number) => string
   applyConsequence: (selectedCount: number, totalCount: number) => string
@@ -22,10 +29,18 @@ type ChangePreviewDialogProps = {
   summary: MdvAiChangeProposalSummary
   proposal: MdvAiChangeProposalDetail | null
   acceptedHunkIds: ReadonlySet<string>
-  resolvingAction: 'apply' | 'cancel' | null
+  editingHunk: {
+    hunkId: string
+    draftMarkdown: string
+  } | null
+  resolvingAction: 'apply' | 'cancel' | 'revise' | null
   error: string | null
   labels: ChangePreviewDialogLabels
   onToggleHunk: (hunkId: string) => void
+  onStartEditingHunk: (hunkId: string) => void
+  onUpdateHunkDraft: (draftMarkdown: string) => void
+  onSaveHunkEdit: () => void
+  onCancelHunkEdit: () => void
   onApply: () => void
   onCancel: () => void
 }
@@ -89,22 +104,34 @@ export default function ChangePreviewDialog({
   summary,
   proposal,
   acceptedHunkIds,
+  editingHunk,
   resolvingAction,
   error,
   labels,
   onToggleHunk,
+  onStartEditingHunk,
+  onUpdateHunkDraft,
+  onSaveHunkEdit,
+  onCancelHunkEdit,
   onApply,
   onCancel,
 }: ChangePreviewDialogProps) {
   const isResolving = resolvingAction !== null
+  const isEditing = editingHunk !== null
+  const editingHunkId = editingHunk?.hunkId ?? null
   const expiryDate = new Date(summary.expiresAt)
   const formattedExpiry = Number.isNaN(expiryDate.getTime())
     ? summary.expiresAt
     : expiryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const dialogRef = useRef<HTMLElement | null>(null)
+  const editTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const editButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const previousEditingHunkIdRef = useRef<string | null>(null)
   const cancelFromKeyboard = useEffectEvent(() => {
-    if (!isResolving) {
+    if (isEditing && !isResolving) {
+      onCancelHunkEdit()
+    } else if (!isResolving) {
       onCancel()
     }
   })
@@ -128,7 +155,7 @@ export default function ChangePreviewDialog({
 
     const getFocusableElements = () => dialog
       ? Array.from(dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
         )).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
       : []
 
@@ -182,6 +209,20 @@ export default function ChangePreviewDialog({
     }
   }, [])
 
+  useEffect(() => {
+    const previousEditingHunkId = previousEditingHunkIdRef.current
+    previousEditingHunkIdRef.current = editingHunkId
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (editingHunkId) {
+        editTextareaRef.current?.focus()
+      } else if (previousEditingHunkId) {
+        editButtonRefs.current.get(previousEditingHunkId)?.focus()
+      }
+    })
+
+    return () => window.cancelAnimationFrame(focusFrame)
+  }, [editingHunkId])
+
   return (
     <div ref={backdropRef} className="change-preview-backdrop">
       <section
@@ -211,23 +252,46 @@ export default function ChangePreviewDialog({
             error ? null : <p className="change-preview-loading" role="status">{labels.loading}</p>
           ) : proposal.hunks.map((hunk, index) => {
             const isAccepted = acceptedHunkIds.has(hunk.hunkId)
+            const isEditingHunk = editingHunk?.hunkId === hunk.hunkId
+            const editTextareaId = `change-preview-edit-${index + 1}`
 
             return (
-              <article key={hunk.hunkId} className={isAccepted ? 'change-preview-hunk accepted' : 'change-preview-hunk discarded'}>
+              <article
+                key={hunk.hunkId}
+                className={`change-preview-hunk ${isAccepted ? 'accepted' : 'discarded'}${isEditingHunk ? ' editing' : ''}`}
+              >
                 <header className="change-preview-hunk-header">
                   <div>
                     <strong>{labels.hunk(index + 1, proposal.hunks.length)}</strong>
                     <span>@@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@</span>
                   </div>
-                  <label className="change-preview-toggle">
-                    <input
-                      type="checkbox"
-                      checked={isAccepted}
-                      disabled={isResolving}
-                      onChange={() => onToggleHunk(hunk.hunkId)}
-                    />
-                    <span>{labels.includeHunk}</span>
-                  </label>
+                  <div className="change-preview-hunk-controls">
+                    <button
+                      ref={(element) => {
+                        if (element) {
+                          editButtonRefs.current.set(hunk.hunkId, element)
+                        } else {
+                          editButtonRefs.current.delete(hunk.hunkId)
+                        }
+                      }}
+                      type="button"
+                      className="secondary-button change-preview-edit-button"
+                      disabled={isResolving || (isEditing && !isEditingHunk)}
+                      aria-label={labels.editHunk(index + 1, proposal.hunks.length)}
+                      onClick={() => onStartEditingHunk(hunk.hunkId)}
+                    >
+                      {labels.editHunk(index + 1, proposal.hunks.length)}
+                    </button>
+                    <label className="change-preview-toggle">
+                      <input
+                        type="checkbox"
+                        checked={isAccepted}
+                        disabled={isResolving}
+                        onChange={() => onToggleHunk(hunk.hunkId)}
+                      />
+                      <span>{labels.includeHunk}</span>
+                    </label>
+                  </div>
                 </header>
                 <pre className="change-preview-code">
                   {buildChangePreviewLines(hunk).map((line, lineIndex) => (
@@ -243,6 +307,33 @@ export default function ChangePreviewDialog({
                     </span>
                   ))}
                 </pre>
+                {isEditingHunk ? (
+                  <div className="change-preview-editor">
+                    <label htmlFor={editTextareaId}>{labels.editBody}</label>
+                    <p>{labels.editDescription}</p>
+                    <textarea
+                      ref={editTextareaRef}
+                      id={editTextareaId}
+                      value={editingHunk.draftMarkdown}
+                      disabled={isResolving}
+                      spellCheck={false}
+                      onChange={(event) => onUpdateHunkDraft(event.target.value)}
+                    />
+                    <div className="change-preview-editor-actions">
+                      <button type="button" className="secondary-button" disabled={isResolving} onClick={onCancelHunkEdit}>
+                        {labels.cancelEdit}
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={isResolving || editingHunk.draftMarkdown === hunk.edit.markdown}
+                        onClick={onSaveHunkEdit}
+                      >
+                        {resolvingAction === 'revise' ? labels.savingEdit : labels.saveEdit}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </article>
             )
           })}
@@ -253,16 +344,18 @@ export default function ChangePreviewDialog({
         <footer className="change-preview-actions">
           {proposal ? (
             <p className="change-preview-action-note">
-              {labels.applyConsequence(acceptedHunkIds.size, proposal.hunks.length)}
+              {isEditing
+                ? labels.unsavedEdit
+                : labels.applyConsequence(acceptedHunkIds.size, proposal.hunks.length)}
             </p>
           ) : null}
-          <button type="button" className="secondary-button" disabled={isResolving} onClick={onCancel}>
+          <button type="button" className="secondary-button" disabled={isResolving || isEditing} onClick={onCancel}>
             {resolvingAction === 'cancel' ? labels.cancelling : labels.cancel}
           </button>
           <button
             type="button"
             className="primary-button"
-            disabled={!proposal || isResolving || acceptedHunkIds.size === 0}
+            disabled={!proposal || isResolving || isEditing || acceptedHunkIds.size === 0}
             onClick={onApply}
           >
             {resolvingAction === 'apply' ? labels.applying : labels.applySelected(acceptedHunkIds.size)}

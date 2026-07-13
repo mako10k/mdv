@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   writeAiTarget: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-target', payload),
   listAiBuffers: () => ipcRenderer.invoke('mdv:ai-chat-list-buffers'),
   getAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-get', payload),
+  reviseAiChangeProposalHunk: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-revise-hunk', payload),
   applyAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-apply', payload),
   cancelAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-cancel', payload),
   sendAiChatMessage: (payload) => ipcRenderer.invoke('mdv:ai-chat-send-message', payload),

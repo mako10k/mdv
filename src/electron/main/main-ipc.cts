@@ -191,6 +191,7 @@ type MainIpcContext = {
   writeAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
   listAiBuffersForWindow: (window: BrowserWindowLike | null) => Promise<unknown>
   getAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => unknown
+  reviseAiChangeProposalHunkForWindow: (window: BrowserWindowLike, payload: unknown) => unknown
   applyAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => Promise<unknown>
   cancelAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => unknown
   requestOpenAiChatResponse: (
@@ -277,6 +278,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     writeAiTargetForWindow,
     listAiBuffersForWindow,
     getAiChangeProposalForWindow,
+    reviseAiChangeProposalHunkForWindow,
     applyAiChangeProposalForWindow,
     cancelAiChangeProposalForWindow,
     requestOpenAiChatResponse,
@@ -609,6 +611,13 @@ function registerMainIpcHandlers(context: MainIpcContext) {
       throw new Error('Editor window is unavailable')
     }
     return getAiChangeProposalForWindow(sourceWindow, payload)
+  })
+  ipcMain.handle('mdv:ai-change-proposal-revise-hunk', async (event: unknown, payload: unknown) => {
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
+    if (!sourceWindow) {
+      throw new Error('Editor window is unavailable')
+    }
+    return reviseAiChangeProposalHunkForWindow(sourceWindow, payload)
   })
   ipcMain.handle('mdv:ai-change-proposal-apply', async (event: unknown, payload: unknown) => {
     const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)

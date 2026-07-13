@@ -105,6 +105,7 @@ function createContext(overrides = {}) {
     writeAiTargetForWindow: async () => ({}),
     listAiBuffersForWindow: async () => ({ buffers: [] }),
     getAiChangeProposalForWindow: () => ({}),
+    reviseAiChangeProposalHunkForWindow: () => ({}),
     applyAiChangeProposalForWindow: async () => ({}),
     cancelAiChangeProposalForWindow: () => ({}),
     requestOpenAiChatResponse: async () => ({ status: 'completed', reply: 'ok', model: 'gpt', responseId: 'r1' }),
@@ -251,12 +252,16 @@ test('ai chat grep handler abbreviates previews for public display', async () =>
   assert.equal(result.matches[0].preview, '![logo](data:image/png;base64,<4 B omitted>)')
 })
 
-test('change proposal IPC delegates review, apply, and cancel to the source editor window', async () => {
+test('change proposal IPC delegates review, hunk revision, apply, and cancel to the source editor window', async () => {
   const calls = []
   const { handles, focusedWindow } = createContext({
     getAiChangeProposalForWindow: (window, payload) => {
       calls.push(['get', window.id, payload])
       return { proposalId: payload.proposalId }
+    },
+    reviseAiChangeProposalHunkForWindow: (window, payload) => {
+      calls.push(['revise', window.id, payload])
+      return { proposalId: payload.proposalId, revision: payload.expectedRevision + 1 }
     },
     applyAiChangeProposalForWindow: async (window, payload) => {
       calls.push(['apply', window.id, payload])
@@ -270,15 +275,31 @@ test('change proposal IPC delegates review, apply, and cancel to the source edit
   const event = { sender: { __window: focusedWindow } }
 
   await handles.get('mdv:ai-change-proposal-get')(event, { proposalId: 'proposal:1' })
+  const revisePayload = {
+    proposalId: 'proposal:1',
+    hunkId: 'hunk:1',
+    expectedRevision: 1,
+    expectedProposalFingerprint: 'candidate-1',
+    edit: { kind: 'replace-hunk-body', markdown: 'manual\n' },
+  }
+  await handles.get('mdv:ai-change-proposal-revise-hunk')(event, revisePayload)
   await handles.get('mdv:ai-change-proposal-apply')(event, {
     proposalId: 'proposal:1',
+    expectedRevision: 2,
+    expectedProposalFingerprint: 'candidate-2',
     selectedHunkIds: ['hunk:1'],
   })
   await handles.get('mdv:ai-change-proposal-cancel')(event, { proposalId: 'proposal:2' })
 
   assert.deepEqual(calls, [
     ['get', 1, { proposalId: 'proposal:1' }],
-    ['apply', 1, { proposalId: 'proposal:1', selectedHunkIds: ['hunk:1'] }],
+    ['revise', 1, revisePayload],
+    ['apply', 1, {
+      proposalId: 'proposal:1',
+      expectedRevision: 2,
+      expectedProposalFingerprint: 'candidate-2',
+      selectedHunkIds: ['hunk:1'],
+    }],
     ['cancel', 1, { proposalId: 'proposal:2' }],
   ])
 })

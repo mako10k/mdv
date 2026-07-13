@@ -544,6 +544,10 @@ type MdvAiChangeProposalHunk = {
   newStart: number
   newLines: number
   lines: string[]
+  edit: {
+    kind: 'replace-hunk-body'
+    markdown: string
+  }
 }
 
 type MdvAiChangeProposalSummary = {
@@ -557,6 +561,8 @@ type MdvAiChangeProposalSummary = {
   span: MdvAiNormalizedSpan
   replacedSpan: MdvAiNormalizedSpan
   baselineFingerprint: string
+  proposalFingerprint: string
+  revision: number
   createdAt: string
   expiresAt: string
 }
@@ -572,6 +578,8 @@ type MdvAiChangeProposalResolution = {
   title: string
   status: 'applied' | 'cancelled' | 'stale' | 'indeterminate' | 'invalidated'
   reason?: string
+  revision: number
+  proposalFingerprint: string
   selectedHunkIds?: string[]
   appliedHunkCount?: number
   baselineFingerprint: string
@@ -735,7 +743,22 @@ interface Window {
     writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode?: 'replace' | 'insert' | 'append'; title?: string; dryRun?: boolean }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
     getAiChangeProposal: (payload: { proposalId: string }) => Promise<MdvAiChangeProposalDetail>
-    applyAiChangeProposal: (payload: { proposalId: string; selectedHunkIds: string[] }) => Promise<MdvAiChangeProposalResolution>
+    reviseAiChangeProposalHunk: (payload: {
+      proposalId: string
+      hunkId: string
+      expectedRevision: number
+      expectedProposalFingerprint: string
+      edit: {
+        kind: 'replace-hunk-body'
+        markdown: string
+      }
+    }) => Promise<MdvAiChangeProposalDetail>
+    applyAiChangeProposal: (payload: {
+      proposalId: string
+      expectedRevision: number
+      expectedProposalFingerprint: string
+      selectedHunkIds: string[]
+    }) => Promise<MdvAiChangeProposalResolution>
     cancelAiChangeProposal: (payload: { proposalId: string }) => Promise<MdvAiChangeProposalResolution>
     sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
     debug?: {

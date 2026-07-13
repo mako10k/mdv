@@ -62,7 +62,11 @@ type ChangeProposalReviewState = {
   summary: MdvAiChangeProposalSummary
   proposal: MdvAiChangeProposalDetail | null
   acceptedHunkIds: Set<string>
-  resolvingAction: 'apply' | 'cancel' | null
+  editingHunk: {
+    hunkId: string
+    draftMarkdown: string
+  } | null
+  resolvingAction: 'apply' | 'cancel' | 'revise' | null
   error: string | null
 }
 
@@ -5195,9 +5199,143 @@ function App() {
     })
   }
 
+  const startEditingChangeProposalHunk = (hunkId: string) => {
+    setChangeProposalReview((current) => {
+      if (!current?.proposal || current.resolvingAction || current.editingHunk) {
+        return current
+      }
+      const hunk = current.proposal.hunks.find((candidate) => candidate.hunkId === hunkId)
+      if (!hunk) {
+        return current
+      }
+
+      return {
+        ...current,
+        editingHunk: {
+          hunkId,
+          draftMarkdown: hunk.edit.markdown,
+        },
+        error: null,
+      }
+    })
+  }
+
+  const updateChangeProposalHunkDraft = (draftMarkdown: string) => {
+    setChangeProposalReview((current) => current?.editingHunk && !current.resolvingAction
+      ? {
+          ...current,
+          editingHunk: {
+            ...current.editingHunk,
+            draftMarkdown,
+          },
+          error: null,
+        }
+      : current)
+  }
+
+  const cancelEditingChangeProposalHunk = () => {
+    setChangeProposalReview((current) => current?.editingHunk && !current.resolvingAction
+      ? { ...current, editingHunk: null, error: null }
+      : current)
+  }
+
+  const saveChangeProposalHunkEdit = async () => {
+    const review = changeProposalReview
+    if (!review?.proposal || !review.editingHunk || review.resolvingAction) {
+      return
+    }
+    const hunk = review.proposal.hunks.find((candidate) => candidate.hunkId === review.editingHunk?.hunkId)
+    if (!hunk || hunk.edit.markdown === review.editingHunk.draftMarkdown) {
+      return
+    }
+
+    setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+      ? { ...current, resolvingAction: 'revise', error: null }
+      : current)
+
+    try {
+      const proposal = await window.mdvDesktop?.reviseAiChangeProposalHunk({
+        proposalId: review.summary.proposalId,
+        hunkId: review.editingHunk.hunkId,
+        expectedRevision: review.proposal.revision,
+        expectedProposalFingerprint: review.proposal.proposalFingerprint,
+        edit: {
+          kind: 'replace-hunk-body',
+          markdown: review.editingHunk.draftMarkdown,
+        },
+      })
+
+      if (!proposal || proposal.proposalId !== review.summary.proposalId) {
+        throw new Error(t.app.status.aiChangeProposalRevisionUnconfirmed)
+      }
+      setChangeProposalReview((current) => {
+        if (current?.summary.proposalId !== review.summary.proposalId) {
+          return current
+        }
+        const currentHunkIds = new Set(proposal.hunks.map((candidate) => candidate.hunkId))
+        return {
+          ...current,
+          summary: proposal,
+          proposal,
+          acceptedHunkIds: new Set(Array.from(current.acceptedHunkIds).filter((hunkId) => currentHunkIds.has(hunkId))),
+          editingHunk: null,
+          resolvingAction: null,
+          error: null,
+        }
+      })
+      setStatusText(t.app.status.aiChangeProposalRevisionSaved)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      try {
+        const proposal = await window.mdvDesktop?.getAiChangeProposal({ proposalId: review.summary.proposalId })
+        if (
+          proposal
+          && proposal.proposalId === review.summary.proposalId
+          && (
+            proposal.revision !== review.proposal.revision
+            || proposal.proposalFingerprint !== review.proposal.proposalFingerprint
+          )
+        ) {
+          const currentHunkIds = new Set(proposal.hunks.map((candidate) => candidate.hunkId))
+          const revisedHunk = proposal.hunks.find((candidate) => candidate.hunkId === review.editingHunk?.hunkId)
+          const savedDraft = revisedHunk?.edit.markdown === review.editingHunk.draftMarkdown
+            || (
+              review.editingHunk.draftMarkdown.length > 0
+              && !review.editingHunk.draftMarkdown.endsWith('\n')
+              && revisedHunk?.edit.markdown === `${review.editingHunk.draftMarkdown}\n`
+            )
+          const refreshMessage = savedDraft
+            ? null
+            : t.app.status.aiChangeProposalRevisionRefreshed
+          setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+            ? {
+                ...current,
+                summary: proposal,
+                proposal,
+                acceptedHunkIds: new Set(Array.from(current.acceptedHunkIds).filter((hunkId) => currentHunkIds.has(hunkId))),
+                editingHunk: null,
+                resolvingAction: null,
+                error: refreshMessage,
+              }
+            : current)
+          setStatusText(savedDraft
+            ? t.app.status.aiChangeProposalRevisionSaved
+            : t.app.status.aiChangeProposalRevisionRefreshed)
+          return
+        }
+      } catch {
+        // Keep the local draft and original error when authoritative detail cannot be refreshed.
+      }
+      setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+        ? { ...current, resolvingAction: null, error: message }
+        : current)
+      setStatusText(t.app.status.aiChangeProposalRevisionFailed(message))
+    }
+  }
+
   const applySelectedChangeProposalHunks = async () => {
     const review = changeProposalReview
-    if (!review?.proposal || review.resolvingAction || review.acceptedHunkIds.size === 0) {
+    if (!review?.proposal || review.resolvingAction || review.editingHunk || review.acceptedHunkIds.size === 0) {
       return
     }
 
@@ -5208,6 +5346,8 @@ function App() {
     try {
       const resolution = await window.mdvDesktop?.applyAiChangeProposal({
         proposalId: review.summary.proposalId,
+        expectedRevision: review.proposal.revision,
+        expectedProposalFingerprint: review.proposal.proposalFingerprint,
         selectedHunkIds: Array.from(review.acceptedHunkIds),
       })
 
@@ -5258,6 +5398,7 @@ function App() {
       summary,
       proposal: null,
       acceptedHunkIds: new Set(),
+      editingHunk: null,
       resolvingAction: null,
       error: null,
     })
@@ -6069,6 +6210,7 @@ function App() {
             summary={changeProposalReview.summary}
             proposal={changeProposalReview.proposal}
             acceptedHunkIds={changeProposalReview.acceptedHunkIds}
+            editingHunk={changeProposalReview.editingHunk}
             resolvingAction={changeProposalReview.resolvingAction}
             error={changeProposalReview.error}
             labels={{
@@ -6077,6 +6219,10 @@ function App() {
               loading: t.app.status.loadingAiChangeProposal,
             }}
             onToggleHunk={toggleChangeProposalHunk}
+            onStartEditingHunk={startEditingChangeProposalHunk}
+            onUpdateHunkDraft={updateChangeProposalHunkDraft}
+            onSaveHunkEdit={() => void saveChangeProposalHunkEdit()}
+            onCancelHunkEdit={cancelEditingChangeProposalHunk}
             onApply={() => void applySelectedChangeProposalHunks()}
             onCancel={() => void cancelChangeProposal()}
           />

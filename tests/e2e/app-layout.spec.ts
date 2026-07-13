@@ -167,6 +167,8 @@ async function installDesktopImageResolutionStub(page: Page, options: {
   changeProposalDetailDelayMs?: number
   changeProposalDetailError?: string
   changeProposalCancelFailures?: number
+  changeProposalReviseFailures?: number
+  changeProposalReviseAckLosses?: number
 } = { dataUrlMap: {} }) {
   await page.addInitScript((config) => {
     const baseSettings: MdvSettings = {
@@ -240,12 +242,22 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       reject: (error: Error) => void
     } | null = null
     let capturedProposal: MdvAiChangeProposalCapturePayload | null = null
-    let lastApplyPayload: { proposalId: string; selectedHunkIds: string[] } | null = null
+    let lastApplyPayload: {
+      proposalId: string
+      expectedRevision: number
+      expectedProposalFingerprint: string
+      selectedHunkIds: string[]
+    } | null = null
+    let lastRevisePayload: Parameters<DesktopApi['reviseAiChangeProposalHunk']>[0] | null = null
     let forceStaleApply = false
     let cancelProposalCount = 0
     let remainingCancelFailures = config.changeProposalCancelFailures ?? 0
+    let remainingReviseFailures = config.changeProposalReviseFailures ?? 0
+    let remainingReviseAckLosses = config.changeProposalReviseAckLosses ?? 0
     const proposalId = 'proposal:e2e'
-    const proposalHunks: MdvAiChangeProposalHunk[] = [
+    let proposalRevision = 1
+    let proposalFingerprint = 'candidate:e2e:1'
+    let proposalHunks: MdvAiChangeProposalHunk[] = [
       {
         hunkId: `${proposalId}:hunk:1`,
         oldStart: 1,
@@ -253,6 +265,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         newStart: 1,
         newLines: 5,
         lines: [' # Proposal', ' ', '-alpha', '+ALPHA', ' one', ' two'],
+        edit: { kind: 'replace-hunk-body', markdown: 'ALPHA\n' },
       },
       {
         hunkId: `${proposalId}:hunk:2`,
@@ -261,6 +274,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         newStart: 9,
         newLines: 4,
         lines: [' eight', ' nine', '-lambda', '+LAMBDA', ' omega'],
+        edit: { kind: 'replace-hunk-body', markdown: 'LAMBDA\n' },
       },
     ]
 
@@ -285,6 +299,8 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       span: capture.span,
       replacedSpan: capture.replacedSpan,
       baselineFingerprint: 'baseline:e2e',
+      proposalFingerprint,
+      revision: proposalRevision,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 600_000).toISOString(),
     })
@@ -309,7 +325,13 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       const proposalTestWindow = testWindow as Window & {
         __mdvChangeProposalTest?: {
           open: () => Promise<void>
-          getLastApplyPayload: () => { proposalId: string; selectedHunkIds: string[] } | null
+          getLastApplyPayload: () => {
+            proposalId: string
+            expectedRevision: number
+            expectedProposalFingerprint: string
+            selectedHunkIds: string[]
+          } | null
+          getLastRevisePayload: () => Parameters<DesktopApi['reviseAiChangeProposalHunk']>[0] | null
           forceStaleApply: () => void
           dispatchMenuAction: (action: MdvMenuAction) => void
           getCancelCount: () => number
@@ -334,6 +356,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
           changeProposalOpenCallback?.(buildProposalSummary(response))
         },
         getLastApplyPayload: () => lastApplyPayload,
+        getLastRevisePayload: () => lastRevisePayload,
         forceStaleApply: () => {
           forceStaleApply = true
         },
@@ -430,21 +453,72 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         }
         return buildProposalDetail()
       },
-      applyAiChangeProposal: async (payload: { proposalId: string; selectedHunkIds: string[] }) => {
+      reviseAiChangeProposalHunk: async (payload: Parameters<DesktopApi['reviseAiChangeProposalHunk']>[0]) => {
+        lastRevisePayload = {
+          ...payload,
+          edit: { ...payload.edit },
+        }
+        if (remainingReviseFailures > 0) {
+          remainingReviseFailures -= 1
+          throw new Error('revision unavailable')
+        }
+        if (payload.expectedRevision !== proposalRevision || payload.expectedProposalFingerprint !== proposalFingerprint) {
+          throw new Error('proposal revision is stale')
+        }
+        const hunkIndex = proposalHunks.findIndex((hunk) => hunk.hunkId === payload.hunkId)
+        if (hunkIndex < 0) {
+          throw new Error('unknown hunk')
+        }
+        const baselineLine = hunkIndex === 0 ? 'alpha' : 'lambda'
+        const canonicalMarkdown = payload.edit.markdown.length > 0 && !payload.edit.markdown.endsWith('\n')
+          ? `${payload.edit.markdown}\n`
+          : payload.edit.markdown
+        const editedLines = canonicalMarkdown.length === 0
+          ? []
+          : canonicalMarkdown.endsWith('\n')
+          ? canonicalMarkdown.slice(0, -1).split('\n')
+          : canonicalMarkdown.split('\n')
+        proposalRevision += 1
+        proposalFingerprint = `candidate:e2e:${proposalRevision}`
+        proposalHunks = proposalHunks.map((hunk, index) => index === hunkIndex
+          ? {
+              ...hunk,
+              newLines: hunk.oldLines - 1 + editedLines.length,
+              lines: [
+                ...hunk.lines.filter((line) => line.startsWith(' ')).slice(0, hunkIndex === 0 ? 2 : 2),
+                `-${baselineLine}`,
+                ...editedLines.map((line) => `+${line}`),
+                ...hunk.lines.filter((line) => line.startsWith(' ')).slice(hunkIndex === 0 ? 2 : 2),
+              ],
+              edit: { kind: 'replace-hunk-body', markdown: canonicalMarkdown },
+            }
+          : hunk)
+        if (remainingReviseAckLosses > 0) {
+          remainingReviseAckLosses -= 1
+          throw new Error('revision acknowledgement lost')
+        }
+        return buildProposalDetail()
+      },
+      applyAiChangeProposal: async (payload: Parameters<DesktopApi['applyAiChangeProposal']>[0]) => {
         if (!capturedProposal) {
           throw new Error('Proposal has not been captured')
+        }
+        if (payload.expectedRevision !== proposalRevision || payload.expectedProposalFingerprint !== proposalFingerprint) {
+          throw new Error('proposal revision is stale')
         }
 
         lastApplyPayload = {
           proposalId: payload.proposalId,
+          expectedRevision: payload.expectedRevision,
+          expectedProposalFingerprint: payload.expectedProposalFingerprint,
           selectedHunkIds: [...payload.selectedHunkIds],
         }
         let nextMarkdown = capturedProposal.baselineMarkdown
         if (payload.selectedHunkIds.includes(proposalHunks[0].hunkId)) {
-          nextMarkdown = nextMarkdown.replace('\nalpha\n', '\nALPHA\n')
+          nextMarkdown = nextMarkdown.replace('\nalpha\n', `\n${proposalHunks[0].edit.markdown}`)
         }
         if (payload.selectedHunkIds.includes(proposalHunks[1].hunkId)) {
-          nextMarkdown = nextMarkdown.replace('\nlambda\n', '\nLAMBDA\n')
+          nextMarkdown = nextMarkdown.replace('\nlambda\n', `\n${proposalHunks[1].edit.markdown}`)
         }
 
         const response = await requestAiEditor({
@@ -466,6 +540,8 @@ async function installDesktopImageResolutionStub(page: Page, options: {
           editorId: capturedProposal.editorId,
           title: 'Two line updates',
           status,
+          revision: proposalRevision,
+          proposalFingerprint,
           ...(status === 'stale' && response && 'reason' in response ? { reason: response.reason } : {}),
           selectedHunkIds: [...payload.selectedHunkIds],
           appliedHunkCount: status === 'applied' ? payload.selectedHunkIds.length : undefined,
@@ -487,6 +563,8 @@ async function installDesktopImageResolutionStub(page: Page, options: {
           editorId: detail.editorId,
           title: detail.title,
           status: 'cancelled',
+          revision: detail.revision,
+          proposalFingerprint: detail.proposalFingerprint,
           baselineFingerprint: detail.baselineFingerprint,
           resolvedAt: new Date().toISOString(),
         })
@@ -697,6 +775,19 @@ test.describe('AI change proposal review', () => {
       })).toBe(true)
     }
 
+    const firstEditButton = proposalPage.getByRole('button', { name: /(変更 1\/2 を編集|Edit change 1 of 2)/ })
+    await firstEditButton.click()
+    const editTextarea = proposalPage.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    await expect(editTextarea).toBeFocused()
+    await proposalPage.keyboard.press('Tab')
+    expect(await proposalPage.evaluate(() => {
+      return document.querySelector('.change-preview-dialog')?.contains(document.activeElement) ?? false
+    })).toBe(true)
+
+    await proposalPage.keyboard.press('Escape')
+    await expect(editTextarea).toHaveCount(0)
+    await expect(proposalPage.getByRole('dialog')).toBeVisible()
+    await expect(firstEditButton).toBeFocused()
     await proposalPage.keyboard.press('Escape')
     await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
     await expect(proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('alpha')
@@ -704,7 +795,7 @@ test.describe('AI change proposal review', () => {
     await proposalPage.close()
   })
 
-  test('keeps the editor unchanged until Apply and sends only selected hunk IDs', async ({ page }) => {
+  test('revalidates a manual hunk edit before Apply and sends no replacement text in the final Apply', async ({ page }) => {
     const proposalPage = await page.context().newPage()
     await setupChangeProposalPage(proposalPage)
 
@@ -723,25 +814,130 @@ test.describe('AI change proposal review', () => {
     const applyButton = proposalPage.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ })
     await expect(applyButton).toBeDisabled()
 
+    await hunkToggles.nth(0).click()
     await hunkToggles.nth(1).click()
+    await dialog.getByRole('button', { name: /(変更 2\/2 を編集|Edit change 2 of 2)/ }).click()
+    const editTextarea = dialog.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    await editTextarea.fill('MANUAL REVIEW')
+    await expect(applyButton).toBeDisabled()
+    await expect(editor).toContainText('lambda')
+    await expect(editor).not.toContainText('MANUAL REVIEW')
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+    await expect(editTextarea).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: /(変更 2\/2 を編集|Edit change 2 of 2)/ })).toBeFocused()
+    await expect(dialog.locator('.change-preview-line.added').filter({ hasText: 'MANUAL REVIEW' })).toHaveCount(1)
+
+    await hunkToggles.nth(0).click()
     await expect(dialog.getByText(/未選択の 1 件を破棄|discards 1 unselected change/i)).toBeVisible()
     await applyButton.click()
 
     await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toContainText('alpha')
     await expect(editor).not.toContainText('ALPHA')
-    await expect(editor).toContainText('LAMBDA')
+    await expect(editor).toContainText('MANUAL REVIEW')
+    await expect(editor).not.toContainText('LAMBDA')
     const applyPayload = await proposalPage.evaluate(() => {
       return (window as Window & {
         __mdvChangeProposalTest?: {
-          getLastApplyPayload: () => { proposalId: string; selectedHunkIds: string[] } | null
+          getLastApplyPayload: () => {
+            proposalId: string
+            expectedRevision: number
+            expectedProposalFingerprint: string
+            selectedHunkIds: string[]
+          } | null
         }
       }).__mdvChangeProposalTest?.getLastApplyPayload() ?? null
     })
     expect(applyPayload).toEqual({
       proposalId: 'proposal:e2e',
+      expectedRevision: 2,
+      expectedProposalFingerprint: 'candidate:e2e:2',
       selectedHunkIds: ['proposal:e2e:hunk:2'],
     })
+    expect(JSON.stringify(applyPayload)).not.toContain('MANUAL REVIEW')
+
+    await proposalPage.close()
+  })
+
+  test('keeps a rejected manual edit local and retryable without interpreting HTML-like Markdown', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await installDesktopImageResolutionStub(proposalPage, {
+      dataUrlMap: {},
+      changeProposal: true,
+      changeProposalDetailDelayMs: 50,
+      changeProposalReviseFailures: 1,
+    })
+    await proposalPage.goto('/')
+    await openWritePanel(proposalPage)
+    await replaceMarkdownDocument(proposalPage, CHANGE_PROPOSAL_BASELINE)
+    await proposalPage.evaluate(async () => {
+      await (window as Window & {
+        __mdvChangeProposalTest?: { open: () => Promise<void> }
+      }).__mdvChangeProposalTest?.open()
+    })
+
+    const dialog = proposalPage.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+    await expect(dialog.locator('.change-preview-hunk')).toHaveCount(2)
+    await dialog.getByRole('button', { name: /(変更 1\/2 を編集|Edit change 1 of 2)/ }).click()
+    const editTextarea = dialog.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    const literalMarkdown = '<script data-proposal-test>literal</script>'
+    await editTextarea.fill(literalMarkdown)
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('alert')).toContainText('revision unavailable')
+    await expect(editTextarea).toHaveValue(literalMarkdown)
+    await expect(proposalPage.locator('script[data-proposal-test]')).toHaveCount(0)
+    await expect(proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('alpha')
+    await expect(proposalPage.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ })).toBeDisabled()
+
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+    await expect(editTextarea).toHaveCount(0)
+    await expect(dialog.locator('.change-preview-line.added').filter({ hasText: '<script data-proposal-test>literal</script>' })).toHaveCount(1)
+    await expect(proposalPage.locator('script[data-proposal-test]')).toHaveCount(0)
+    await dialog.getByRole('button', { name: /^(キャンセル|Cancel)$/ }).click()
+    await expect(dialog).toHaveCount(0)
+
+    await proposalPage.close()
+  })
+
+  test('recovers authoritative detail after a saved edit acknowledgement is lost', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await installDesktopImageResolutionStub(proposalPage, {
+      dataUrlMap: {},
+      changeProposal: true,
+      changeProposalDetailDelayMs: 50,
+      changeProposalReviseAckLosses: 1,
+    })
+    await proposalPage.goto('/')
+    await openWritePanel(proposalPage)
+    await replaceMarkdownDocument(proposalPage, CHANGE_PROPOSAL_BASELINE)
+    await proposalPage.evaluate(async () => {
+      await (window as Window & {
+        __mdvChangeProposalTest?: { open: () => Promise<void> }
+      }).__mdvChangeProposalTest?.open()
+    })
+
+    const dialog = proposalPage.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+    await expect(dialog.locator('.change-preview-hunk')).toHaveCount(2)
+    const secondEditButton = dialog.getByRole('button', { name: /(変更 2\/2 を編集|Edit change 2 of 2)/ })
+    await secondEditButton.click()
+    const editTextarea = dialog.getByRole('textbox', { name: /(この変更の Markdown|Markdown for this change)/ })
+    await expect(editTextarea).toBeFocused()
+    await editTextarea.fill('ACK RECOVERED')
+    await dialog.getByRole('button', { name: /^(編集を保存|Save edit)$/ }).click()
+
+    await expect(editTextarea).toHaveCount(0)
+    await expect(secondEditButton).toBeFocused()
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await expect(dialog.locator('.change-preview-line.added').filter({ hasText: 'ACK RECOVERED' })).toHaveCount(1)
+
+    await proposalPage.locator('.change-preview-toggle input').nth(0).click()
+    await dialog.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ }).click()
+    const editor = proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(dialog).toHaveCount(0)
+    await expect(editor).toContainText('ACK RECOVERED')
+    await expect(editor).not.toContainText('LAMBDA')
 
     await proposalPage.close()
   })
@@ -1926,6 +2122,8 @@ test.describe('AI chat streaming', () => {
                   span: { start: { line: 1, column: 1 }, end: { line: 2, column: 1 }, isEmpty: false },
                   replacedSpan: { start: { line: 1, column: 1 }, end: { line: 2, column: 1 }, isEmpty: false },
                   baselineFingerprint: 'baseline:chat',
+                  proposalFingerprint: 'candidate:chat',
+                  revision: 1,
                   createdAt: timestamp,
                   expiresAt: new Date(Date.now() + 600_000).toISOString(),
                 },
@@ -1940,6 +2138,8 @@ test.describe('AI chat streaming', () => {
                   editorId: 'editor:chat',
                   title: 'Two line updates',
                   status: resolutionStatus,
+                  revision: 1,
+                  proposalFingerprint: 'candidate:chat',
                   selectedHunkIds: ['proposal:chat:hunk:2'],
                   appliedHunkCount: resolutionStatus === 'applied' ? 1 : undefined,
                   baselineFingerprint: 'baseline:chat',

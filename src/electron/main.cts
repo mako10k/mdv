@@ -5127,6 +5127,8 @@ function emitAiChangeProposalResolved(record) {
     title: record.title,
     status: record.status,
     ...(record.reason ? { reason: record.reason } : {}),
+    revision: record.revision,
+    proposalFingerprint: record.proposalFingerprint,
     ...(Array.isArray(record.selectedHunkIds) ? { selectedHunkIds: record.selectedHunkIds } : {}),
     ...(Number.isFinite(Number(record.appliedHunkCount)) ? { appliedHunkCount: Number(record.appliedHunkCount) } : {}),
     baselineFingerprint: record.baselineFingerprint,
@@ -5470,7 +5472,6 @@ async function buildInteractiveAiChangeProposal(editorWindow, payload, resolvedT
     replacedSpan: capture.replacedSpan,
     wouldWriteBytes: capture.wouldWriteBytes,
     baselineFingerprint: fingerprintMarkdown(capture.baselineMarkdown),
-    resultFingerprint: fingerprintMarkdown(capture.proposedMarkdown),
     beforeMarkdown: capture.baselineMarkdown,
     proposedMarkdown: capture.proposedMarkdown,
   })
@@ -5724,8 +5725,48 @@ function getAiChangeProposalForWindow(editorWindow, payload) {
   return changeProposalController.getProposal(proposalId, editorWindow.id)
 }
 
+function reviseAiChangeProposalHunkForWindow(editorWindow, payload) {
+  const proposalId = typeof payload?.proposalId === 'string' ? payload.proposalId : ''
+  const hunkId = typeof payload?.hunkId === 'string' ? payload.hunkId : ''
+  const expectedRevision = payload?.expectedRevision
+  const expectedProposalFingerprint = typeof payload?.expectedProposalFingerprint === 'string'
+    ? payload.expectedProposalFingerprint
+    : ''
+  const edit = payload?.edit
+
+  if (!proposalId) {
+    throw new Error('Change proposal ID is required')
+  }
+  if (!hunkId) {
+    throw new Error('Change hunk ID is required')
+  }
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('Expected change proposal revision is required')
+  }
+  if (!expectedProposalFingerprint) {
+    throw new Error('Expected change proposal fingerprint is required')
+  }
+  if (edit?.kind !== 'replace-hunk-body' || typeof edit.markdown !== 'string') {
+    throw new Error('Change proposal hunk edit is invalid')
+  }
+
+  return changeProposalController.reviseHunk(proposalId, editorWindow.id, {
+    hunkId,
+    expectedRevision,
+    expectedProposalFingerprint,
+    edit: {
+      kind: 'replace-hunk-body',
+      markdown: edit.markdown,
+    },
+  })
+}
+
 async function applyAiChangeProposalForWindow(editorWindow, payload) {
   const proposalId = typeof payload?.proposalId === 'string' ? payload.proposalId : ''
+  const expectedRevision = payload?.expectedRevision
+  const expectedProposalFingerprint = typeof payload?.expectedProposalFingerprint === 'string'
+    ? payload.expectedProposalFingerprint
+    : ''
   const selectedHunkIds = Array.isArray(payload?.selectedHunkIds)
     ? payload.selectedHunkIds.filter((value) => typeof value === 'string')
     : []
@@ -5733,8 +5774,20 @@ async function applyAiChangeProposalForWindow(editorWindow, payload) {
   if (!proposalId) {
     throw new Error('Change proposal ID is required')
   }
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('Expected change proposal revision is required')
+  }
+  if (!expectedProposalFingerprint) {
+    throw new Error('Expected change proposal fingerprint is required')
+  }
 
-  const applyPlan = changeProposalController.beginApply(proposalId, editorWindow.id, selectedHunkIds)
+  const applyPlan = changeProposalController.beginApply(
+    proposalId,
+    editorWindow.id,
+    expectedRevision,
+    expectedProposalFingerprint,
+    selectedHunkIds,
+  )
   const targetWindow = BrowserWindow.fromId(applyPlan.ownerWindowId)
 
   if (!targetWindow || targetWindow.isDestroyed()) {
@@ -5943,6 +5996,7 @@ registerMainIpcHandlers({
   writeAiTargetForWindow,
   listAiBuffersForWindow,
   getAiChangeProposalForWindow,
+  reviseAiChangeProposalHunkForWindow,
   applyAiChangeProposalForWindow,
   cancelAiChangeProposalForWindow,
   requestOpenAiChatResponse,
