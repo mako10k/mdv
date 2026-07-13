@@ -56,10 +56,45 @@ test('write_target exposes dryRun preview contract', () => {
   assert.doesNotMatch(previewFunctionSource, /\btext: content\b/)
   assert.doesNotMatch(previewFunctionSource, /\btarget = buildAiTargetRef\(editorId, writtenSpan\)/)
   assert.match(previewFunctionSource, /preview: createPreviewText\(publicPreviewText\)/)
-  assert.match(previewFunctionSource, /replacedTextPreview: createPreviewText\(abbreviateInlineDataImageMarkdownSlice\(currentText, startOffset, endOffset\)\)/)
+  assert.match(previewFunctionSource, /replacedTextPreview: createPreviewText\(abbreviateInlineDataImageMarkdownSlice\(currentText, replacedStartOffset, replacedEndOffset\)\)/)
   assert.match(mainSource, /previewTarget = buildAiTargetRef\(previewBufferRecord\.editorId, \{ kind: 'document' \}\)/)
   assert.match(mainSource, /wouldCreate: options\.wouldCreate === true/)
-  assert.match(mainSource, /bytesWritten: 0,\s*wouldWriteBytes: Buffer\.byteLength\(content, 'utf8'\),\s*dryRun: true/)
+  assert.match(previewFunctionSource, /bytesWritten: 0,\s*wouldWriteBytes,\s*dryRun: true/)
+  assert.match(previewFunctionSource, /wouldWriteBytes: Buffer\.byteLength\(content, 'utf8'\)/)
+})
+
+test('interactive active-editor dryRun uses typed atomic proposal capture and terminates the tool turn', () => {
+  const proposalBuildSource = mainSource.match(/async function buildInteractiveAiChangeProposal[\s\S]*?\n}\n\nasync function writeAiTargetForWindow/)?.[0] || ''
+  const toolLoopSource = mainSource.match(/async function requestOpenAiChatResponse[\s\S]*?\n}\n\nfunction emitAiChatStreamEvent/)?.[0] || ''
+  const captureSource = appSource.match(/if \(request\.type === 'capture-change-proposal'\)[\s\S]*?\n\s+if \(request\.type === 'apply-change-proposal'\)/)?.[0] || ''
+  const applySource = appSource.match(/if \(request\.type === 'apply-change-proposal'\)[\s\S]*?\n\s+if \(request\.type === 'write'\)/)?.[0] || ''
+
+  assert.match(proposalBuildSource, /type: 'capture-change-proposal'/)
+  assert.match(proposalBuildSource, /createPreviewBuffer: proposal === null/)
+  assert.match(proposalBuildSource, /changeProposalController\.createProposal\(/)
+  assert.doesNotMatch(proposalBuildSource, /changeProposal:[\s\S]*baselineMarkdown/)
+  const resultEventIndex = toolLoopSource.indexOf("type: 'tool-event',\n          phase: 'result'")
+  const proposalTerminalIndex = toolLoopSource.indexOf("if (result?.changeProposal?.proposalId)")
+  const workingInputIndex = toolLoopSource.indexOf('workingInput.push({', proposalTerminalIndex)
+
+  assert.notEqual(resultEventIndex, -1)
+  assert.notEqual(proposalTerminalIndex, -1)
+  assert.notEqual(workingInputIndex, -1)
+  assert.ok(resultEventIndex < proposalTerminalIndex)
+  assert.ok(proposalTerminalIndex < workingInputIndex)
+  assert.match(toolLoopSource, /sanitizeInteractiveProposalCallArgs\(args\)/)
+  assert.match(toolLoopSource, /sanitizeInteractiveProposalResult\(result\)/)
+  assert.match(toolLoopSource, /prioritizeInteractiveProposalCall\(functionCalls/)
+  assert.match(toolLoopSource, /status: 'proposal-pending'/)
+  assert.match(toolLoopSource, /status: 'proposal-pending',[\s\S]*?reply: '',/)
+  assert.doesNotMatch(toolLoopSource, /status: 'proposal-pending',[\s\S]*?reply: finalOutputText \|\| doneReply \|\| streamedReply/)
+  assert.match(captureSource, /const liveMarkdown = editorRef\.current\?\.getMarkdown\(\) \?\? markdownText/)
+  assert.match(captureSource, /instanceId: documentInstanceIdRef\.current/)
+  assert.match(captureSource, /currentFilePath: currentFilePathRef\.current/)
+  assert.match(applySource, /documentInstanceIdRef\.current === request\.expectedDocumentIdentity\.instanceId/)
+  assert.match(applySource, /currentFilePathRef\.current === request\.expectedDocumentIdentity\.currentFilePath/)
+  assert.match(applySource, /liveMarkdown !== request\.expectedBaselineMarkdown/)
+  assert.ok(applySource.indexOf('liveMarkdown !== request.expectedBaselineMarkdown') < applySource.indexOf('applyMarkdownContent(request.nextMarkdown'))
 })
 
 test('read_target public display preserves bounded active-editor reads', () => {

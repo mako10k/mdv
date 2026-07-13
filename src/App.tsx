@@ -25,6 +25,7 @@ import mermaid from 'mermaid'
 import { clearLegacyThemeMode, readLegacyThemeMode, useDesktopTheme, type ResolvedTheme } from './shared/useDesktopTheme'
 import { getTranslations, isLocale, useI18n } from './shared/i18n'
 import ChatApp from './ai-chat/ChatApp'
+import ChangePreviewDialog from './change-preview/ChangePreviewDialog'
 import {
   applyTypographyToRoot,
   clampChatFontSizePx,
@@ -36,6 +37,7 @@ import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
 import './App.css'
 import './ai-chat/chat.css'
+import './change-preview/change-preview.css'
 
 type CodeBlockProps = {
   code: string
@@ -54,6 +56,14 @@ type MarkdownSelectionRange = [MarkdownPosTuple, MarkdownPosTuple]
 type StatusToast = {
   id: number
   message: string
+}
+
+type ChangeProposalReviewState = {
+  summary: MdvAiChangeProposalSummary
+  proposal: MdvAiChangeProposalDetail | null
+  acceptedHunkIds: Set<string>
+  resolvingAction: 'apply' | 'cancel' | null
+  error: string | null
 }
 
 type MarkdownInlineToken = {
@@ -3160,6 +3170,10 @@ async function waitForDelay(delayMs: number) {
 
 const EMPTY_UNTITLED_DOCUMENT = ''
 
+function createDocumentInstanceId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+}
+
 function inferUntouchedUntitledBuffer(snapshot: Partial<MdvClientSnapshot> | null | undefined) {
   if (snapshot?.isUntouchedUntitledBuffer === true) {
     return true
@@ -3208,6 +3222,7 @@ function App() {
   const [isSemanticSearchAvailable, setIsSemanticSearchAvailable] = useState(false)
   const [isAiChatAvailable, setIsAiChatAvailable] = useState(false)
   const [isEditorSearchDialogOpen, setIsEditorSearchDialogOpen] = useState(false)
+  const [changeProposalReview, setChangeProposalReview] = useState<ChangeProposalReviewState | null>(null)
   const [editorSearchDialogMode, setEditorSearchDialogMode] = useState<EditorSearchDialogMode>('search')
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [headingOutlineMode, setHeadingOutlineMode] = useState<'document' | 'placeholder'>('document')
@@ -3222,6 +3237,8 @@ function App() {
   const previewRelativeImageResolveFrameRef = useRef<number | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const currentFilePathRef = useRef<string | null>(null)
+  const documentInstanceIdRef = useRef(createDocumentInstanceId())
+  const activeChangeProposalIdRef = useRef<string | null>(null)
   const persistedMarkdownRef = useRef<string>(EMPTY_UNTITLED_DOCUMENT)
   const currentFileSnapshotRef = useRef<MdvFileSnapshot | null>(null)
   const pendingImportedAssetsRef = useRef<MdvPendingImportedAsset[]>([])
@@ -3252,6 +3269,10 @@ function App() {
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
   const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
   const currentDraftWorkspaceRef = useRef<MdvDraftWorkspace | null>(null)
+  const updateCurrentFilePath = (nextFilePath: string | null) => {
+    currentFilePathRef.current = nextFilePath
+    setCurrentFilePath(nextFilePath)
+  }
   const buildClientSnapshotRef = useRef<() => MdvClientSnapshot>(() => ({
     markdownText: EMPTY_UNTITLED_DOCUMENT,
     persistedMarkdown: EMPTY_UNTITLED_DOCUMENT,
@@ -3400,6 +3421,7 @@ function App() {
   }
 
   const replaceLoadedDocument = (nextMarkdown: string) => {
+    documentInstanceIdRef.current = createDocumentInstanceId()
     setMarkdownText(nextMarkdown)
     setEditorSessionKey((currentKey) => currentKey + 1)
   }
@@ -3944,7 +3966,7 @@ function App() {
     }
     replaceLoadedDocument(snapshot.markdownText)
     setIsUntouchedUntitledBuffer(false)
-    setCurrentFilePath(snapshot.currentFilePath)
+    updateCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
     setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
     updatePendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
@@ -3975,7 +3997,7 @@ function App() {
     recoveryKeyRef.current = ''
     replaceLoadedDocument(payload.content)
     setIsUntouchedUntitledBuffer(false)
-    setCurrentFilePath(payload.path)
+    updateCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
     setCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
@@ -4018,7 +4040,7 @@ function App() {
     recoveryKeyRef.current = ''
     replaceLoadedDocument(content)
     setIsUntouchedUntitledBuffer(false)
-    setCurrentFilePath(null)
+    updateCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
@@ -4280,7 +4302,7 @@ function App() {
     recoveryKeyRef.current = ''
     replaceLoadedDocument(EMPTY_UNTITLED_DOCUMENT)
     setIsUntouchedUntitledBuffer(true)
-    setCurrentFilePath(null)
+    updateCurrentFilePath(null)
     currentFileSnapshotRef.current = null
     setCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
@@ -4337,7 +4359,7 @@ function App() {
       }
 
       invalidateEditorSearch()
-      setCurrentFilePath(result.path)
+      updateCurrentFilePath(result.path)
       currentFileSnapshotRef.current = result.snapshot
       setCurrentDraftWorkspace(null)
       const referencedImportedAssets = collectReferencedImportedAssetPaths(result.content)
@@ -5000,6 +5022,78 @@ function App() {
         return
       }
 
+      if (request.type === 'capture-change-proposal') {
+        const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+        const resolvedOffsets = resolveSpanToOffsets(liveMarkdown, editorRef.current, request.destination.span)
+        const insertionOffsets = request.mode === 'insert'
+          ? {
+              startOffset: resolvedOffsets.startOffset,
+              endOffset: resolvedOffsets.startOffset,
+            }
+          : request.mode === 'append'
+            ? {
+                startOffset: resolvedOffsets.endOffset,
+                endOffset: resolvedOffsets.endOffset,
+              }
+            : resolvedOffsets
+        const proposedMarkdown = `${liveMarkdown.slice(0, insertionOffsets.startOffset)}${request.content}${liveMarkdown.slice(insertionOffsets.endOffset)}`
+
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            proposalId: request.proposalId,
+            editorId: request.destination.editorId,
+            documentIdentity: {
+              instanceId: documentInstanceIdRef.current,
+              currentFilePath: currentFilePathRef.current,
+            },
+            title: displayTitle,
+            baselineMarkdown: liveMarkdown,
+            proposedMarkdown,
+            replacedSpan: normalizeOffsetsToSpan(liveMarkdown, insertionOffsets.startOffset, insertionOffsets.endOffset),
+            span: normalizeOffsetsToSpan(proposedMarkdown, insertionOffsets.startOffset, insertionOffsets.startOffset + request.content.length),
+            mode: request.mode,
+            wouldWriteBytes: new TextEncoder().encode(request.content).length,
+          },
+        })
+        return
+      }
+
+      if (request.type === 'apply-change-proposal') {
+        const liveMarkdown = editorRef.current?.getMarkdown() ?? markdownText
+        const hasMatchingIdentity = documentInstanceIdRef.current === request.expectedDocumentIdentity.instanceId
+          && currentFilePathRef.current === request.expectedDocumentIdentity.currentFilePath
+
+        if (!hasMatchingIdentity || liveMarkdown !== request.expectedBaselineMarkdown) {
+          window.mdvDesktop?.sendAiEditorResponse({
+            requestId: request.requestId,
+            ok: true,
+            payload: {
+              proposalId: request.proposalId,
+              editorId: request.editorId,
+              status: 'stale',
+              reason: hasMatchingIdentity ? 'baseline-changed' : 'document-identity-changed',
+            },
+          })
+          return
+        }
+
+        shouldCanonicalizeLoadedBaselineRef.current = false
+        applyMarkdownContent(request.nextMarkdown, i18nRef.current.app.status.aiChangeProposalApplied)
+        window.mdvDesktop?.sendAiEditorResponse({
+          requestId: request.requestId,
+          ok: true,
+          payload: {
+            proposalId: request.proposalId,
+            editorId: request.editorId,
+            status: 'applied',
+            bytesWritten: new TextEncoder().encode(request.nextMarkdown).length,
+          },
+        })
+        return
+      }
+
       if (request.type === 'write') {
         const nextText = materializeWriteSources(request.sources)
         const resolvedOffsets = resolveSpanToOffsets(markdownText, editorRef.current, request.destination.span)
@@ -5059,7 +5153,182 @@ function App() {
     respondToAiEditorRequestRef.current = respondToAiEditorRequest
   })
 
+  const completeChangeProposalReview = (resolution: MdvAiChangeProposalResolution) => {
+    if (activeChangeProposalIdRef.current !== resolution.proposalId) {
+      return
+    }
+
+    activeChangeProposalIdRef.current = null
+    setChangeProposalReview(null)
+
+    if (resolution.status === 'applied') {
+      setStatusText(t.app.status.aiChangeProposalApplied)
+    } else if (resolution.status === 'cancelled') {
+      setStatusText(t.app.status.aiChangeProposalCancelled)
+    } else if (resolution.status === 'stale') {
+      setStatusText(t.app.status.aiChangeProposalStale)
+    } else if (resolution.status === 'indeterminate') {
+      setStatusText(t.app.status.aiChangeProposalIndeterminate)
+    } else {
+      setStatusText(t.app.status.aiChangeProposalInvalidated)
+    }
+  }
+
+  const toggleChangeProposalHunk = (hunkId: string) => {
+    setChangeProposalReview((current) => {
+      if (!current?.proposal || current.resolvingAction) {
+        return current
+      }
+
+      const acceptedHunkIds = new Set(current.acceptedHunkIds)
+      if (acceptedHunkIds.has(hunkId)) {
+        acceptedHunkIds.delete(hunkId)
+      } else {
+        acceptedHunkIds.add(hunkId)
+      }
+
+      return {
+        ...current,
+        acceptedHunkIds,
+        error: null,
+      }
+    })
+  }
+
+  const applySelectedChangeProposalHunks = async () => {
+    const review = changeProposalReview
+    if (!review?.proposal || review.resolvingAction || review.acceptedHunkIds.size === 0) {
+      return
+    }
+
+    setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+      ? { ...current, resolvingAction: 'apply', error: null }
+      : current)
+
+    try {
+      const resolution = await window.mdvDesktop?.applyAiChangeProposal({
+        proposalId: review.summary.proposalId,
+        selectedHunkIds: Array.from(review.acceptedHunkIds),
+      })
+
+      if (!resolution) {
+        throw new Error(t.app.status.aiChangeProposalResolutionUnconfirmed)
+      }
+      completeChangeProposalReview(resolution)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+        ? { ...current, resolvingAction: null, error: message }
+        : current)
+      setStatusText(t.app.status.aiChangeProposalActionFailed(message))
+    }
+  }
+
+  const cancelChangeProposal = async () => {
+    const review = changeProposalReview
+    if (!review || review.resolvingAction) {
+      return
+    }
+
+    setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+      ? { ...current, resolvingAction: 'cancel', error: null }
+      : current)
+
+    try {
+      const resolution = await window.mdvDesktop?.cancelAiChangeProposal({
+        proposalId: review.summary.proposalId,
+      })
+
+      if (!resolution) {
+        throw new Error(t.app.status.aiChangeProposalResolutionUnconfirmed)
+      }
+      completeChangeProposalReview(resolution)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setChangeProposalReview((current) => current?.summary.proposalId === review.summary.proposalId
+        ? { ...current, resolvingAction: null, error: message }
+        : current)
+      setStatusText(t.app.status.aiChangeProposalActionFailed(message))
+    }
+  }
+
+  const handleAiChangeProposalOpen = useEffectEvent((summary: MdvAiChangeProposalSummary) => {
+    activeChangeProposalIdRef.current = summary.proposalId
+    setChangeProposalReview({
+      summary,
+      proposal: null,
+      acceptedHunkIds: new Set(),
+      resolvingAction: null,
+      error: null,
+    })
+    setStatusText(i18nRef.current.app.status.loadingAiChangeProposal)
+
+    void window.mdvDesktop?.getAiChangeProposal({ proposalId: summary.proposalId })
+      .then((proposal) => {
+        if (activeChangeProposalIdRef.current !== summary.proposalId) {
+          return
+        }
+
+        setChangeProposalReview((current) => current?.summary.proposalId === summary.proposalId
+          ? {
+              ...current,
+              proposal,
+              acceptedHunkIds: new Set(proposal.hunks.map((hunk) => hunk.hunkId)),
+              error: null,
+            }
+          : current)
+      })
+      .catch(async (error) => {
+        if (activeChangeProposalIdRef.current !== summary.proposalId) {
+          return
+        }
+
+        const message = error instanceof Error ? error.message : String(error)
+        setChangeProposalReview((current) => current?.summary.proposalId === summary.proposalId
+          ? { ...current, resolvingAction: 'cancel', error: message }
+          : current)
+        setStatusText(i18nRef.current.app.status.aiChangeProposalLoadFailed(message))
+        try {
+          const resolution = await window.mdvDesktop?.cancelAiChangeProposal({ proposalId: summary.proposalId })
+          if (!resolution) {
+            throw new Error(i18nRef.current.app.status.aiChangeProposalResolutionUnconfirmed)
+          }
+          completeChangeProposalReview(resolution)
+          setStatusText(i18nRef.current.app.status.aiChangeProposalLoadFailedCancelled(message))
+        } catch (cancelError) {
+          if (activeChangeProposalIdRef.current === summary.proposalId) {
+            const cancelMessage = cancelError instanceof Error ? cancelError.message : String(cancelError)
+            const actionError = i18nRef.current.app.status.aiChangeProposalActionFailed(cancelMessage)
+            setChangeProposalReview((current) => current?.summary.proposalId === summary.proposalId
+              ? { ...current, resolvingAction: null, error: `${i18nRef.current.app.status.aiChangeProposalLoadFailed(message)} ${actionError}` }
+              : current)
+            setStatusText(actionError)
+          }
+        }
+      })
+  })
+
+  const handleAiChangeProposalResolved = useEffectEvent((resolution: MdvAiChangeProposalResolution) => {
+    completeChangeProposalReview(resolution)
+  })
+
+  useEffect(() => {
+    const unsubscribeOpen = window.mdvDesktop?.onAiChangeProposalOpen(handleAiChangeProposalOpen)
+    const unsubscribeResolved = window.mdvDesktop?.onAiChangeProposalResolved((resolution) => {
+      handleAiChangeProposalResolved(resolution)
+    })
+
+    return () => {
+      unsubscribeOpen?.()
+      unsubscribeResolved?.()
+    }
+  }, [])
+
   const runDesktopAction = (action: MdvMenuAction) => {
+    if (activeChangeProposalIdRef.current) {
+      return
+    }
+
     if (action === 'redo') {
       editorRef.current?.exec('redo')
       setStatusText(t.app.status.redidLastEdit)
@@ -5154,6 +5423,19 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (activeChangeProposalIdRef.current) {
+        const key = event.key.toLowerCase()
+        const isBlockedShortcut = getActionForShortcut(event) !== null
+          || getTypographyShortcutAction(event) !== null
+          || (!event.isComposing && isPrimaryModifierPressed(event) && (key === 'f' || key === 'h' || key === 'r'))
+
+        if (isBlockedShortcut) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
+
       const typographyAction = getTypographyShortcutAction(event)
 
       if (typographyAction) {
@@ -5780,6 +6062,24 @@ function App() {
           <div className="status-toast-layer">
             <div key={activeToast.id} className="status-toast" role="status">{activeToast.message}</div>
           </div>
+        ) : null}
+
+        {changeProposalReview ? (
+          <ChangePreviewDialog
+            summary={changeProposalReview.summary}
+            proposal={changeProposalReview.proposal}
+            acceptedHunkIds={changeProposalReview.acceptedHunkIds}
+            resolvingAction={changeProposalReview.resolvingAction}
+            error={changeProposalReview.error}
+            labels={{
+              ...t.app.changeProposal,
+              cancel: t.common.cancel,
+              loading: t.app.status.loadingAiChangeProposal,
+            }}
+            onToggleHunk={toggleChangeProposalHunk}
+            onApply={() => void applySelectedChangeProposalHunks()}
+            onCancel={() => void cancelChangeProposal()}
+          />
         ) : null}
 
         {isEditorSearchDialogOpen ? (

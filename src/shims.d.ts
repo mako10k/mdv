@@ -293,6 +293,23 @@ type MdvAiEditorRequest =
     }
   | {
       requestId: string
+      type: 'capture-change-proposal'
+      proposalId: string
+      destination: MdvAiEditorTarget
+      content: string
+      mode: 'replace' | 'insert' | 'append'
+    }
+  | {
+      requestId: string
+      type: 'apply-change-proposal'
+      proposalId: string
+      editorId: MdvAiEditorId
+      expectedDocumentIdentity: MdvAiDocumentIdentity
+      expectedBaselineMarkdown: string
+      nextMarkdown: string
+    }
+  | {
+      requestId: string
       type: 'list-buffers'
     }
   | {
@@ -465,6 +482,7 @@ type MdvAiWriteAppliedPayload = MdvAiWriteBasePayload & {
   replacedSpan?: never
   replacedTextPreview?: never
   wouldCreate?: never
+  changeProposal?: never
 }
 
 type MdvAiWriteDryRunPayload = MdvAiWriteBasePayload & {
@@ -482,9 +500,84 @@ type MdvAiWriteDryRunPayload = MdvAiWriteBasePayload & {
   replacedTextPreview: string
   created?: never
   wouldCreate?: boolean
+  changeProposal?: MdvAiChangeProposalSummary
 }
 
 type MdvAiWritePayload = MdvAiWriteAppliedPayload | MdvAiWriteDryRunPayload
+
+type MdvAiDocumentIdentity = {
+  instanceId: string
+  currentFilePath: string | null
+}
+
+type MdvAiChangeProposalCapturePayload = {
+  proposalId: string
+  editorId: MdvAiEditorId
+  documentIdentity: MdvAiDocumentIdentity
+  title: string
+  baselineMarkdown: string
+  proposedMarkdown: string
+  replacedSpan: MdvAiNormalizedSpan
+  span: MdvAiNormalizedSpan
+  mode: 'replace' | 'insert' | 'append'
+  wouldWriteBytes: number
+}
+
+type MdvAiChangeProposalApplyPayload =
+  | {
+      proposalId: string
+      editorId: MdvAiEditorId
+      status: 'applied'
+      bytesWritten: number
+    }
+  | {
+      proposalId: string
+      editorId: MdvAiEditorId
+      status: 'stale'
+      reason: 'document-identity-changed' | 'baseline-changed'
+    }
+
+type MdvAiChangeProposalHunk = {
+  hunkId: string
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: string[]
+}
+
+type MdvAiChangeProposalSummary = {
+  proposalId: string
+  originRequestId: string
+  editorId: MdvAiEditorId
+  title: string
+  mode: 'replace' | 'insert' | 'append'
+  hunkCount: number
+  wouldWriteBytes: number
+  span: MdvAiNormalizedSpan
+  replacedSpan: MdvAiNormalizedSpan
+  baselineFingerprint: string
+  createdAt: string
+  expiresAt: string
+}
+
+type MdvAiChangeProposalDetail = MdvAiChangeProposalSummary & {
+  hunks: MdvAiChangeProposalHunk[]
+}
+
+type MdvAiChangeProposalResolution = {
+  proposalId: string
+  originRequestId: string
+  editorId: MdvAiEditorId
+  title: string
+  status: 'applied' | 'cancelled' | 'stale' | 'indeterminate' | 'invalidated'
+  reason?: string
+  selectedHunkIds?: string[]
+  appliedHunkCount?: number
+  baselineFingerprint: string
+  resultFingerprint?: string
+  resolvedAt: string
+}
 
 type MdvAiListBuffersPayload = {
   buffers: MdvAiBufferSummary[]
@@ -581,6 +674,14 @@ type MdvAiChatStreamEvent =
     }
   | {
       requestId: string
+      type: 'proposal-pending'
+      proposal: MdvAiChangeProposalSummary
+      reply: string
+      model: string
+      responseId: string | null
+    }
+  | {
+      requestId: string
       type: 'failed'
       error: string
     }
@@ -633,11 +734,16 @@ interface Window {
     writeAiActiveSelection: (payload: { content: string }) => Promise<MdvAiWritePayload | null>
     writeAiTarget: (payload: { destination: MdvAiEditorTarget; sources: MdvAiWriteSource[]; mode?: 'replace' | 'insert' | 'append'; title?: string; dryRun?: boolean }) => Promise<MdvAiWritePayload | null>
     listAiBuffers: () => Promise<MdvAiListBuffersPayload | null>
+    getAiChangeProposal: (payload: { proposalId: string }) => Promise<MdvAiChangeProposalDetail>
+    applyAiChangeProposal: (payload: { proposalId: string; selectedHunkIds: string[] }) => Promise<MdvAiChangeProposalResolution>
+    cancelAiChangeProposal: (payload: { proposalId: string }) => Promise<MdvAiChangeProposalResolution>
     sendAiChatMessage: (payload: { requestId: string; messages: MdvAiChatMessage[] }) => Promise<MdvAiChatDispatchResponse>
     debug?: {
       notify: (type: string, payload?: unknown) => void
     }
     onAiChatStreamEvent: (callback: (event: MdvAiChatStreamEvent) => void) => () => void
+    onAiChangeProposalOpen: (callback: (proposal: MdvAiChangeProposalSummary) => void) => () => void
+    onAiChangeProposalResolved: (callback: (resolution: MdvAiChangeProposalResolution) => void) => () => void
     settings: {
       getBootstrapSettings: () => MdvSettingsBootstrap
       getSettings: () => Promise<MdvSettings>
@@ -666,7 +772,7 @@ interface Window {
     sendAiEditorResponse: (payload: {
       requestId: string
       ok: boolean
-      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | MdvAiListBuffersPayload | MdvAiGrepSlicePayload | MdvAiStatsPayload | MdvEditorCloseStatePayload | null
+      payload?: MdvAiContextPayload | MdvAiReadPayload | MdvAiWritePayload | MdvAiListBuffersPayload | MdvAiGrepSlicePayload | MdvAiStatsPayload | MdvEditorCloseStatePayload | MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null
       error?: string
     }) => void
     log: (level: string, scope: string, message: string) => void

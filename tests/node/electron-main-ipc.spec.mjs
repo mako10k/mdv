@@ -104,7 +104,10 @@ function createContext(overrides = {}) {
     semanticSearchForWindow: async () => ({}),
     writeAiTargetForWindow: async () => ({}),
     listAiBuffersForWindow: async () => ({ buffers: [] }),
-    requestOpenAiChatResponse: async () => ({ reply: 'ok', model: 'gpt', responseId: 'r1' }),
+    getAiChangeProposalForWindow: () => ({}),
+    applyAiChangeProposalForWindow: async () => ({}),
+    cancelAiChangeProposalForWindow: () => ({}),
+    requestOpenAiChatResponse: async () => ({ status: 'completed', reply: 'ok', model: 'gpt', responseId: 'r1' }),
     emitAiChatStreamEvent: () => {},
     openExternalLink: async () => ({ status: 'opened' }),
     ensureDraftWorkspace: async () => ({ workspaceId: 'w1', rootDir: '/tmp/w1' }),
@@ -246,4 +249,80 @@ test('ai chat grep handler abbreviates previews for public display', async () =>
   })
 
   assert.equal(result.matches[0].preview, '![logo](data:image/png;base64,<4 B omitted>)')
+})
+
+test('change proposal IPC delegates review, apply, and cancel to the source editor window', async () => {
+  const calls = []
+  const { handles, focusedWindow } = createContext({
+    getAiChangeProposalForWindow: (window, payload) => {
+      calls.push(['get', window.id, payload])
+      return { proposalId: payload.proposalId }
+    },
+    applyAiChangeProposalForWindow: async (window, payload) => {
+      calls.push(['apply', window.id, payload])
+      return { proposalId: payload.proposalId, status: 'applied' }
+    },
+    cancelAiChangeProposalForWindow: (window, payload) => {
+      calls.push(['cancel', window.id, payload])
+      return { proposalId: payload.proposalId, status: 'cancelled' }
+    },
+  })
+  const event = { sender: { __window: focusedWindow } }
+
+  await handles.get('mdv:ai-change-proposal-get')(event, { proposalId: 'proposal:1' })
+  await handles.get('mdv:ai-change-proposal-apply')(event, {
+    proposalId: 'proposal:1',
+    selectedHunkIds: ['hunk:1'],
+  })
+  await handles.get('mdv:ai-change-proposal-cancel')(event, { proposalId: 'proposal:2' })
+
+  assert.deepEqual(calls, [
+    ['get', 1, { proposalId: 'proposal:1' }],
+    ['apply', 1, { proposalId: 'proposal:1', selectedHunkIds: ['hunk:1'] }],
+    ['cancel', 1, { proposalId: 'proposal:2' }],
+  ])
+})
+
+test('proposal-pending terminates the chat request without emitting completed', async () => {
+  let requestContext = null
+  const emitted = []
+  let resolvePendingEvent
+  const pendingEvent = new Promise((resolve) => {
+    resolvePendingEvent = resolve
+  })
+  const { handles, focusedWindow } = createContext({
+    getSettingsState: () => ({
+      general: { themeMode: 'system' },
+      ai: { openai: { model: 'gpt-test' } },
+    }),
+    requestOpenAiChatResponse: async (_window, _messages, _onEvent, context) => {
+      requestContext = context
+      return {
+        status: 'proposal-pending',
+        proposal: { proposalId: 'proposal:1', title: 'Example' },
+        reply: '',
+        model: 'gpt-test',
+        responseId: 'response:1',
+      }
+    },
+    emitAiChatStreamEvent: (_window, event) => {
+      emitted.push(event)
+      if (event.type === 'proposal-pending') {
+        resolvePendingEvent()
+      }
+    },
+  })
+  const event = { sender: { __window: focusedWindow } }
+
+  const dispatch = await handles.get('mdv:ai-chat-send-message')(event, {
+    requestId: 'request:proposal',
+    messages: [{ role: 'user', content: 'propose a change' }],
+  })
+  await pendingEvent
+
+  assert.deepEqual(dispatch, { status: 'started', requestId: 'request:proposal' })
+  assert.deepEqual(requestContext, { originRequestId: 'request:proposal', sourceWindowId: 1 })
+  assert.equal(emitted.some((item) => item.type === 'completed'), false)
+  assert.equal(emitted.at(-1).type, 'proposal-pending')
+  assert.equal(emitted.at(-1).proposal.proposalId, 'proposal:1')
 })

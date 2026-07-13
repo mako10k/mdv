@@ -12,7 +12,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 
 以後の tool 契約は、直値の大量貼り付けを避けるため、EditorID と SPAN を基本単位にする。小さい文脈だけを直値で model input へ入れ、大きい文脈は参照ヒントを渡して read 系 tool で段階取得させる。
 
-この文書には既存の structure-tool hardening も残すが、MD-BL-020 の current slice では `write_target dryRun` preview foundation を正本化する。
+この文書には既存の structure-tool hardening も残すが、MD-BL-020 の current slice では `write_target dryRun` preview foundation と、live active editor に対する main-owned interactive change proposal lifecycle を正本化する。
 
 注記:
 
@@ -24,9 +24,9 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - `replace_structure` / `replace_all_structures` の分離は、2026-06-03 の Windows ホストアプリログで観測された、single replace 失敗後に broad query のまま再試行されて 79 ノード置換まで広がった失敗様式を tool 契約で封じるためのものとする
 - `replace_structure` は単一置換専用で、必ず handle を要求する。query は受け付けず、1 ノード以外を置換してはならない。
 - `replace_all_structures` は複数置換専用で、必ず query と `expectedMatchCount` を要求する。実マッチ数が一致しない場合は失敗する。
-- `write_target` は `dryRun=true` を受け付け、source materialization と destination span 解決後の bounded `markdownPreview`、preview 後 Markdown 座標の `span`、変更前 Markdown 座標の `replacedSpan`、`wouldWriteBytes` を返すが、destination target は変更しない。dryRun result は full source `text` も通常の reusable `target` も返さない。dryRun は source read より先に実 write と同じ destination write permission gate を通り、active editor preview では post-write preview のために active document read permission も要求する。inline preview が truncation または inline data image abbreviation を必要とする場合は、raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す。ただし model-facing `read_target` 表示は通常どおり public-display redaction を適用する。これは preview foundation であり、現時点では approval / merge UI を強制せず、non-dryRun writes は既存の direct apply path を維持する。
+- `write_target` は `dryRun=true` を受け付け、source materialization と destination span 解決後の bounded `markdownPreview`、preview 後 Markdown 座標の `span`、変更前 Markdown 座標の `replacedSpan`、`wouldWriteBytes` を返すが、destination target は変更しない。dryRun result は full source `text` も通常の reusable `target` も返さない。dryRun は source read より先に実 write と同じ destination write permission gate を通り、active editor preview では post-write preview のために active document read permission も要求する。通常の non-interactive dry run で inline preview が truncation または inline data image abbreviation を必要とする場合は、raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す。ただし model-facing `read_target` 表示は通常どおり public-display redaction を適用する。model tool loop から live active editor に対して実行された eligible dry run は main-owned interactive change proposal を作り、typed renderer UI で hunk を選んで最終適用または取消できる。この interactive path は authoritative content を proposal registry にだけ置き、preview temp buffer を別途作らない。non-dryRun writes は既存の direct apply path を維持する。
 - `replace_structure` / `replace_all_structures` はどちらも `dryRun=true` を受け付け、実ファイルを書き換えずに置換予定結果を返せる。
-- tool 引数エラーや実行エラーは構造化された tool result として返し、tool loop 自体は継続する
+- tool 引数エラーや実行エラーは構造化された tool result として返し、通常の tool loop は継続する。interactive proposal 作成はエラーではなく、未実行 sibling tool / 次 model iteration より前に停止する専用 terminal branch とする
 - guarded fetch は ACL、pending 確認、private-address 回避、timeout、temp-buffer spillover を main process で強制する
 
 ## Target Goals
@@ -52,6 +52,7 @@ subagent orchestration tool の将来設計は [docs/ai-subagent-tools-design.md
 - get_structure_help / list_structure_map / query_structure / get_structure_content / insert_structure / replace_structure / replace_all_structures / delete_structure / wrap_structure / unwrap_structure / move_structure / copy_structure を main process の tool loop から呼べること
 - web_search / fetch_url / dispose_buffer を main process の tool loop から呼べること
 - save_context_item / list_context_items / update_context_item / merge_context_items / delete_context_item を main process の tool loop から呼べること
+- eligible な live active-editor `write_target dryRun` を main-owned change proposal として表示し、line hunk 単位で apply / discard を選んで最終適用または取消できること
 - latest turn を優先し、古い履歴だけを bounded summary へ圧縮して OpenAI input を組み立てること
 - editor window から Ctrl+, で settings window を開けること
 - fetch ACL / timeout は dedicated auxiliary window から編集できること
@@ -535,9 +536,9 @@ type ChatMessage = {
 - `append` は destination span の end へ追加する sugar として扱う
 - `dryRun: true` は source を解決し、書き込み後 Markdown preview を作るが、destination target である editor window、既存 temp buffer、または `:new` document window は変更しない
 - `dryRun` は source read より先に実 write と同じ destination write permission gate を通る。`:new` dry run は new-document write permission と unmanaged client を要求し、mode は `replace` として扱う。active editor dry run は post-write preview を作るため active document read permission も要求する
-- `dryRun` の inline `markdownPreview` は inline token budget policy に従う post-write target Markdown の bounded representation であり、truncation または inline data image abbreviation が必要な場合は raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す
+- `dryRun` の inline `markdownPreview` は inline token budget policy に従う post-write target Markdown の bounded representation である。通常の non-interactive dry run で truncation または inline data image abbreviation が必要な場合は raw preview を新しい session temp buffer に置き、`previewTarget` / `previewBufferId` を返す。interactive proposal path は authoritative content を proposal registry に保持し、preview temp buffer を作らない
 - `wouldWriteBytes` は source materialization 後に destination へ挿入 / 置換 / 追加される content の UTF-8 byte 数であり、preview 後の全文サイズや disk write size ではない
-- `dryRun` result は full source `text` も通常の reusable `target` も返さない。small preview は `markdownPreview` で確認し、large / abbreviated preview は `previewTarget` を `read_target` で page-by-page に読む。ただし `read_target` は data image などに通常の public-display redaction を適用し、raw content は bounded `slice-ref` source reuse または後続 renderer merge UI のために保持される
+- `dryRun` result は full source `text` も通常の reusable `target` も返さない。small preview は `markdownPreview` で確認し、large / abbreviated preview は `previewTarget` を `read_target` で page-by-page に読む。ただし `read_target` は data image などに通常の public-display redaction を適用する。temp-buffer raw content は bounded `slice-ref` source reuse 用であり、interactive proposal の authoritative before/after Markdown と hunks はそれとは別に main process が保持する
 
 出力:
 
@@ -592,7 +593,23 @@ type ChatMessage = {
 
 `span` is the inserted / replaced range in the preview-after Markdown coordinate space. `replacedSpan` is the range that would be replaced in the before Markdown coordinate space; for `insert` and `append` it is an empty span at the insertion point. `markdownPreview` is the bounded post-write target Markdown representation. `preview` is a short redacted display summary for transcript/log UI, not authoritative replacement text. `replacedTextPreview` is the same kind of short redacted display summary for the before-text at `replacedSpan`; it is not authoritative diff text. Dry-run output does not include a normal `target`, because the would-be destination content does not exist yet. For `destination.editorId=":new"` dry runs, `created` is not set and `mode` is reported as `replace`; `wouldCreate: true` indicates that a non-dry run would create a new document window.
 
-When `markdownPreviewTruncated` or `markdownPreviewAbbreviated` is true, the result also includes `previewTarget` and `previewBufferId`. `previewTarget` points at a raw session temp buffer for the post-write preview, but model-facing `read_target` pagination still applies normal public-display redaction. It can be used as a `slice-ref` write source only when that preview span fits the normal write-source bounded read budget; large previews must be narrowed first by reading a page and using its `pageTarget`, by constructing an explicit smaller range, or by handing the raw preview to the future renderer merge UI.
+For non-interactive dry runs, when `markdownPreviewTruncated` or `markdownPreviewAbbreviated` is true, the result also includes `previewTarget` and `previewBufferId`. `previewTarget` points at a raw session temp buffer for the post-write preview, but model-facing `read_target` pagination still applies normal public-display redaction. It can be used as a `slice-ref` write source only when that preview span fits the normal write-source bounded read budget; large previews must be narrowed first by reading a page and using its `pageTarget`, or by constructing an explicit smaller range. The interactive renderer proposal does not create or obtain authoritative content through this model-facing reference.
+
+### Interactive Active-Editor Change Proposal
+
+`contract_state: active_contract`
+
+対象は model tool loop から呼ばれた `write_target(dryRun: true)` のうち、destination が呼び出し元 window の live active editor で、before / after が異なるものに限る。`:new`、session temp buffer、structure mutation tool、non-dry write、save-conflict flow、snapshot restore、global suggest mode は proposal を作らない。manual hunk text editing も current slice の非範囲である。
+
+proposal の authoritative state は main process が所有する。作成時に typed atomic capture request で renderer から document instance identity、current path (`null` を含む)、exact baseline Markdown を同じ観測として受け取り、source materialization 後の proposed Markdown と canonical line hunks を opaque proposal ID に束縛する。proposal は chat request / source window / target editor にも束縛し、full before / after Markdown と authoritative hunk body は OpenAI input、chat transcript、generic `tool-event` JSON、log に載せない。model-facing dry-run result は従来の bounded preview と proposal の opaque identity / status metadata だけを扱う。
+
+同じ model response に eligible active-editor dry-run proposal candidate と sibling tool call が並ぶ場合は、全 candidate を model response 内の順序を保ったまま全 sibling より先に評価する。これは tool call が相互に独立しているという前提ではなく、review 対象になり得る変更より先に sibling の副作用を実行しないための approval barrier である。その代わり model が示した candidate / sibling 間の順序は維持されない。先行 sibling に依存する candidate は、その sibling より先に実行されて失敗し得る。その後 sibling が実行されても同じ turn では candidate を再試行しない。先行 candidate が validation / capture で proposal を作れなくても、後続 candidate より先に sibling を実行しない。最初の proposal が作成された時点で、その model turn は残る candidate を含む全 sibling tool call と次の OpenAI iteration より前に終了する。assistant stream は `proposal-pending` を terminal branch として配送し、tool-call iteration の provisional prose は final transcript に採用せず、renderer が locale に応じた canonical pending copy で sending state を解放する。chat transcript には、proposal を作成した turn が終了して自動再開しないことと、依頼に残作業がある場合は新しい user message が必要であることを proposal 作成時と resolution 時に永続表示する。Apply / Cancel 後に停止した turn を自動再開せず、`onAiChangeProposalResolved` が受け取る typed resolution metadata を後続 chat turn の文脈にできるようにする。`indeterminate` は適用済みの可能性を明記し、現在の文書を確認するまで新しい proposal を依頼しないよう案内する。
+
+UI は `onAiChangeProposalOpen` で proposal ID を受けた時点で loading modal を直ちに開き、`getAiChangeProposal` で typed detail を取得する。detail 取得失敗時は dedicated Cancel を main process へ送る。fallback Cancel の terminal resolution まで確認できた場合だけ local UI を閉じ、Cancel 自体が失敗または未確認なら active proposal ID と modal を維持して error と再試行可能な Cancel を表示する。review surface は keyboard focus を内部へ移して閉じ込め、背面 workspace を inert にする操作上の modal とする。renderer shortcut / menu action は proposal decision 中の背面操作を拒否し、main process も native menu と auxiliary-window action を owner window 単位で拒否して window reload roles を無効化する。review surface は `expiresAt` と期限切れ時に選択が失われることを表示する。line-oriented hunk は初期状態で全て selected とし、各 hunk の Apply / Discard を切り替えられる。final Apply は proposal を consume して未選択 hunk を恒久的に破棄することを明示し、selected hunk が 0 件なら無効化する。`applyAiChangeProposal` へは proposal ID と selected hunk IDs だけを渡し、replacement Markdown や編集済み hunk body を renderer から main process へ渡さない。`cancelAiChangeProposal` は変更せず proposal を終了する。
+
+Apply は main process が `pending -> applying` を compare-and-swap し、selected IDs を canonical hunks と照合して final Markdown を導出した後、target renderer へ typed atomic apply request を送る。renderer は同じ handler 内で document instance、path、exact baseline Markdown を再検証してから適用する。不一致は書き込まず `stale`、成功は `applied` とする。dispatch 後に delivery / acknowledgement が確定しない場合は `indeterminate` とし、自動 retry しない。
+
+lifecycle は `pending -> applying -> applied | stale | indeterminate` または `pending -> cancelled | invalidated` の single-use transition とする。terminal proposal への duplicate apply / cancel / replay は拒否する。editor close / renderer loss / expiry / newer proposal により pending proposal を invalidate するが、Apply dispatch 後の window close / renderer loss は outcome 不明の `indeterminate` とする。document replacement は renderer の instance identity を更新し、後続 Apply を書き込みなしの `stale` にする。pending proposal は editor ごとに 1 件、TTL は 10 分、authoritative before + after の UTF-8 raw payload 合計は 2 MiB を上限とする。上限超過時は通常の bounded dry-run result と、truncation / abbreviation 時の temp-buffer preview behavior へ戻し、interactive proposal は作らない。
 
 `sources` の型:
 
@@ -935,21 +952,29 @@ main process から editor window へ要求する操作:
 - getEditorContext
 - readTarget
 - writeTarget
+- proposal capture: document instance / path / exact baseline Markdown を 1 回の typed request で取得
+- proposal apply: document instance / path / exact baseline を同じ typed handler で照合し、main-derived Markdown を適用または stale 応答
 
 ### Assistant Surface Bridge
 
 assistant surface から main process へ送る操作:
 
 - sendChatMessage
+- getAiChangeProposal
+- applyAiChangeProposal
+- cancelAiChangeProposal
 
 main process から assistant surface へ送るイベント:
 
 - ai-chat-stream-event
+- onAiChangeProposalOpen
+- onAiChangeProposalResolved
 
 注記:
 
-- 現行実装の `sendChatMessage` は `requestId` 付き dispatch ack を返した後に `ai-chat-stream-event` で text delta / tool event / completed / failed を段階配送する
+- 現行実装の `sendChatMessage` は `requestId` 付き dispatch ack を返した後に `ai-chat-stream-event` で text delta / tool event / proposal-pending / completed / failed を段階配送する
 - `tool-event` は `phase: call | result` を含み、renderer は title 文字列ではなく phase で tool 呼び出し中と tool 結果反映中を切り替える
+- `proposal-pending` は model turn が proposal 作成で停止した terminal branch であり、proposal の open / resolution は generic stream/tool payload に混ぜず `onAiChangeProposalOpen` / `onAiChangeProposalResolved` で typed 配送する
 - これにより、assistant bubble 単位の先行生成、text chunk 単位の追記、tool event の途中表示を既存 Electron IPC 上で扱う
 - `cancelChatRequest` は現時点では未実装であり、上記 stream 契約に対する将来拡張として扱う
 
@@ -962,8 +987,10 @@ main process から assistant surface へ送るイベント:
 5. main process が OpenAI へ問い合わせる
 6. tool call が要求されたら main process が tool を実行する
 7. editor tool の場合は editor window へ IPC を送る
-8. 結果を OpenAI へ返し最終応答を得る
-9. assistant surface に assistant message と tool log を流す
+8. 通常の tool result は OpenAI へ返して最終応答を得る
+9. eligible active-editor dry run candidate は同じ response の sibling tool より先に評価し、proposal を作った場合は全 sibling tool と次の OpenAI iteration より前にその turn を停止して typed proposal UI を開く
+10. assistant surface に assistant message / tool log、または proposal-pending terminal branch を流す
+11. user の Apply / Cancel 後は typed resolution event を返すが、停止した model turn は自動再開しない
 
 補足:
 
@@ -981,6 +1008,8 @@ editor renderer は AI 本体を持たず、ツール要求への応答だけを
 - selection text の取得
 - selection range の取得
 - selection または全文への書き込み
+- proposal capture 時に document instance / path / exact Markdown baseline を atomic に返すこと
+- proposal apply 時に同じ identity / baseline を atomic に照合し、一致した場合だけ main-derived Markdown を適用すること
 - Markdown 座標と現在 mode の相互変換
 - destination=":new" 用の新規 window 生成連携
 
@@ -1019,7 +1048,7 @@ slice tool と workspace grep の境界を分けないと、広い検索がそ�
 
 ### 4. Unsafe Writes
 
-将来の大規模書き換えには suggest mode を導入し、直書きだけに依存しない設計にする。
+current slice は eligible active-editor dry run に user-facing hunk selection を提供するが、すべての write を global suggest mode へ切り替えるものではない。
 
 加えて、`write.sources` に large slice をそのまま混ぜられると token と破壊範囲が読みにくくなる。
 
@@ -1028,7 +1057,9 @@ slice tool と workspace grep の境界を分けないと、広い検索がそ�
 - source resolve 時にサイズ上限をかける
 - 大きすぎる場合は追加 read を促す
 - destination span は常に normalized して監査ログへ残す
-- 破壊的 write の前段で利用できる preview foundation として `write_target dryRun` を用意する。これは現時点では optional であり、non-dryRun writes は既存の direct apply path を維持する。hunk 単位の apply / discard / edit は MD-BL-020 の後続 renderer merge UI で扱う
+- 破壊的 write の前段で利用できる preview foundation として `write_target dryRun` を用意し、eligible な model-loop active-editor dry run は main-owned proposal と canonical line hunks を使って apply / discard を user に委ねる
+- Apply 時は proposal の document instance / path / exact baseline を renderer で再照合し、stale state への write や proposal replay を fail closed にする
+- non-dryRun writes は既存の direct apply path を維持し、manual hunk text editing は MD-BL-020 の後続 slice とする
 
 ### 5. Token Budget Drift
 

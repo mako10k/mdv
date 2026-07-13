@@ -84,6 +84,8 @@ type WindowControllerDependencies = {
   emitDebugChannelEvent: (type: string, payload?: unknown) => void
   confirmEditorWindowClose: (window: BrowserWindowLike) => Promise<void>
   clearEditorRuntimeState: (windowId: number) => void
+  clearChangeProposalForWindow?: (windowId: number) => void
+  isEditorActionBlocked?: (windowId: number) => boolean
   isManagedClient: () => boolean
   registerManagedClient: (window: BrowserWindowLike) => Promise<void>
   setManagedMainWindow: (window: BrowserWindowLike) => void
@@ -135,6 +137,8 @@ function createWindowController({
   emitDebugChannelEvent,
   confirmEditorWindowClose,
   clearEditorRuntimeState,
+  clearChangeProposalForWindow = () => {},
+  isEditorActionBlocked = () => false,
   isManagedClient,
   registerManagedClient,
   setManagedMainWindow,
@@ -225,8 +229,24 @@ function createWindowController({
       return
     }
 
+    if (shouldBlockEditorAction(targetWindow, action)) {
+      return
+    }
+
     writeLog('INFO', 'menu', 'Dispatch action', action)
     targetWindow.webContents.send('mdv:menu-action', action)
+  }
+
+  function shouldBlockEditorAction(editorWindow: BrowserWindowLike | null | undefined, action: string) {
+    if (!editorWindow || !isEditorActionBlocked(editorWindow.id)) {
+      return false
+    }
+
+    writeLog('INFO', 'menu', 'Blocked action while AI change proposal is active', {
+      action,
+      editorWindowId: editorWindow.id,
+    })
+    return true
   }
 
   function openAiChatWindow(targetWindow: BrowserWindowLike | null | undefined): WindowOpenResult {
@@ -234,6 +254,10 @@ function createWindowController({
 
     if (!editorWindow || editorWindow.isDestroyed()) {
       writeLog('WARN', 'ai-chat', 'No editor window available')
+      return { status: 'focused' }
+    }
+
+    if (shouldBlockEditorAction(editorWindow, 'open-ai-chat')) {
       return { status: 'focused' }
     }
 
@@ -263,6 +287,10 @@ function createWindowController({
 
     if (!ownerEditorWindow && (!settingsWindow || settingsWindow.isDestroyed())) {
       writeLog('WARN', 'settings', 'No editor window available for settings owner')
+      return { status: 'focused' }
+    }
+
+    if (shouldBlockEditorAction(ownerEditorWindow, 'open-settings')) {
       return { status: 'focused' }
     }
 
@@ -302,6 +330,10 @@ function createWindowController({
       return { status: 'focused' }
     }
 
+    if (shouldBlockEditorAction(ownerEditorWindow, 'open-fetch-permissions')) {
+      return { status: 'focused' }
+    }
+
     if (ownerEditorWindow && !ownerEditorWindow.isDestroyed()) {
       fetchPermissionsWindowOwnerEditorId = ownerEditorWindow.id
     }
@@ -335,6 +367,10 @@ function createWindowController({
 
     if (!ownerEditorWindow && (!aboutWindow || aboutWindow.isDestroyed())) {
       writeLog('WARN', 'about', 'No editor window available for about owner')
+      return { status: 'focused' }
+    }
+
+    if (shouldBlockEditorAction(ownerEditorWindow, 'open-about')) {
       return { status: 'focused' }
     }
 
@@ -412,6 +448,8 @@ function createWindowController({
 
   function createApplicationMenu() {
     const messages = getMainI18n().menu
+    const hasBlockedEditorAction = BrowserWindow.getAllWindows()
+      .some((targetWindow) => isEditorWindow(targetWindow) && isEditorActionBlocked(targetWindow.id))
     const template: Array<Record<string, unknown>> = [
       ...(process.platform === 'darwin'
         ? [{ role: 'appMenu' }]
@@ -423,6 +461,12 @@ function createWindowController({
             label: messages.newDocument,
             accelerator: 'CmdOrCtrl+N',
             click: () => {
+              const targetWindow = getEditorWindowForAiAction(BrowserWindow.getFocusedWindow())
+                ?? getDefaultEditorWindow()
+              if (shouldBlockEditorAction(targetWindow, 'new-document')) {
+                return
+              }
+
               if (isManagedClient()) {
                 sendMenuAction('new-document')
                 return
@@ -484,9 +528,9 @@ function createWindowController({
             click: () => sendMenuAction('show-preview'),
           },
           { type: 'separator' },
-          { role: 'reload' },
-          { role: 'forceReload' },
-          { role: 'toggleDevTools' },
+          { role: 'reload', enabled: !hasBlockedEditorAction },
+          { role: 'forceReload', enabled: !hasBlockedEditorAction },
+          { role: 'toggleDevTools', enabled: !hasBlockedEditorAction },
         ],
       },
       {
@@ -494,6 +538,7 @@ function createWindowController({
         submenu: [
           {
             label: messages.about,
+            enabled: !hasBlockedEditorAction,
             click: () => openAboutWindow(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null),
           },
         ],
@@ -577,6 +622,7 @@ function createWindowController({
 
     mainWindow.webContents.on('render-process-gone', (_event, details) => {
       writeLog('ERROR', 'webContents', 'render-process-gone', details)
+      clearChangeProposalForWindow(mainWindow.id)
     })
 
     mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {

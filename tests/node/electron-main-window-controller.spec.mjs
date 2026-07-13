@@ -161,9 +161,10 @@ test('openSettingsWindow reuses a single auxiliary window', () => {
   assert.equal(controller.getSettingsWindow().loadFileCalls[0], '/tmp/dist/settings.html')
 })
 
-test('application menu dispatches F5 reload-file action', () => {
-  const { BrowserWindow } = createBrowserWindowHarness()
+test('application menu blocks native and auxiliary actions while a change proposal is active', () => {
+  const { BrowserWindow, allWindows } = createBrowserWindowHarness()
   let applicationMenu = null
+  let blockEditorAction = true
   const controller = createWindowController({
     BrowserWindow,
     Menu: {
@@ -191,6 +192,7 @@ test('application menu dispatches F5 reload-file action', () => {
     emitDebugChannelEvent: () => {},
     confirmEditorWindowClose: async () => {},
     clearEditorRuntimeState: () => {},
+    isEditorActionBlocked: () => blockEditorAction,
     isManagedClient: () => false,
     registerManagedClient: async () => {},
     setManagedMainWindow: () => {},
@@ -205,17 +207,36 @@ test('application menu dispatches F5 reload-file action', () => {
 
   const fileMenu = applicationMenu.find((item) => item.label === 'File')
   const reloadItem = fileMenu.submenu.find((item) => item.label === 'Reload File')
+  const viewMenu = applicationMenu.find((item) => item.label === 'View')
+  const helpMenu = applicationMenu.find((item) => item.label === 'Help')
+  const aboutItem = helpMenu.submenu.find((item) => item.label === 'About MDV')
   assert.equal(reloadItem.accelerator, 'F5')
+  assert.equal(viewMenu.submenu.find((item) => item.role === 'reload').enabled, false)
+  assert.equal(viewMenu.submenu.find((item) => item.role === 'forceReload').enabled, false)
+  assert.equal(aboutItem.enabled, false)
 
   reloadItem.click()
+  aboutItem.click()
+  const blockedFetchResult = controller.openFetchPermissionsWindow(editorWindow)
+
+  assert.deepEqual(sent, [])
+  assert.deepEqual(blockedFetchResult, { status: 'focused' })
+  assert.equal(allWindows.length, 1)
+
+  blockEditorAction = false
+  reloadItem.click()
+  const fetchResult = controller.openFetchPermissionsWindow(editorWindow)
 
   assert.deepEqual(sent, [{ channel: 'mdv:menu-action', payload: 'reload-file' }])
+  assert.deepEqual(fetchResult, { status: 'opened' })
+  assert.equal(allWindows.length, 2)
 })
 
 test('queueOrDispatchOpenFile queues until an editor window is ready', () => {
   const { BrowserWindow } = createBrowserWindowHarness()
   let pendingLaunchRequest = null
   const focusedWindowIds = []
+  const clearedProposalWindowIds = []
   const controller = createWindowController({
     BrowserWindow,
     Menu: { setApplicationMenu: () => {}, buildFromTemplate: (template) => template },
@@ -243,6 +264,7 @@ test('queueOrDispatchOpenFile queues until an editor window is ready', () => {
     emitDebugChannelEvent: () => {},
     confirmEditorWindowClose: async () => {},
     clearEditorRuntimeState: () => {},
+    clearChangeProposalForWindow: (windowId) => clearedProposalWindowIds.push(windowId),
     isManagedClient: () => false,
     registerManagedClient: async () => {},
     setManagedMainWindow: () => {},
@@ -270,4 +292,7 @@ test('queueOrDispatchOpenFile queues until an editor window is ready', () => {
     },
   }])
   assert.deepEqual(focusedWindowIds, [])
+
+  editorWindow.emitWebContents('render-process-gone', {}, { reason: 'crashed' })
+  assert.deepEqual(clearedProposalWindowIds, [editorWindow.id])
 })

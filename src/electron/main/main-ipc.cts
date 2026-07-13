@@ -98,9 +98,11 @@ type EditorRuntimeState = {
 
 type AiChatStreamEvent = Record<string, unknown>
 type AiChatResponse = {
+  status: 'completed' | 'proposal-pending'
   reply: unknown
   model: string
-  responseId: string
+  responseId: string | null
+  proposal?: Record<string, unknown>
 }
 
 type DraftWorkspace = {
@@ -188,10 +190,14 @@ type MainIpcContext = {
   semanticSearchForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
   writeAiTargetForWindow: (window: BrowserWindowLike | null, payload: unknown) => Promise<unknown>
   listAiBuffersForWindow: (window: BrowserWindowLike | null) => Promise<unknown>
+  getAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => unknown
+  applyAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => Promise<unknown>
+  cancelAiChangeProposalForWindow: (window: BrowserWindowLike, payload: unknown) => unknown
   requestOpenAiChatResponse: (
     window: BrowserWindowLike | null,
     messages: unknown,
     onEvent: (event: AiChatStreamEvent) => void,
+    requestContext: { originRequestId: string; sourceWindowId: number },
   ) => Promise<AiChatResponse>
   emitAiChatStreamEvent: (window: BrowserWindowLike | null, payload: Record<string, unknown>) => void
   openExternalLink: (window: BrowserWindowLike | null, href: string) => Promise<unknown>
@@ -270,6 +276,9 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     semanticSearchForWindow,
     writeAiTargetForWindow,
     listAiBuffersForWindow,
+    getAiChangeProposalForWindow,
+    applyAiChangeProposalForWindow,
+    cancelAiChangeProposalForWindow,
     requestOpenAiChatResponse,
     emitAiChatStreamEvent,
     openExternalLink,
@@ -594,6 +603,27 @@ function registerMainIpcHandlers(context: MainIpcContext) {
 
   ipcMain.handle('mdv:ai-chat-write-target', async (event: unknown, payload: unknown) => writeAiTargetForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender)), payload))
   ipcMain.handle('mdv:ai-chat-list-buffers', async (event: unknown) => listAiBuffersForWindow(getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))))
+  ipcMain.handle('mdv:ai-change-proposal-get', async (event: unknown, payload: unknown) => {
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
+    if (!sourceWindow) {
+      throw new Error('Editor window is unavailable')
+    }
+    return getAiChangeProposalForWindow(sourceWindow, payload)
+  })
+  ipcMain.handle('mdv:ai-change-proposal-apply', async (event: unknown, payload: unknown) => {
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
+    if (!sourceWindow) {
+      throw new Error('Editor window is unavailable')
+    }
+    return applyAiChangeProposalForWindow(sourceWindow, payload)
+  })
+  ipcMain.handle('mdv:ai-change-proposal-cancel', async (event: unknown, payload: unknown) => {
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
+    if (!sourceWindow) {
+      throw new Error('Editor window is unavailable')
+    }
+    return cancelAiChangeProposalForWindow(sourceWindow, payload)
+  })
 
   ipcMain.handle('mdv:ai-chat-send-message', async (event: unknown, payload: unknown) => {
     const payloadRecord = isObjectRecord(payload) ? payload : null
@@ -612,9 +642,35 @@ function registerMainIpcHandlers(context: MainIpcContext) {
 
     void (async () => {
       try {
-        const result = await requestOpenAiChatResponse(editorWindow, payloadRecord?.messages, (streamEvent) => {
-          emitAiChatStreamEvent(sourceWindow, { requestId, ...streamEvent })
-        })
+        const result = await requestOpenAiChatResponse(
+          editorWindow,
+          payloadRecord?.messages,
+          (streamEvent) => {
+            emitAiChatStreamEvent(sourceWindow, { requestId, ...streamEvent })
+          },
+          {
+            originRequestId: requestId,
+            sourceWindowId: sourceWindow?.id ?? editorWindow?.id ?? -1,
+          },
+        )
+
+        if (result.status === 'proposal-pending' && result.proposal) {
+          writeLog('INFO', 'ai-chat', 'OpenAI chat request paused for change proposal review', {
+            requestId,
+            responseId: result.responseId,
+            proposalId: result.proposal.proposalId,
+            model: result.model,
+          })
+          emitAiChatStreamEvent(sourceWindow, {
+            requestId,
+            type: 'proposal-pending',
+            proposal: result.proposal,
+            reply: result.reply,
+            model: result.model,
+            responseId: result.responseId,
+          })
+          return
+        }
 
         writeLog('INFO', 'ai-chat', 'OpenAI chat request completed', {
           requestId,

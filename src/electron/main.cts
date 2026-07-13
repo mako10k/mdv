@@ -40,6 +40,16 @@ const {
 const { createTrackedFileController } = require('./main/tracked-file-controller.cjs')
 const { createSemanticCacheController } = require('./main/semantic-cache-controller.cjs')
 const { createProtectedContextController } = require('./main/protected-context-controller.cjs')
+const { createChangeProposalController } = require('./main/change-proposal-controller.cjs')
+const {
+  sanitizeInteractiveProposalCallArgs,
+  sanitizeInteractiveProposalResult,
+} = require('./main/change-proposal-display.cjs')
+const {
+  isInteractiveAiChangeProposalArgs,
+  normalizeAiWriteDestinationEditorId,
+  prioritizeInteractiveProposalCall,
+} = require('./main/ai-tool-loop-order.cjs')
 const { registerAppLifecycle } = require('./main/lifecycle.cjs')
 const { registerMainIpcHandlers } = require('./main/main-ipc.cjs')
 const { createCloseController } = require('./main/close-controller.cjs')
@@ -110,6 +120,7 @@ const SEMANTIC_LAYERS = [
 
 const approvedWindowCloseIds = new Set()
 const pendingWindowCloseIds = new Set()
+const activeChangeProposalWindowIds = new Set()
 
 const debugChannel = createDebugChannelController({
   port: runtime.debugChannelPort,
@@ -246,6 +257,7 @@ const {
 // Future extractions should consider a single init-order registry or explicit dependency graph
 // instead of this pattern.
 let confirmEditorWindowCloseBridge: (window: InstanceType<typeof BrowserWindow>) => Promise<void> = async () => {}
+let clearChangeProposalForWindowBridge: (windowId: number) => void = () => {}
 
 const windowController = createWindowController({
   BrowserWindow,
@@ -271,6 +283,8 @@ const windowController = createWindowController({
   emitDebugChannelEvent,
   confirmEditorWindowClose: (window) => confirmEditorWindowCloseBridge(window),
   clearEditorRuntimeState,
+  clearChangeProposalForWindow: (windowId) => clearChangeProposalForWindowBridge(windowId),
+  isEditorActionBlocked: (windowId) => activeChangeProposalWindowIds.has(windowId),
   isManagedClient,
   registerManagedClient,
   setManagedMainWindow,
@@ -386,6 +400,15 @@ const {
   listProtectedContextItemsForWindow,
   deleteProtectedContextItemForWindow,
 } = protectedContextController
+
+const changeProposalController = createChangeProposalController({
+  onTerminal: (record) => {
+    activeChangeProposalWindowIds.delete(record.ownerWindowId)
+    createApplicationMenu()
+    emitAiChangeProposalResolved(record)
+  },
+})
+clearChangeProposalForWindowBridge = (windowId) => changeProposalController.clearWindow(windowId)
 
 const closeController = createCloseController({
   approvedWindowCloseIds,
@@ -765,6 +788,7 @@ function clearEditorRuntimeState(windowId) {
   }
 
   clearTrackedFileWatcher(windowId)
+  changeProposalController.clearWindow(windowId)
   editorRuntimeStateByWindowId.delete(windowId)
   clearSessionBuffersForWindow(windowId)
 }
@@ -4612,7 +4636,7 @@ function normalizeToolTarget(args) {
   }
 }
 
-async function executeAiToolCall(editorWindow, toolName, args) {
+async function executeAiToolCall(editorWindow, toolName, args, executionContext = {}) {
   writeLog('INFO', 'ai-tool', 'start', {
     toolName,
     args: summarizeAiToolArgsForLog(toolName, args),
@@ -4698,7 +4722,7 @@ async function executeAiToolCall(editorWindow, toolName, args) {
       result = writeAiTargetForWindow(editorWindow, {
         destination: destination && typeof destination === 'object'
           ? {
-              editorId: typeof destination.editorId === 'string' && destination.editorId.length > 0 ? destination.editorId : 'editor:active',
+              editorId: normalizeAiWriteDestinationEditorId(destination),
               span: normalizeAiSpanRef(destination.span),
             }
           : { editorId: 'editor:active', span: { kind: 'document' } },
@@ -4706,6 +4730,8 @@ async function executeAiToolCall(editorWindow, toolName, args) {
         mode: args?.mode === 'insert' || args?.mode === 'append' ? args.mode : 'replace',
         title: typeof args?.title === 'string' ? args.title : undefined,
         dryRun: args?.dryRun === true,
+      }, {
+        proposalContext: executionContext.proposalContext,
       })
     } else if (toolName === 'exact_search') {
       result = formatAiExactSearchPayloadForExternalDisplay(await exactSearchForWindow(editorWindow, {
@@ -4813,7 +4839,7 @@ function mapAiChatMessageToOpenAiInput(message) {
   }
 }
 
-async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) {
+async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent, requestContext = {}) {
   const input = buildOpenAiChatInput(editorWindow, messages)
 
   if (input.length === 0) {
@@ -4882,6 +4908,15 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
 
       const outputItems = Array.isArray(response.output) ? response.output : []
       const functionCalls = outputItems.filter((item) => item?.type === 'function_call')
+      const activeEditorId = ensureEditorRuntimeState(editorWindow).editorId
+      const orderedFunctionCalls = prioritizeInteractiveProposalCall(functionCalls, (functionCall) => {
+        try {
+          const args = parseAiToolArguments(functionCall.name, functionCall.arguments)
+          return isInteractiveAiChangeProposalArgs(functionCall.name, args, activeEditorId, isActiveEditorAlias)
+        } catch {
+          return false
+        }
+      })
       const outputItemTypes = outputItems.map((item) => item?.type || 'unknown')
       const finalOutputText = typeof response.output_text === 'string' ? response.output_text.trim() : ''
       const doneReply = streamedTextDone.trim()
@@ -4925,6 +4960,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
         }
 
         return {
+          status: 'completed',
           reply,
           model: typeof response.model === 'string' && response.model.length > 0 ? response.model : settingsState.ai.openai.model,
           responseId: previousResponseId,
@@ -4934,7 +4970,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
 
       // Accumulate explicit function_call + function_call_output items into workingInput so the next create
       // (tool result turn) has self-contained context. No previous_response_id is used (see top of function).
-      for (const functionCall of functionCalls) {
+      for (const functionCall of orderedFunctionCalls) {
         let args
         let result
 
@@ -4952,6 +4988,13 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           })
         }
 
+        const isInteractiveProposalCandidate = isInteractiveAiChangeProposalArgs(
+          functionCall.name,
+          args,
+          activeEditorId,
+          isActiveEditorAlias,
+        )
+
         writeLog('INFO', 'ai-chat', 'OpenAI function_call received', {
           iteration,
           responseId: previousResponseId,
@@ -4960,21 +5003,31 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           args: summarizeAiToolArgsForLog(functionCall.name, args),
         })
 
+        const callEventContent = formatToolEventContent(
+          isInteractiveProposalCandidate ? sanitizeInteractiveProposalCallArgs(args) : args,
+        )
         toolEvents.push({
           phase: 'call',
           title: `${functionCall.name} call`,
-          content: formatToolEventContent(args),
+          content: callEventContent,
         })
         onStreamEvent?.({
           type: 'tool-event',
           phase: 'call',
           title: `${functionCall.name} call`,
-          content: formatToolEventContent(args),
+          content: callEventContent,
         })
 
         if (!result) {
           try {
-            result = await executeAiToolCall(editorWindow, functionCall.name, args)
+            const proposalContext = typeof requestContext.originRequestId === 'string'
+              ? {
+                  proposalId: `proposal:${randomUUID()}`,
+                  originRequestId: requestContext.originRequestId,
+                  sourceWindowId: requestContext.sourceWindowId ?? editorWindow.id,
+                }
+              : null
+            result = await executeAiToolCall(editorWindow, functionCall.name, args, { proposalContext })
           } catch (error) {
             result = buildAiToolErrorResult(functionCall.name, error)
           }
@@ -4988,17 +5041,31 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent) 
           result: summarizeAiToolResultForLog(functionCall.name, result),
         })
 
+        const resultEventContent = formatToolEventContent(
+          isInteractiveProposalCandidate ? sanitizeInteractiveProposalResult(result) : result,
+        )
         toolEvents.push({
           phase: 'result',
           title: `${functionCall.name} result`,
-          content: formatToolEventContent(result),
+          content: resultEventContent,
         })
         onStreamEvent?.({
           type: 'tool-event',
           phase: 'result',
           title: `${functionCall.name} result`,
-          content: formatToolEventContent(result),
+          content: resultEventContent,
         })
+
+        if (result?.changeProposal?.proposalId) {
+          return {
+            status: 'proposal-pending',
+            proposal: result.changeProposal,
+            reply: '',
+            model: typeof response.model === 'string' && response.model.length > 0 ? response.model : settingsState.ai.openai.model,
+            responseId: previousResponseId,
+            toolEvents,
+          }
+        }
 
         // Append both the call (for context) and the output. This grows workingInput for the next iteration
         // so the model sees the full chain for this assistant response without depending on previous_response_id.
@@ -5042,6 +5109,39 @@ function emitAiChatStreamEvent(targetWindow, payload) {
   }
 
   targetContents.send('mdv:ai-chat-stream-event', payload)
+}
+
+function emitAiChangeProposalOpen(targetWindow, proposal) {
+  if (!targetWindow || targetWindow.isDestroyed() || targetWindow.webContents?.isDestroyed()) {
+    return
+  }
+
+  targetWindow.webContents.send('mdv:ai-change-proposal-open', proposal)
+}
+
+function emitAiChangeProposalResolved(record) {
+  const payload = {
+    proposalId: record.proposalId,
+    originRequestId: record.originRequestId,
+    editorId: record.editorId,
+    title: record.title,
+    status: record.status,
+    ...(record.reason ? { reason: record.reason } : {}),
+    ...(Array.isArray(record.selectedHunkIds) ? { selectedHunkIds: record.selectedHunkIds } : {}),
+    ...(Number.isFinite(Number(record.appliedHunkCount)) ? { appliedHunkCount: Number(record.appliedHunkCount) } : {}),
+    baselineFingerprint: record.baselineFingerprint,
+    ...(record.resultFingerprint ? { resultFingerprint: record.resultFingerprint } : {}),
+    resolvedAt: record.resolvedAt,
+  }
+  const targetWindowIds = new Set([record.ownerWindowId, record.sourceWindowId])
+
+  for (const windowId of targetWindowIds) {
+    const targetWindow = BrowserWindow.fromId(windowId)
+    if (!targetWindow || targetWindow.isDestroyed() || targetWindow.webContents?.isDestroyed()) {
+      continue
+    }
+    targetWindow.webContents.send('mdv:ai-change-proposal-resolved', payload)
+  }
 }
 
 function broadcastSettingsChanged() {
@@ -5182,22 +5282,25 @@ async function materializeWriteSources(editorWindow, sources) {
   return output
 }
 
-function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolvedOffsets, content, mode, options = {}) {
-  const startOffset = mode === 'append' ? resolvedOffsets.endOffset : resolvedOffsets.startOffset
-  const endOffset = mode === 'replace'
-    ? resolvedOffsets.endOffset
-    : mode === 'append'
-      ? resolvedOffsets.endOffset
-      : resolvedOffsets.startOffset
-  const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
-  const writtenSpan = normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length)
-  const replacedSpan = normalizeOffsetsToSpan(currentText, startOffset, endOffset)
+function buildAiWritePreviewPayloadFromPlan(editorWindow, plan, options = {}) {
+  const {
+    editorId,
+    currentText,
+    nextText,
+    writtenSpan,
+    replacedSpan,
+    replacedStartOffset,
+    replacedEndOffset,
+    mode,
+    wouldWriteBytes,
+  } = plan
   const publicPreviewText = abbreviateInlineDataImageMarkdownInText(nextText)
   const maxPreviewChars = getInlineTokenBudget() * DEFAULT_TOKEN_TO_CHAR_RATIO
   const markdownPreview = publicPreviewText.slice(0, maxPreviewChars)
   const markdownPreviewTruncated = publicPreviewText.length > markdownPreview.length
   const markdownPreviewAbbreviated = publicPreviewText !== nextText
-  const shouldCreatePreviewBuffer = markdownPreviewTruncated || markdownPreviewAbbreviated
+  const shouldCreatePreviewBuffer = options.createPreviewBuffer !== false
+    && (markdownPreviewTruncated || markdownPreviewAbbreviated)
   const previewBufferRecord = shouldCreatePreviewBuffer
     ? createSessionBuffer(editorWindow, {
         title: typeof options.title === 'string' && options.title.trim().length > 0
@@ -5211,7 +5314,7 @@ function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolve
     span: writtenSpan,
     mode,
     bytesWritten: 0,
-    wouldWriteBytes: Buffer.byteLength(content, 'utf8'),
+    wouldWriteBytes,
     dryRun: true,
     wouldCreate: options.wouldCreate === true,
     markdownPreview,
@@ -5219,7 +5322,7 @@ function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolve
     markdownPreviewAbbreviated,
     preview: createPreviewText(publicPreviewText),
     replacedSpan,
-    replacedTextPreview: createPreviewText(abbreviateInlineDataImageMarkdownSlice(currentText, startOffset, endOffset)),
+    replacedTextPreview: createPreviewText(abbreviateInlineDataImageMarkdownSlice(currentText, replacedStartOffset, replacedEndOffset)),
   }
 
   if (previewBufferRecord) {
@@ -5232,6 +5335,28 @@ function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolve
   }
 
   return result
+}
+
+function buildAiWritePreviewPayload(editorWindow, editorId, currentText, resolvedOffsets, content, mode, options = {}) {
+  const startOffset = mode === 'append' ? resolvedOffsets.endOffset : resolvedOffsets.startOffset
+  const endOffset = mode === 'replace'
+    ? resolvedOffsets.endOffset
+    : mode === 'append'
+      ? resolvedOffsets.endOffset
+      : resolvedOffsets.startOffset
+  const nextText = `${currentText.slice(0, startOffset)}${content}${currentText.slice(endOffset)}`
+
+  return buildAiWritePreviewPayloadFromPlan(editorWindow, {
+    editorId,
+    currentText,
+    nextText,
+    writtenSpan: normalizeOffsetsToSpan(nextText, startOffset, startOffset + content.length),
+    replacedSpan: normalizeOffsetsToSpan(currentText, startOffset, endOffset),
+    replacedStartOffset: startOffset,
+    replacedEndOffset: endOffset,
+    mode,
+    wouldWriteBytes: Buffer.byteLength(content, 'utf8'),
+  }, options)
 }
 
 function waitForWindowDidFinishLoad(targetWindow) {
@@ -5288,7 +5413,96 @@ async function createNewEditorWindowFromContent(content, title) {
   return writeResult
 }
 
-async function writeAiTargetForWindow(editorWindow, payload) {
+async function buildInteractiveAiChangeProposal(editorWindow, payload, resolvedTarget, content, mode, proposalContext) {
+  const capture = await requestEditorWindowData(editorWindow, {
+    type: 'capture-change-proposal',
+    proposalId: proposalContext.proposalId,
+    destination: {
+      editorId: resolvedTarget.editorId,
+      span: resolvedTarget.span,
+    },
+    content,
+    mode,
+  })
+
+  if (
+    !capture
+    || capture.proposalId !== proposalContext.proposalId
+    || capture.editorId !== resolvedTarget.editorId
+    || typeof capture.baselineMarkdown !== 'string'
+    || typeof capture.proposedMarkdown !== 'string'
+    || typeof capture.documentIdentity?.instanceId !== 'string'
+    || (capture.documentIdentity.currentFilePath !== null && typeof capture.documentIdentity.currentFilePath !== 'string')
+    || capture.mode !== mode
+    || !Number.isFinite(Number(capture.wouldWriteBytes))
+  ) {
+    throw new Error('Renderer returned an invalid change proposal capture')
+  }
+
+  const replacedOffsets = resolveNormalizedSpanToOffsets(capture.baselineMarkdown, capture.replacedSpan)
+  const expectedProposedMarkdown = `${capture.baselineMarkdown.slice(0, replacedOffsets.startOffset)}${content}${capture.baselineMarkdown.slice(replacedOffsets.endOffset)}`
+  const expectedWrittenSpan = normalizeOffsetsToSpan(
+    expectedProposedMarkdown,
+    replacedOffsets.startOffset,
+    replacedOffsets.startOffset + content.length,
+  )
+
+  if (
+    capture.proposedMarkdown !== expectedProposedMarkdown
+    || JSON.stringify(capture.span) !== JSON.stringify(expectedWrittenSpan)
+    || Number(capture.wouldWriteBytes) !== Buffer.byteLength(content, 'utf8')
+  ) {
+    throw new Error('Renderer change proposal capture drifted from the materialized write contract')
+  }
+
+  const proposal = changeProposalController.createProposal({
+    proposalId: proposalContext.proposalId,
+    originRequestId: proposalContext.originRequestId,
+    ownerWindowId: editorWindow.id,
+    sourceWindowId: proposalContext.sourceWindowId,
+    editorId: capture.editorId,
+    documentIdentity: capture.documentIdentity,
+    title: typeof payload?.title === 'string' && payload.title.trim().length > 0
+      ? payload.title.trim()
+      : capture.title,
+    mode: capture.mode,
+    span: capture.span,
+    replacedSpan: capture.replacedSpan,
+    wouldWriteBytes: capture.wouldWriteBytes,
+    baselineFingerprint: fingerprintMarkdown(capture.baselineMarkdown),
+    resultFingerprint: fingerprintMarkdown(capture.proposedMarkdown),
+    beforeMarkdown: capture.baselineMarkdown,
+    proposedMarkdown: capture.proposedMarkdown,
+  })
+  const publicResult = buildAiWritePreviewPayloadFromPlan(editorWindow, {
+    editorId: capture.editorId,
+    currentText: capture.baselineMarkdown,
+    nextText: capture.proposedMarkdown,
+    writtenSpan: capture.span,
+    replacedSpan: capture.replacedSpan,
+    replacedStartOffset: replacedOffsets.startOffset,
+    replacedEndOffset: replacedOffsets.endOffset,
+    mode: capture.mode,
+    wouldWriteBytes: capture.wouldWriteBytes,
+  }, {
+    title: payload?.title,
+    createPreviewBuffer: proposal === null,
+  })
+
+  if (!proposal) {
+    return publicResult
+  }
+
+  activeChangeProposalWindowIds.add(editorWindow.id)
+  createApplicationMenu()
+  emitAiChangeProposalOpen(editorWindow, proposal)
+  return {
+    ...publicResult,
+    changeProposal: proposal,
+  }
+}
+
+async function writeAiTargetForWindow(editorWindow, payload, options = {}) {
   const runtimeState = touchEditorRuntimeState(editorWindow)
   const destination = payload?.destination
   const dryRun = payload?.dryRun === true
@@ -5384,6 +5598,17 @@ async function writeAiTargetForWindow(editorWindow, payload) {
   const content = await materializeWriteSources(editorWindow, payload?.sources)
 
   if (dryRun) {
+    if (options.proposalContext) {
+      return buildInteractiveAiChangeProposal(
+        editorWindow,
+        payload,
+        resolvedTarget,
+        content,
+        nextMode,
+        options.proposalContext,
+      )
+    }
+
     const fullDocumentTarget = await readFullTargetTextForWindow(editorWindow, {
       target: {
         editorId: resolvedTarget.editorId,
@@ -5488,6 +5713,85 @@ async function listAiBuffersForWindow(editorWindow) {
   ]
 
   return { buffers }
+}
+
+function getAiChangeProposalForWindow(editorWindow, payload) {
+  const proposalId = typeof payload?.proposalId === 'string' ? payload.proposalId : ''
+  if (!proposalId) {
+    throw new Error('Change proposal ID is required')
+  }
+
+  return changeProposalController.getProposal(proposalId, editorWindow.id)
+}
+
+async function applyAiChangeProposalForWindow(editorWindow, payload) {
+  const proposalId = typeof payload?.proposalId === 'string' ? payload.proposalId : ''
+  const selectedHunkIds = Array.isArray(payload?.selectedHunkIds)
+    ? payload.selectedHunkIds.filter((value) => typeof value === 'string')
+    : []
+
+  if (!proposalId) {
+    throw new Error('Change proposal ID is required')
+  }
+
+  const applyPlan = changeProposalController.beginApply(proposalId, editorWindow.id, selectedHunkIds)
+  const targetWindow = BrowserWindow.fromId(applyPlan.ownerWindowId)
+
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return changeProposalController.completeApply(proposalId, 'stale', {
+      reason: 'editor-window-unavailable',
+    })
+  }
+
+  try {
+    const result = await requestEditorWindowData(targetWindow, {
+      type: 'apply-change-proposal',
+      proposalId,
+      editorId: applyPlan.editorId,
+      expectedDocumentIdentity: applyPlan.documentIdentity,
+      expectedBaselineMarkdown: applyPlan.expectedBaselineMarkdown,
+      nextMarkdown: applyPlan.nextMarkdown,
+    })
+
+    if (result?.proposalId !== proposalId || result?.editorId !== applyPlan.editorId) {
+      return changeProposalController.completeApply(proposalId, 'indeterminate', {
+        reason: 'mismatched-renderer-acknowledgement',
+      })
+    }
+
+    if (result?.status === 'stale') {
+      return changeProposalController.completeApply(proposalId, 'stale', {
+        reason: typeof result.reason === 'string' ? result.reason : 'baseline-changed',
+      })
+    }
+
+    if (result?.status !== 'applied') {
+      return changeProposalController.completeApply(proposalId, 'indeterminate', {
+        reason: 'invalid-renderer-acknowledgement',
+      })
+    }
+
+    return changeProposalController.completeApply(proposalId, 'applied', {
+      resultFingerprint: fingerprintMarkdown(applyPlan.nextMarkdown),
+    })
+  } catch (error) {
+    writeLog('ERROR', 'ai-change-proposal', 'Apply outcome is indeterminate', {
+      proposalId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return changeProposalController.completeApply(proposalId, 'indeterminate', {
+      reason: 'renderer-acknowledgement-lost',
+    })
+  }
+}
+
+function cancelAiChangeProposalForWindow(editorWindow, payload) {
+  const proposalId = typeof payload?.proposalId === 'string' ? payload.proposalId : ''
+  if (!proposalId) {
+    throw new Error('Change proposal ID is required')
+  }
+
+  return changeProposalController.cancelProposal(proposalId, editorWindow.id)
 }
 
 function disposeBufferForWindow(editorWindow, payload) {
@@ -5638,6 +5942,9 @@ registerMainIpcHandlers({
   semanticSearchForWindow,
   writeAiTargetForWindow,
   listAiBuffersForWindow,
+  getAiChangeProposalForWindow,
+  applyAiChangeProposalForWindow,
+  cancelAiChangeProposalForWindow,
   requestOpenAiChatResponse,
   emitAiChatStreamEvent,
   openExternalLink,

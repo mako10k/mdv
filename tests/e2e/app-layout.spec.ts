@@ -163,6 +163,10 @@ async function installDesktopImageResolutionStub(page: Page, options: {
     manifestPath: string
   } | null
   dataUrlMap: Record<string, string>
+  changeProposal?: boolean
+  changeProposalDetailDelayMs?: number
+  changeProposalDetailError?: string
+  changeProposalCancelFailures?: number
 } = { dataUrlMap: {} }) {
   await page.addInitScript((config) => {
     const baseSettings: MdvSettings = {
@@ -227,6 +231,116 @@ async function installDesktopImageResolutionStub(page: Page, options: {
 
     const testWindow = window as Window
     const existingDesktop = testWindow.mdvDesktop as Partial<DesktopApi> | undefined
+    let aiEditorRequestCallback: ((request: MdvAiEditorRequest) => void | Promise<void>) | null = null
+    let changeProposalOpenCallback: ((proposal: MdvAiChangeProposalSummary) => void) | null = null
+    let changeProposalResolvedCallback: ((resolution: MdvAiChangeProposalResolution) => void) | null = null
+    let menuActionCallback: ((action: MdvMenuAction) => void) | null = null
+    let pendingAiEditorResponse: {
+      resolve: (payload: MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null) => void
+      reject: (error: Error) => void
+    } | null = null
+    let capturedProposal: MdvAiChangeProposalCapturePayload | null = null
+    let lastApplyPayload: { proposalId: string; selectedHunkIds: string[] } | null = null
+    let forceStaleApply = false
+    let cancelProposalCount = 0
+    let remainingCancelFailures = config.changeProposalCancelFailures ?? 0
+    const proposalId = 'proposal:e2e'
+    const proposalHunks: MdvAiChangeProposalHunk[] = [
+      {
+        hunkId: `${proposalId}:hunk:1`,
+        oldStart: 1,
+        oldLines: 5,
+        newStart: 1,
+        newLines: 5,
+        lines: [' # Proposal', ' ', '-alpha', '+ALPHA', ' one', ' two'],
+      },
+      {
+        hunkId: `${proposalId}:hunk:2`,
+        oldStart: 9,
+        oldLines: 4,
+        newStart: 9,
+        newLines: 4,
+        lines: [' eight', ' nine', '-lambda', '+LAMBDA', ' omega'],
+      },
+    ]
+
+    const requestAiEditor = (request: MdvAiEditorRequest) => new Promise<MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null>((resolve, reject) => {
+      if (!aiEditorRequestCallback) {
+        reject(new Error('AI editor request callback is unavailable'))
+        return
+      }
+
+      pendingAiEditorResponse = { resolve, reject }
+      void aiEditorRequestCallback(request)
+    })
+
+    const buildProposalSummary = (capture: MdvAiChangeProposalCapturePayload): MdvAiChangeProposalSummary => ({
+      proposalId,
+      originRequestId: 'request:e2e',
+      editorId: capture.editorId,
+      title: 'Two line updates',
+      mode: 'replace',
+      hunkCount: proposalHunks.length,
+      wouldWriteBytes: capture.wouldWriteBytes,
+      span: capture.span,
+      replacedSpan: capture.replacedSpan,
+      baselineFingerprint: 'baseline:e2e',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    })
+
+    const buildProposalDetail = (): MdvAiChangeProposalDetail => {
+      if (!capturedProposal) {
+        throw new Error('Proposal has not been captured')
+      }
+
+      return {
+        ...buildProposalSummary(capturedProposal),
+        hunks: proposalHunks,
+      }
+    }
+
+    const emitProposalResolution = (resolution: MdvAiChangeProposalResolution) => {
+      changeProposalResolvedCallback?.(resolution)
+      return resolution
+    }
+
+    if (config.changeProposal) {
+      const proposalTestWindow = testWindow as Window & {
+        __mdvChangeProposalTest?: {
+          open: () => Promise<void>
+          getLastApplyPayload: () => { proposalId: string; selectedHunkIds: string[] } | null
+          forceStaleApply: () => void
+          dispatchMenuAction: (action: MdvMenuAction) => void
+          getCancelCount: () => number
+        }
+      }
+      proposalTestWindow.__mdvChangeProposalTest = {
+        open: async () => {
+          const proposedMarkdown = '# Proposal\n\nALPHA\none\ntwo\nthree\nfour\nfive\neight\nnine\nLAMBDA\nomega\n'
+          const response = await requestAiEditor({
+            requestId: 'capture:e2e',
+            type: 'capture-change-proposal',
+            proposalId,
+            destination: { editorId: 'editor:e2e', span: { kind: 'document' } },
+            content: proposedMarkdown,
+            mode: 'replace',
+          })
+
+          if (!response || !('baselineMarkdown' in response)) {
+            throw new Error('Expected capture response')
+          }
+          capturedProposal = response
+          changeProposalOpenCallback?.(buildProposalSummary(response))
+        },
+        getLastApplyPayload: () => lastApplyPayload,
+        forceStaleApply: () => {
+          forceStaleApply = true
+        },
+        dispatchMenuAction: (action) => menuActionCallback?.(action),
+        getCancelCount: () => cancelProposalCount,
+      }
+    }
 
     const nextDesktop = {
       ...existingDesktop,
@@ -286,7 +400,14 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       sendServerCommandResult: () => {},
       onOpenFileRequested: () => () => {},
       notifyInitialLaunchOpenHandled: () => {},
-      onMenuAction: () => () => {},
+      onMenuAction: (callback: (action: MdvMenuAction) => void) => {
+        menuActionCallback = callback
+        return () => {
+          if (menuActionCallback === callback) {
+            menuActionCallback = null
+          }
+        }
+      },
       sendAiChatMessage: async () => ({ status: 'started', requestId: 'test-request' }),
       onAiChatStreamEvent: () => () => {},
       getAiChatContext: async () => null,
@@ -300,8 +421,120 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       writeAiActiveSelection: async () => null,
       writeAiTarget: async () => null,
       listAiBuffers: async () => null,
-      onAiEditorRequest: () => () => {},
-      sendAiEditorResponse: () => {},
+      getAiChangeProposal: async () => {
+        if (config.changeProposalDetailDelayMs) {
+          await new Promise((resolve) => window.setTimeout(resolve, config.changeProposalDetailDelayMs))
+        }
+        if (config.changeProposalDetailError) {
+          throw new Error(config.changeProposalDetailError)
+        }
+        return buildProposalDetail()
+      },
+      applyAiChangeProposal: async (payload: { proposalId: string; selectedHunkIds: string[] }) => {
+        if (!capturedProposal) {
+          throw new Error('Proposal has not been captured')
+        }
+
+        lastApplyPayload = {
+          proposalId: payload.proposalId,
+          selectedHunkIds: [...payload.selectedHunkIds],
+        }
+        let nextMarkdown = capturedProposal.baselineMarkdown
+        if (payload.selectedHunkIds.includes(proposalHunks[0].hunkId)) {
+          nextMarkdown = nextMarkdown.replace('\nalpha\n', '\nALPHA\n')
+        }
+        if (payload.selectedHunkIds.includes(proposalHunks[1].hunkId)) {
+          nextMarkdown = nextMarkdown.replace('\nlambda\n', '\nLAMBDA\n')
+        }
+
+        const response = await requestAiEditor({
+          requestId: 'apply:e2e',
+          type: 'apply-change-proposal',
+          proposalId,
+          editorId: capturedProposal.editorId,
+          expectedDocumentIdentity: capturedProposal.documentIdentity,
+          expectedBaselineMarkdown: forceStaleApply
+            ? `${capturedProposal.baselineMarkdown}\nexternal edit`
+            : capturedProposal.baselineMarkdown,
+          nextMarkdown,
+        })
+        const status = response && 'status' in response ? response.status : 'stale'
+
+        return emitProposalResolution({
+          proposalId,
+          originRequestId: 'request:e2e',
+          editorId: capturedProposal.editorId,
+          title: 'Two line updates',
+          status,
+          ...(status === 'stale' && response && 'reason' in response ? { reason: response.reason } : {}),
+          selectedHunkIds: [...payload.selectedHunkIds],
+          appliedHunkCount: status === 'applied' ? payload.selectedHunkIds.length : undefined,
+          baselineFingerprint: 'baseline:e2e',
+          resultFingerprint: status === 'applied' ? 'result:e2e' : undefined,
+          resolvedAt: new Date().toISOString(),
+        })
+      },
+      cancelAiChangeProposal: async () => {
+        cancelProposalCount += 1
+        if (remainingCancelFailures > 0) {
+          remainingCancelFailures -= 1
+          throw new Error('cancel unavailable')
+        }
+        const detail = buildProposalDetail()
+        return emitProposalResolution({
+          proposalId,
+          originRequestId: 'request:e2e',
+          editorId: detail.editorId,
+          title: detail.title,
+          status: 'cancelled',
+          baselineFingerprint: detail.baselineFingerprint,
+          resolvedAt: new Date().toISOString(),
+        })
+      },
+      onAiChangeProposalOpen: (callback: (proposal: MdvAiChangeProposalSummary) => void) => {
+        changeProposalOpenCallback = callback
+        return () => {
+          if (changeProposalOpenCallback === callback) {
+            changeProposalOpenCallback = null
+          }
+        }
+      },
+      onAiChangeProposalResolved: (callback: (resolution: MdvAiChangeProposalResolution) => void) => {
+        changeProposalResolvedCallback = callback
+        return () => {
+          if (changeProposalResolvedCallback === callback) {
+            changeProposalResolvedCallback = null
+          }
+        }
+      },
+      onAiEditorRequest: (callback: (request: MdvAiEditorRequest) => void | Promise<void>) => {
+        aiEditorRequestCallback = callback
+        return () => {
+          if (aiEditorRequestCallback === callback) {
+            aiEditorRequestCallback = null
+          }
+        }
+      },
+      sendAiEditorResponse: (response: Parameters<DesktopApi['sendAiEditorResponse']>[0]) => {
+        const pending = pendingAiEditorResponse
+        pendingAiEditorResponse = null
+        if (!pending) {
+          return
+        }
+        if (response.ok === false) {
+          pending.reject(new Error(response.error ?? 'AI editor request failed'))
+          return
+        }
+        const responsePayload = response.payload
+        if (
+          responsePayload
+          && (('baselineMarkdown' in responsePayload) || ('status' in responsePayload))
+        ) {
+          pending.resolve(responsePayload)
+          return
+        }
+        pending.resolve(null)
+      },
       openExternalLink: async () => ({ status: 'opened' }),
       log: () => {},
       getLogPath: async () => '',
@@ -309,6 +542,29 @@ async function installDesktopImageResolutionStub(page: Page, options: {
 
     testWindow.mdvDesktop = nextDesktop as DesktopApi
   }, options)
+}
+
+const CHANGE_PROPOSAL_BASELINE = '# Proposal\n\nalpha\none\ntwo\nthree\nfour\nfive\neight\nnine\nlambda\nomega\n'
+
+async function setupChangeProposalPage(page: Page) {
+  await installDesktopImageResolutionStub(page, {
+    dataUrlMap: {},
+    changeProposal: true,
+    changeProposalDetailDelayMs: 500,
+  })
+  await page.goto('/')
+  await openWritePanel(page)
+  await replaceMarkdownDocument(page, CHANGE_PROPOSAL_BASELINE)
+  await page.evaluate(async () => {
+    const proposalTest = (window as Window & {
+      __mdvChangeProposalTest?: { open: () => Promise<void> }
+    }).__mdvChangeProposalTest
+    await proposalTest?.open()
+  })
+  const dialog = page.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+  await expect(dialog).toBeVisible()
+  await expect(page.locator('.change-preview-toggle input')).toHaveCount(2)
+  await expect(dialog.getByText(/期限.*選択内容は破棄|Expires at.*selection will be discarded/i)).toBeVisible()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -323,6 +579,211 @@ test('startup shows preview as the primary surface', async ({ page }) => {
   await expect(page.getByRole('button', { name: /(文書全体をコピー|Copy full document)/ })).toHaveCount(0)
   await expect(computedStyle(page, '.preview-panel', 'visibility')).resolves.toBe('visible')
   await expect(computedStyle(page, '.editor-panel', 'visibility')).resolves.toBe('hidden')
+})
+
+test.describe('AI change proposal review', () => {
+  test('cancels the main proposal if detail loading fails', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await installDesktopImageResolutionStub(proposalPage, {
+      dataUrlMap: {},
+      changeProposal: true,
+      changeProposalDetailDelayMs: 500,
+      changeProposalDetailError: 'detail unavailable',
+    })
+    await proposalPage.goto('/')
+    await openWritePanel(proposalPage)
+    await replaceMarkdownDocument(proposalPage, CHANGE_PROPOSAL_BASELINE)
+    await proposalPage.evaluate(async () => {
+      await (window as Window & {
+        __mdvChangeProposalTest?: { open: () => Promise<void> }
+      }).__mdvChangeProposalTest?.open()
+    })
+
+    const dialog = proposalPage.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('status')).toBeVisible()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => proposalPage.evaluate(() => {
+      return (window as Window & {
+        __mdvChangeProposalTest?: { getCancelCount: () => number }
+      }).__mdvChangeProposalTest?.getCancelCount() ?? 0
+    })).toBe(1)
+    await expect(proposalPage.locator('.statusbar-status')).toContainText('detail unavailable')
+
+    await proposalPage.close()
+  })
+
+  test('keeps the modal active and allows Cancel retry when detail fallback cancellation fails', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await installDesktopImageResolutionStub(proposalPage, {
+      dataUrlMap: {},
+      changeProposal: true,
+      changeProposalDetailDelayMs: 500,
+      changeProposalDetailError: 'detail unavailable',
+      changeProposalCancelFailures: 1,
+    })
+    await proposalPage.goto('/')
+    await openWritePanel(proposalPage)
+    await replaceMarkdownDocument(proposalPage, CHANGE_PROPOSAL_BASELINE)
+    await proposalPage.evaluate(async () => {
+      await (window as Window & {
+        __mdvChangeProposalTest?: { open: () => Promise<void> }
+      }).__mdvChangeProposalTest?.open()
+    })
+
+    const dialog = proposalPage.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('alert')).toContainText('detail unavailable')
+    await expect(dialog.getByRole('alert')).toContainText('cancel unavailable')
+    await expect.poll(() => proposalPage.evaluate(() => {
+      return (window as Window & {
+        __mdvChangeProposalTest?: { getCancelCount: () => number }
+      }).__mdvChangeProposalTest?.getCancelCount() ?? 0
+    })).toBe(1)
+
+    await dialog.getByRole('button', { name: /^(キャンセル|Cancel)$/ }).click()
+
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => proposalPage.evaluate(() => {
+      return (window as Window & {
+        __mdvChangeProposalTest?: { getCancelCount: () => number }
+      }).__mdvChangeProposalTest?.getCancelCount() ?? 0
+    })).toBe(2)
+    await expect(proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('alpha')
+
+    await proposalPage.close()
+  })
+
+  test('traps keyboard focus, makes the workspace inert, and cancels with Escape', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await setupChangeProposalPage(proposalPage)
+
+    await expect.poll(() => proposalPage.evaluate(() => {
+      const dialog = document.querySelector('.change-preview-dialog')
+      return dialog?.contains(document.activeElement) ?? false
+    })).toBe(true)
+
+    expect(await proposalPage.evaluate(() => {
+      const backdrop = document.querySelector('.change-preview-backdrop')
+      return backdrop?.parentElement
+        ? Array.from(backdrop.parentElement.children)
+            .filter((element) => element !== backdrop)
+            .every((element) => element instanceof HTMLElement && element.inert)
+        : false
+    })).toBe(true)
+
+    const activePanelBeforeShortcut = await proposalPage.locator('.view-switch button.active').getAttribute('aria-label')
+    await proposalPage.keyboard.press('Control+2')
+    await proposalPage.keyboard.press('F5')
+    await proposalPage.evaluate(() => {
+      const proposalTest = (window as Window & {
+        __mdvChangeProposalTest?: { dispatchMenuAction: (action: MdvMenuAction) => void }
+      }).__mdvChangeProposalTest
+      proposalTest?.dispatchMenuAction('show-preview')
+    })
+    await expect(proposalPage.getByRole('dialog')).toBeVisible()
+    await expect(proposalPage.locator('.view-switch button.active')).toHaveAttribute('aria-label', activePanelBeforeShortcut ?? '')
+
+    await proposalPage.locator('.change-preview-dialog').focus()
+    await proposalPage.keyboard.press('Shift+Tab')
+    expect(await proposalPage.evaluate(() => {
+      return document.querySelector('.change-preview-dialog')?.contains(document.activeElement) ?? false
+    })).toBe(true)
+
+    for (let index = 0; index < 8; index += 1) {
+      await proposalPage.keyboard.press(index % 2 === 0 ? 'Tab' : 'Shift+Tab')
+      expect(await proposalPage.evaluate(() => {
+        return document.querySelector('.change-preview-dialog')?.contains(document.activeElement) ?? false
+      })).toBe(true)
+    }
+
+    await proposalPage.keyboard.press('Escape')
+    await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
+    await expect(proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()).toContainText('alpha')
+
+    await proposalPage.close()
+  })
+
+  test('keeps the editor unchanged until Apply and sends only selected hunk IDs', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await setupChangeProposalPage(proposalPage)
+
+    const editor = proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(editor).toContainText('alpha')
+    await expect(editor).toContainText('lambda')
+    await expect(editor).not.toContainText('ALPHA')
+    await expect(editor).not.toContainText('LAMBDA')
+
+    const dialog = proposalPage.getByRole('dialog', { name: /(AI の変更提案を確認|Review AI change proposal)/ })
+    const hunkToggles = proposalPage.locator('.change-preview-toggle input')
+    await expect(hunkToggles).toHaveCount(2)
+    await hunkToggles.nth(0).click()
+    await hunkToggles.nth(1).click()
+
+    const applyButton = proposalPage.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ })
+    await expect(applyButton).toBeDisabled()
+
+    await hunkToggles.nth(1).click()
+    await expect(dialog.getByText(/未選択の 1 件を破棄|discards 1 unselected change/i)).toBeVisible()
+    await applyButton.click()
+
+    await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
+    await expect(editor).toContainText('alpha')
+    await expect(editor).not.toContainText('ALPHA')
+    await expect(editor).toContainText('LAMBDA')
+    const applyPayload = await proposalPage.evaluate(() => {
+      return (window as Window & {
+        __mdvChangeProposalTest?: {
+          getLastApplyPayload: () => { proposalId: string; selectedHunkIds: string[] } | null
+        }
+      }).__mdvChangeProposalTest?.getLastApplyPayload() ?? null
+    })
+    expect(applyPayload).toEqual({
+      proposalId: 'proposal:e2e',
+      selectedHunkIds: ['proposal:e2e:hunk:2'],
+    })
+
+    await proposalPage.close()
+  })
+
+  test('fails stale Apply closed without changing the editor', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await setupChangeProposalPage(proposalPage)
+    await proposalPage.evaluate(() => {
+      const proposalTest = (window as Window & {
+        __mdvChangeProposalTest?: { forceStaleApply: () => void }
+      }).__mdvChangeProposalTest
+      proposalTest?.forceStaleApply()
+    })
+
+    await proposalPage.getByRole('button', { name: /(選択した.*適用|Apply .* selected)/ }).click()
+
+    const editor = proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
+    await expect(editor).toContainText('alpha')
+    await expect(editor).toContainText('lambda')
+    await expect(editor).not.toContainText('ALPHA')
+    await expect(editor).not.toContainText('LAMBDA')
+    await expect(proposalPage.locator('.statusbar-status')).toContainText(/(文書が変更されたため|document changed)/i)
+
+    await proposalPage.close()
+  })
+
+  test('Cancel closes the proposal without changing the editor', async ({ page }) => {
+    const proposalPage = await page.context().newPage()
+    await setupChangeProposalPage(proposalPage)
+
+    await proposalPage.getByRole('button', { name: /^(キャンセル|Cancel)$/ }).click()
+
+    const editor = proposalPage.locator('.toastui-editor-md-container .toastui-editor').first()
+    await expect(proposalPage.getByRole('dialog')).toHaveCount(0)
+    await expect(editor).toContainText('alpha')
+    await expect(editor).toContainText('lambda')
+    await expect(editor).not.toContainText('ALPHA')
+    await expect(editor).not.toContainText('LAMBDA')
+
+    await proposalPage.close()
+  })
 })
 
 test('editor mode keeps the outline and a non-zero Toast UI surface', async ({ page }) => {
@@ -1321,6 +1782,7 @@ test.describe('AI chat streaming', () => {
         | { requestId: string; type: 'text-delta'; delta: string }
         | { requestId: string; type: 'tool-event'; phase: 'call' | 'result'; title: string; content: string }
         | { requestId: string; type: 'completed'; reply: string; model: string; responseId: string | null }
+        | { requestId: string; type: 'proposal-pending'; proposal: MdvAiChangeProposalSummary; reply: string; model: string; responseId: string | null }
 
       const baseSettings: MdvSettings = {
         version: 3,
@@ -1385,6 +1847,8 @@ test.describe('AI chat streaming', () => {
       const testWindow = window as Window
       const existingDesktop = testWindow.mdvDesktop as Partial<DesktopApi> | undefined
       let streamCallback: ((event: TestStreamEvent) => void) | null = null
+      let proposalResolvedCallback: ((resolution: MdvAiChangeProposalResolution) => void) | null = null
+      let dispatchCount = 0
 
       const nextDesktop = {
         ...existingDesktop,
@@ -1435,7 +1899,57 @@ test.describe('AI chat streaming', () => {
           }),
         },
         sendAiChatMessage: async (payload: TestDispatchPayload) => {
+          dispatchCount += 1
           window.setTimeout(() => {
+            if (dispatchCount > 1) {
+              const timestamp = new Date().toISOString()
+              const latestMessage = payload.messages[payload.messages.length - 1]?.content ?? ''
+              const resolutionStatus = latestMessage.includes('indeterminate') ? 'indeterminate' : 'applied'
+              streamCallback?.({
+                requestId: payload.requestId,
+                type: 'tool-event',
+                phase: 'result',
+                title: 'write_target result',
+                content: JSON.stringify({ dryRun: true, changeProposal: { proposalId: 'proposal:chat' } }),
+              })
+              streamCallback?.({
+                requestId: payload.requestId,
+                type: 'proposal-pending',
+                proposal: {
+                  proposalId: 'proposal:chat',
+                  originRequestId: payload.requestId,
+                  editorId: 'editor:chat',
+                  title: 'Two line updates',
+                  mode: 'replace',
+                  hunkCount: 2,
+                  wouldWriteBytes: 24,
+                  span: { start: { line: 1, column: 1 }, end: { line: 2, column: 1 }, isEmpty: false },
+                  replacedSpan: { start: { line: 1, column: 1 }, end: { line: 2, column: 1 }, isEmpty: false },
+                  baselineFingerprint: 'baseline:chat',
+                  createdAt: timestamp,
+                  expiresAt: new Date(Date.now() + 600_000).toISOString(),
+                },
+                reply: 'RAW_PROVISIONAL_TOOL_ITERATION_SECRET',
+                model: 'gpt-test',
+                responseId: 'resp_proposal',
+              })
+              window.setTimeout(() => {
+                proposalResolvedCallback?.({
+                  proposalId: 'proposal:chat',
+                  originRequestId: payload.requestId,
+                  editorId: 'editor:chat',
+                  title: 'Two line updates',
+                  status: resolutionStatus,
+                  selectedHunkIds: ['proposal:chat:hunk:2'],
+                  appliedHunkCount: resolutionStatus === 'applied' ? 1 : undefined,
+                  baselineFingerprint: 'baseline:chat',
+                  resultFingerprint: resolutionStatus === 'applied' ? 'result:chat' : undefined,
+                  resolvedAt: new Date().toISOString(),
+                })
+              }, 10)
+              return
+            }
+
             streamCallback?.({
               requestId: 'unrelated-request',
               type: 'text-delta',
@@ -1478,6 +1992,14 @@ test.describe('AI chat streaming', () => {
             }
           }
         },
+        onAiChangeProposalResolved: (callback: (resolution: MdvAiChangeProposalResolution) => void) => {
+          proposalResolvedCallback = callback
+          return () => {
+            if (proposalResolvedCallback === callback) {
+              proposalResolvedCallback = null
+            }
+          }
+        },
       } satisfies Partial<DesktopApi>
 
       testWindow.mdvDesktop = nextDesktop as DesktopApi
@@ -1491,6 +2013,25 @@ test.describe('AI chat streaming', () => {
     await expect(aiPage.getByText('Working reply')).toBeVisible()
     await expect(aiPage.locator('.chat-tool-summary-meta').getByText('Selection loaded')).toBeVisible()
     await expect(aiPage.getByText('ignore me')).toHaveCount(0)
+
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).fill('Propose a change')
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
+
+    await expect(aiPage.locator('.ai-chat-transcript')).toContainText('Two line updates')
+    await expect(aiPage.locator('.ai-chat-transcript')).toContainText('この AI ターンは提案作成時点で終了し、自動再開しません')
+    await expect(aiPage.locator('.ai-chat-transcript')).toContainText('依頼に残作業がある場合')
+    await expect(aiPage.locator('.chat-tool-entry').last()).toContainText(/適用しました|Applied/i)
+    await expect(aiPage.locator('.ai-chat-transcript')).not.toContainText('RAW_PROVISIONAL_TOOL_ITERATION_SECRET')
+    await expect(aiPage.locator('.ai-chat-transcript')).not.toContainText('RAW_BEFORE_SECRET')
+    await expect(aiPage.locator('.ai-chat-transcript')).not.toContainText('RAW_AFTER_SECRET')
+    await expect(aiPage.locator('.ai-chat-transcript')).not.toContainText('baselineFingerprint')
+
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).fill('Propose indeterminate')
+    await aiPage.getByPlaceholder(/アシスタントにメッセージを送る|Message the assistant/).press('Enter')
+
+    await expect(aiPage.locator('.chat-tool-entry').last()).toContainText('適用済みの可能性があります')
+    await expect(aiPage.locator('.chat-tool-entry').last()).toContainText('現在の文書を確認してから')
+    await expect(aiPage.locator('.chat-tool-entry').last()).not.toContainText('baselineFingerprint')
 
     await aiPage.close()
   })

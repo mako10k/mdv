@@ -50,6 +50,7 @@ type ContextAttachment = {
 
 type Message = MdvAiChatMessage & {
   id: string
+  modelContent?: string
   contextAttachments?: ContextAttachment[]
   excludeFromModel?: boolean
   isStreaming?: boolean
@@ -83,8 +84,10 @@ function createInitialMessages(welcome: string): Message[] {
 }
 
 function buildMessageContent(message: Message, chatText: ReturnType<typeof useI18n>['t']['chat']): string {
+  const messageContent = message.modelContent ?? message.content
+
   if (!message.contextAttachments?.length) {
-    return message.content
+    return messageContent
   }
 
   const attachments = message.contextAttachments.map((attachment) => {
@@ -116,7 +119,7 @@ function buildMessageContent(message: Message, chatText: ReturnType<typeof useI1
     return hintLines.join('\n')
   })
 
-  return [...attachments, message.content].join('\n\n')
+  return [...attachments, messageContent].join('\n\n')
 }
 
 function toModelMessages(messages: Message[], chatText: ReturnType<typeof useI18n>['t']['chat']): MdvAiChatMessage[] {
@@ -130,7 +133,31 @@ function toModelMessages(messages: Message[], chatText: ReturnType<typeof useI18
 }
 
 function getTranscriptTextLength(messages: Message[]): number {
-  return messages.reduce((total, message) => total + message.content.length, 0)
+  return messages.reduce((total, message) => total + (message.modelContent ?? message.content).length, 0)
+}
+
+function formatChangeProposalResolution(
+  resolution: MdvAiChangeProposalResolution,
+  chatText: ReturnType<typeof useI18n>['t']['chat'],
+): { content: string; toast: string } {
+  let result: string
+
+  if (resolution.status === 'applied') {
+    result = chatText.changeProposalApplied(resolution.title, resolution.appliedHunkCount ?? 0)
+  } else if (resolution.status === 'cancelled') {
+    result = chatText.changeProposalCancelled(resolution.title)
+  } else if (resolution.status === 'stale') {
+    result = chatText.changeProposalStale(resolution.title)
+  } else if (resolution.status === 'indeterminate') {
+    result = chatText.changeProposalIndeterminate(resolution.title)
+  } else {
+    result = chatText.changeProposalInvalidated(resolution.title)
+  }
+
+  return {
+    content: `${result}\n\n${chatText.changeProposalContinuationRequired}`,
+    toast: result,
+  }
 }
 
 function getAssistantDeltaFlushDelayMs(input: {
@@ -853,6 +880,29 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
       return
     }
 
+    if (event.type === 'proposal-pending') {
+      if (assistantMessageId) {
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          title: event.model,
+          content: t.chat.changeProposalPending(event.proposal.title),
+          isStreaming: false,
+          streamPhase: undefined,
+          streamDetail: null,
+        }), { forceScroll: true })
+      }
+
+      assistantStreamPhaseRef.current = null
+      assistantStreamDetailRef.current = null
+      assistantStreamedTextLengthRef.current = 0
+      activeRequestIdRef.current = null
+      activeAssistantMessageIdRef.current = null
+      setIsSending(false)
+      clearStatusToastSlot('request')
+      showStatusToast(t.chat.status.changeProposalPending)
+      return
+    }
+
     if (assistantMessageId) {
       updateMessage(assistantMessageId, (message) => ({
         ...message,
@@ -883,13 +933,40 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
     showStatusToast(t.chat.status.openAiRequestFailed, { tone: 'error' })
   })
 
+  const handleAiChangeProposalResolved = useEffectEvent((resolution: MdvAiChangeProposalResolution) => {
+    const display = formatChangeProposalResolution(resolution, t.chat)
+    appendToolMessage({
+      id: crypto.randomUUID(),
+      role: 'tool',
+      title: t.chat.changeProposalResultTitle,
+      content: display.content,
+      modelContent: JSON.stringify({
+        proposalId: resolution.proposalId,
+        status: resolution.status,
+        title: resolution.title,
+        reason: resolution.reason ?? null,
+        selectedHunkIds: resolution.selectedHunkIds ?? [],
+        baselineFingerprint: resolution.baselineFingerprint,
+        resultFingerprint: resolution.resultFingerprint ?? null,
+        resolvedAt: resolution.resolvedAt,
+      }, null, 2),
+    }, { forceScroll: true })
+    showStatusToast(display.toast, {
+      tone: resolution.status === 'applied' ? 'success' : resolution.status === 'indeterminate' ? 'error' : 'info',
+    })
+  })
+
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onAiChatStreamEvent((event) => {
       handleAiChatStreamEvent(event)
     })
+    const unsubscribeProposal = window.mdvDesktop?.onAiChangeProposalResolved((resolution) => {
+      handleAiChangeProposalResolved(resolution)
+    })
 
     return () => {
       unsubscribe?.()
+      unsubscribeProposal?.()
 
       if (pendingAssistantDeltaTimerRef.current !== null) {
         window.clearTimeout(pendingAssistantDeltaTimerRef.current)

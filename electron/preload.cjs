@@ -2,9 +2,12 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 const pendingOpenFileRequests = []
 const pendingAiEditorRequests = []
+const pendingAiChangeProposalOpens = []
 const openFileRequestListeners = new Set()
 const aiEditorRequestListeners = new Set()
 const aiChatStreamListeners = new Set()
+const aiChangeProposalOpenListeners = new Set()
+const aiChangeProposalResolvedListeners = new Set()
 const windowCloseApprovedListeners = new Set()
 const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
@@ -35,6 +38,23 @@ ipcRenderer.on('mdv:ai-editor-request', (_event, request) => {
 ipcRenderer.on('mdv:ai-chat-stream-event', (_event, payload) => {
   for (const listener of aiChatStreamListeners) {
     listener(payload)
+  }
+})
+
+ipcRenderer.on('mdv:ai-change-proposal-open', (_event, proposal) => {
+  if (aiChangeProposalOpenListeners.size === 0) {
+    pendingAiChangeProposalOpens.push(proposal)
+    return
+  }
+
+  for (const listener of aiChangeProposalOpenListeners) {
+    listener(proposal)
+  }
+})
+
+ipcRenderer.on('mdv:ai-change-proposal-resolved', (_event, resolution) => {
+  for (const listener of aiChangeProposalResolvedListeners) {
+    listener(resolution)
   }
 })
 
@@ -119,6 +139,9 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   writeAiActiveSelection: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-active-selection', payload),
   writeAiTarget: (payload) => ipcRenderer.invoke('mdv:ai-chat-write-target', payload),
   listAiBuffers: () => ipcRenderer.invoke('mdv:ai-chat-list-buffers'),
+  getAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-get', payload),
+  applyAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-apply', payload),
+  cancelAiChangeProposal: (payload) => ipcRenderer.invoke('mdv:ai-change-proposal-cancel', payload),
   sendAiChatMessage: (payload) => ipcRenderer.invoke('mdv:ai-chat-send-message', payload),
   debug: {
     notify: (type, payload) => ipcRenderer.send('mdv:debug-channel-notify', { type, payload }),
@@ -128,6 +151,24 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
 
     return () => {
       aiChatStreamListeners.delete(callback)
+    }
+  },
+  onAiChangeProposalOpen: (callback) => {
+    aiChangeProposalOpenListeners.add(callback)
+
+    while (pendingAiChangeProposalOpens.length > 0) {
+      callback(pendingAiChangeProposalOpens.shift())
+    }
+
+    return () => {
+      aiChangeProposalOpenListeners.delete(callback)
+    }
+  },
+  onAiChangeProposalResolved: (callback) => {
+    aiChangeProposalResolvedListeners.add(callback)
+
+    return () => {
+      aiChangeProposalResolvedListeners.delete(callback)
     }
   },
   settings: {
