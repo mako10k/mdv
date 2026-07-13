@@ -1,5 +1,6 @@
 const fs = require('node:fs') as typeof import('node:fs')
 const path = require('node:path') as typeof import('node:path')
+const { OPENAI_MODEL_REGISTRY } = require('./model-registry.cjs') as typeof import('./model-registry.cjs')
 
 type AppSetPathName = 'userData' | 'logs'
 type AppGetPathName = 'appData' | 'userData' | 'logs'
@@ -114,7 +115,7 @@ function createMainProcessRuntime(app: AppLike): MainProcessRuntime {
   const managedWindowId = process.env.MDV_WINDOW_ID || managedClientId || null
   const appDisplayName = 'MarkDownViewer'
   const legacyUserDataDirName = 'mdv'
-  const defaultOpenAiModel = process.env.MDV_OPENAI_MODEL || 'gpt-5.4-mini'
+  const defaultOpenAiModel = process.env.MDV_OPENAI_MODEL || OPENAI_MODEL_REGISTRY.defaultModelId
   const defaultUpdateFeedUrl = process.env.MDV_UPDATE_FEED_URL || 'https://github.com/mako10k/mdv/releases/latest/download'
 
   configureMainProcessApp(app, { appDisplayName, e2eUserDataPath, legacyUserDataDirName })

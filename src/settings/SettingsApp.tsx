@@ -54,6 +54,29 @@ function updateSettingsWithStatus(
     })
 }
 
+function formatTokenCount(tokens: number | null, locale: MdvLocale) {
+  return tokens === null
+    ? null
+    : `${new Intl.NumberFormat(locale === 'ja' ? 'ja-JP' : 'en-US').format(tokens)} tokens`
+}
+
+function formatTokenPrice(price: { per1M: number; currency: 'USD' } | null) {
+  return price ? `$${price.per1M.toFixed(2)}` : null
+}
+
+function getModelStatusLabel(status: MdvAiModelRegistryEntry['status'], t: ReturnType<typeof getTranslations>) {
+  switch (status) {
+    case 'preview':
+      return t.settings.aiProviders.preview
+    case 'deprecated':
+      return t.settings.aiProviders.deprecated
+    case 'unavailable':
+      return t.settings.aiProviders.unavailable
+    default:
+      return t.settings.aiProviders.active
+  }
+}
+
 function SettingsApp() {
   const { themeMode, setThemeMode } = useDesktopTheme()
   const { t } = useI18n()
@@ -63,7 +86,7 @@ function SettingsApp() {
   const [providerStatus, setProviderStatus] = useState<MdvProviderStatus | null>(null)
   const [openAiDraft, setOpenAiDraft] = useState<OpenAiDraft>({
     enabled: true,
-    model: 'gpt-5.4-mini',
+    model: '',
     baseUrl: '',
   })
   const [openAiApiKeyDraft, setOpenAiApiKeyDraft] = useState('')
@@ -88,6 +111,26 @@ function SettingsApp() {
   const [logPath, setLogPath] = useState<string>(t.settings.loadingLogPath)
   const [statusText, setStatusText] = useState<string>(t.settings.loadingSettings)
   const isUpdaterConfigEditable = updaterState?.supported === true && updaterState?.status !== 'error'
+  const hasModelRegistry = Boolean(appMetadata?.aiModels)
+  const registryModels = appMetadata?.aiModels.models ?? []
+  const modelOptions = registryModels.filter((model) => model.selectable)
+  const selectedModel = registryModels.find((model) => model.modelId === openAiDraft.model) ?? null
+  const isLegacyModel = hasModelRegistry && openAiDraft.model.length > 0 && selectedModel === null
+  const isNonSelectableModel = selectedModel !== null && !selectedModel.selectable
+  const selectedModelContext = selectedModel
+    ? formatTokenCount(selectedModel.contextWindowTokens, settings?.general.locale ?? 'en')
+    : null
+  const selectedModelOutput = selectedModel
+    ? formatTokenCount(selectedModel.outputTokenLimit, settings?.general.locale ?? 'en')
+    : null
+  const selectedModelPricing = selectedModel
+    ? t.settings.aiProviders.pricingValue(
+        formatTokenPrice(selectedModel.pricing.input) ?? t.common.unavailable,
+        formatTokenPrice(selectedModel.pricing.cachedInput) ?? t.common.unavailable,
+        formatTokenPrice(selectedModel.pricing.output) ?? t.common.unavailable,
+      )
+    : null
+  const selectedModelStatus = selectedModel ? getModelStatusLabel(selectedModel.status, t) : null
 
   useEffect(() => {
     i18nRef.current = t
@@ -583,18 +626,97 @@ function SettingsApp() {
               </label>
               <label className="settings-field">
                 <span>{t.settings.aiProviders.openAiModel}</span>
-                <input
-                  type="text"
+                <select
                   value={openAiDraft.model}
-                  placeholder="gpt-5.4-mini"
                   onChange={(event) => {
                     setOpenAiDraft((currentDraft) => ({
                       ...currentDraft,
                       model: event.target.value,
                     }))
                   }}
-                />
+                >
+                  {isLegacyModel ? (
+                    <option value={openAiDraft.model} disabled>
+                      {t.settings.aiProviders.legacyModelOption(openAiDraft.model)}
+                    </option>
+                  ) : isNonSelectableModel && selectedModel ? (
+                    <option value={selectedModel.modelId} disabled>
+                      {t.settings.aiProviders.nonSelectableModelOption(
+                        selectedModel.displayName,
+                        selectedModel.modelId,
+                        selectedModelStatus ?? t.common.unavailable,
+                      )}
+                    </option>
+                  ) : null}
+                  {modelOptions.map((model) => (
+                    <option key={model.modelId} value={model.modelId}>
+                      {t.settings.aiProviders.modelOption(
+                        model.displayName,
+                        model.modelId,
+                        formatTokenCount(model.contextWindowTokens, settings?.general.locale ?? 'en') ?? t.common.unavailable,
+                        t.settings.aiProviders.compactPricingValue(
+                          formatTokenPrice(model.pricing.input) ?? t.common.unavailable,
+                          formatTokenPrice(model.pricing.output) ?? t.common.unavailable,
+                        ),
+                        getModelStatusLabel(model.status, t),
+                        model.recommended,
+                      )}
+                    </option>
+                  ))}
+                </select>
               </label>
+              {isLegacyModel ? (
+                <p className="settings-model-warning" role="alert">
+                  {t.settings.aiProviders.legacyModelWarning(openAiDraft.model)}
+                </p>
+              ) : isNonSelectableModel && selectedModel ? (
+                <p className="settings-model-warning" role="alert">
+                  {t.settings.aiProviders.nonSelectableModelWarning(
+                    selectedModel.displayName,
+                    selectedModelStatus ?? t.common.unavailable,
+                  )}
+                </p>
+              ) : null}
+              {selectedModel ? (
+                <dl className="settings-model-summary">
+                  <div>
+                    <dt>{t.settings.aiProviders.modelId}</dt>
+                    <dd>{selectedModel.modelId}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.aiProviders.provider}</dt>
+                    <dd>{selectedModel.providerId === 'openai' ? 'OpenAI' : selectedModel.providerId}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.aiProviders.contextWindow}</dt>
+                    <dd>{selectedModelContext ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.aiProviders.maxOutput}</dt>
+                    <dd>{selectedModelOutput ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.aiProviders.pricing}</dt>
+                    <dd>{selectedModelPricing ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.settings.aiProviders.status}</dt>
+                    <dd>{selectedModel.recommended
+                      ? t.settings.aiProviders.statusRecommended(selectedModelStatus ?? t.common.unavailable)
+                      : selectedModelStatus ?? t.common.unavailable}</dd>
+                  </div>
+                  {selectedModel.pricing.longContext ? (
+                    <div className="settings-model-summary-note">
+                      <dt>{t.settings.aiProviders.pricingCondition}</dt>
+                      <dd>{t.settings.aiProviders.longContextPricingNote(
+                        formatTokenCount(selectedModel.pricing.longContext.aboveInputTokens, settings?.general.locale ?? 'en') ?? t.common.unavailable,
+                        selectedModel.pricing.longContext.inputMultiplier,
+                        selectedModel.pricing.longContext.outputMultiplier,
+                      )}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : null}
               <label className="settings-field settings-field-wide">
                 <span>{t.settings.aiProviders.openAiBaseUrl}</span>
                 <input
@@ -643,7 +765,7 @@ function SettingsApp() {
                 </div>
                 <div>
                   <dt>{t.settings.aiProviders.openAiModel}</dt>
-                  <dd>{settings?.ai.openai.model ?? 'gpt-5.4-mini'}</dd>
+                  <dd>{settings?.ai.openai.model ?? appMetadata?.aiModels.defaultModelId ?? t.common.unavailable}</dd>
                 </div>
                 <div>
                   <dt>{t.settings.aiProviders.openAiBaseUrl}</dt>

@@ -4,6 +4,8 @@
 
 この文書は、AI model 選択を固定文字列設定から registry 正本ベースへ移行するための設計を定義する。
 
+`contract_state: active_contract`
+
 狙いは次の 3 つである。
 
 - settings UI で意味のある model picker を提供する
@@ -24,6 +26,23 @@
 - provider API からの動的 model discovery
 - usage metering や monthly cost estimation
 - provider ごとの高度な capability matrix 自動推定
+- reasoning effort / pro mode / prompt caching / programmatic tool calling / multi-agent の設定面追加
+
+## Active OpenAI Registry
+
+2026-07-13 時点の first slice は、OpenAI 公式の [latest model guidance](https://developers.openai.com/api/docs/guides/latest-model) と [pricing](https://developers.openai.com/api/docs/pricing) を根拠に次を登録する。
+
+| Model ID | Role | Context | Max output | Standard input / cached / output per 1M tokens |
+| --- | --- | ---: | ---: | ---: |
+| `gpt-5.6-sol` | frontier capability | 1,050,000 | 128,000 | $5.00 / $0.50 / $30.00 |
+| `gpt-5.6-terra` | intelligence / cost balance, default | 1,050,000 | 128,000 | $2.50 / $0.25 / $15.00 |
+| `gpt-5.6-luna` | cost-sensitive high volume | 1,050,000 | 128,000 | $1.00 / $0.10 / $6.00 |
+
+`gpt-5.6` alias は Sol へ route されるが、同一候補を重複表示しないため picker は canonical tier ID だけを扱う。旧 `gpt-5.4-mini` に対応する移行先として、公式に mini 相当と説明される Terra を default とする。
+
+表の価格は基準単価である。3 model とも入力が 272K tokens を超えるリクエストでは、リクエスト全体の入力単価が 2 倍、出力単価が 1.5 倍になる。この条件も registry の structured pricing metadata と Settings の選択中 model facts に表示し、固定見積りと誤認させない。
+
+GPT-5.6 は reasoning effort 省略時に `medium` となる一方、移行元の GPT-5.4 mini は実効値が通常 `none` だった。first migration は latency、cost、tool behavior を暗黙に変えないため、GPT-5.6 registry model の Responses request に `reasoning.effort: none` を明示する。reasoning effort の user-facing 設定追加は引き続き blocked scope とする。
 
 ## Ownership Boundary
 
@@ -40,6 +59,7 @@ first slice では既存の settings key `settingsState.ai.openai.model` を残�
 - 保存される選択値は registry に存在する `modelId` を基本とする
 - 新規保存で任意の未登録 model ID は受け付けない
 - 既存設定に未登録 model ID が残っている場合だけ legacy value として読み込み、warning と migration 導線を出す
+- legacy value は読込時に自動置換しない。DropDownList 上では disabled な現在値として表示し、registry 候補を選ぶまで保存しない
 - metadata、status、価格、context window は保存値からではなく registry 正本から解決する
 
 ## Canonical Data Model
@@ -64,6 +84,11 @@ type ModelPricing = {
   input: TokenPrice | null
   output: TokenPrice | null
   cachedInput?: TokenPrice | null
+  longContext: {
+    aboveInputTokens: number
+    inputMultiplier: number
+    outputMultiplier: number
+  } | null
 }
 
 type ModelRegistryEntry = {
@@ -108,25 +133,11 @@ type ModelRegistry = {
 4. warning 時は user に現在値を見せたうえで、registry default へ移行する導線を出す
 5. context transport policy は resolved entry の `contextWindowTokens` を優先し、不明なら fallback を使う
 
-## Settings View Model
+## Settings Metadata Contract
 
-settings UI は registry 全体ではなく、表示用に正規化した view model を受け取る。
+Settings UI は mutable な registry 正本へ直接アクセスせず、`get_app_metadata` と同じ main-generated typed facts を受け取る。main は model ID、provider ID、context / output limit、structured pricing、status、`selectable`、`recommended`、selected model の known 状態を決定する。renderer は locale-aware な token / price / status label と migration warning だけを組み立て、model facts や選択可否を再定義しない。
 
-```ts
-type SettingsModelOption = {
-  modelId: string
-  displayName: string
-  providerLabel: string
-  contextWindowLabel: string
-  pricingLabel: string
-  status: ModelStatus
-  statusLabel: string
-  selected: boolean
-  recommended: boolean
-  selectable: boolean
-  warning: string | null
-}
-```
+この境界により、release preflight と renderer は同じ raw facts を比較でき、表示言語は renderer の i18n に従える。Settings 専用の表示済み label shape は IPC contract に追加しない。
 
 ### Settings Display Items
 
@@ -148,8 +159,8 @@ OpenAI provider card に最低限表示する項目は次の通り。
 - 既定では `active` と `preview` だけを selectable にする
 - `deprecated` は既存選択中のときだけ warning 付きで表示する
 - `unavailable` は通常 picker に出さない
-- 選択行で display name を主表示し、補助として model ID を出す
-- context window と価格は候補比較がしやすい短い label にする
+- native DropDownList の各選択行で display name、model ID、context window、基準の input / output 価格、status を短い label として出す
+- 選択中 model の summary では cached input 価格と長文入力時の価格倍率も含む詳細を出す
 
 ### Example Price Label
 
@@ -200,4 +211,4 @@ release 側では [docs/release-workflow.md](docs/release-workflow.md) の model
 - first slice の保存キー名は既存互換のため維持するが、意味は registry `modelId` 参照へ変更する
 - 既存値が registry 非掲載でも設定ロードで落とさず、warning を出して移行を促す
 - `MDV_OPENAI_MODEL` などの environment fallback も registry 既知値だけを bootstrap 値として受け付け、未知値は warning 扱いにする
-- provider 増加時も registry shape 自体は維持し、provider 固有表示は view model で吸収する
+- provider 増加時も registry shape 自体は維持し、provider ID から表示名への変換など locale / presentation 固有処理は renderer で吸収する

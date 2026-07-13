@@ -435,6 +435,43 @@ type MdvAppMetadata = {
   version: string
   releaseTag: string
   platform: string
+  aiModels: {
+    defaultModelId: string
+    selectedModelId: string | null
+    registryVersion: string
+    updatedAt: string
+    selectedModelKnown: boolean
+    models: MdvAiModelRegistryEntry[]
+  }
+}
+
+type MdvAiModelRegistryEntry = {
+  modelId: string
+  displayName: string
+  providerId: 'openai' | 'openai-compatible'
+  family: string
+  contextWindowTokens: number | null
+  outputTokenLimit: number | null
+  status: 'active' | 'preview' | 'deprecated' | 'unavailable'
+  capabilities: Array<'responses-api' | 'streaming' | 'tool-calling' | 'reasoning'>
+  pricing: {
+    input: { per1M: number; currency: 'USD' } | null
+    output: { per1M: number; currency: 'USD' } | null
+    cachedInput: { per1M: number; currency: 'USD' } | null
+    longContext: {
+      aboveInputTokens: number
+      inputMultiplier: number
+      outputMultiplier: number
+    } | null
+  }
+  releaseStageLabel: string | null
+  isDefaultCandidate: boolean
+  enabledByDefault: boolean
+  deprecationNote: string | null
+  docsUrl: string | null
+  sortOrder: number
+  selectable: boolean
+  recommended: boolean
 }
 
 type MdvAiContextPayload = {

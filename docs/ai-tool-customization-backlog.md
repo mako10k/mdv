@@ -132,6 +132,12 @@ first slice では app-global な enabled 状態と、turn 単位の注入診断
 
 ## AI-CFG-003 Model Registry Picker
 
+`inventory_status: inventory_confirmed`
+
+`backlog_state: completed`
+
+`contract_state: active_contract`
+
 ### Goal
 
 固定 model ID 直入力ではなく、registry 正本に基づく選択 UI と metadata 表示へ移行する。
@@ -164,3 +170,10 @@ first slice では OpenAI provider を主対象にしつつ、registry shape 自
 ### Done Signal
 
 - user が model ID を暗記せずに settings から選択でき、assistant 側と metadata 側で同じ model 情報を参照できる
+
+### Completion Evidence
+
+- main-owned registry: `src/electron/main/model-registry.cts`
+- Settings DropDownList / metadata / legacy warning: `src/settings/SettingsApp.tsx`
+- runtime and introspection consumers: `src/electron/main.cts`、`src/ai-chat/ChatApp.tsx`
+- contract tests: `tests/node/electron-main-model-registry.spec.mjs`、`tests/node/electron-main-settings-controller.spec.mjs`、`tests/e2e/settings-model-picker.spec.ts`

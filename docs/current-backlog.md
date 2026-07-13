@@ -148,6 +148,7 @@ v0.1.14 で閉じた最小範囲:
 次に扱う最小範囲:
 
 - P2 Editor Expansion のうち MD-BL-020 は棚卸済みで、`write_target dryRun` preview foundation、live active editor の interactive change proposal、hunk apply / discard、manual hunk edit と main-side revalidation / canonicalization まで current accepted scope を完了した。model response から manual edit、terminal resolution までの proposal 専用 Electron integration regression も validation gate として固定済みである。次の P2 実装候補は MD-BL-021 だが、棚卸と scope 受理より先に実装へ進めない
+- AI-CFG-003 first slice は 2026-07-13 の user scope 受理に基づき、`inventory_status: inventory_confirmed`、`backlog_state: completed`、`contract_state: active_contract` とする。main-owned registry、Settings の DropDownList、legacy 値の明示移行、runtime / app metadata / context budget の共有までを current accepted scope として完了した
 - MD-BL-013 の broader UI reset、global command palette、shortcut overlay、全 command surface 再編は current accepted scope には含めず、必要になった場合に別 slice で受理する
 
 注記:
@@ -204,7 +205,7 @@ v0.1.14 で閉じた最小範囲:
 ### Supporting Backlog
 
 1. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
-2. [棚卸待ち] REL-BL-001 アップデート基盤と version metadata surface の整備
+2. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -213,6 +214,7 @@ v0.1.14 で閉じた最小範囲:
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
+- model registry の release 前整合チェックに必要な main-owned metadata surface は AI-CFG-003 first slice で完了した。updater、version metadata の他 consumer、candidate binary との release 統合は REL-BL-001 の後続として残す
 - ENG-BL-001 の 2026-06-06 時点の進捗:
   - 完了: `electron/main.cjs` を薄い wrapper へ縮退し、実体を `src/electron/main.cts` と `src/electron/main/*.cts` へ移した
   - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close / file / draft workspace / managed client の責務分解
@@ -309,7 +311,7 @@ usernote から backlog へ受理した項目は、この節で backlog ID へ�
 7. [棚卸待ち] AI-UX-003 accepted layering policy を各 AI backlog と diagnostics surface へ適用する
 8. [棚卸待ち] AI-CFG-001 Prompt File を編集・切替できる customization surface を追加する
 9. [棚卸待ち] AI-CFG-002 SKILL を登録・有効化・切替できる runtime surface を追加する
-10. [棚卸待ち] AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
+10. [完了] AI-CFG-003 model registry ベースの model picker を導入し、価格と主要 metadata を settings / app metadata へ表示する
 11. [棚卸待ち] suggest mode と audit trail を追加する
 12. [棚卸待ち] AI-UX-004 iteration limit 到達時に継続 / 中断を選べるようにする
 13. [棚卸待ち] AI-ED-001 snapshot restore inspection foundation を追加する
@@ -331,6 +333,7 @@ AI-TL-001、AI-CFG-001、AI-CFG-002、AI-CFG-003 の詳細な受け入れ条件�
 - AI-CFG-002 は SKILL の自動注入条件、ownership boundary、可視化、失敗時診断を含め、単なる prompt 断片管理にしない
 - AI-CFG-003 は固定 model 選択を置き換える product backlog とし、model ID、provider、context window、価格、deprecation 状態、default 推奨を registry 正本で管理する
 - AI-CFG-003 の release completeness は REL-BL-001 と release workflow 側で管理し、ここでは user-facing picker と metadata surface の整備を主対象にする
+- AI-CFG-003 の design contract は [docs/ai-model-registry-design.md](ai-model-registry-design.md)、decision record は [ADR 0024](adr/0024-main-owned-ai-model-registry.md) とする。allowed scope は GPT-5.6 Sol / Terra / Luna の固定 registry、Terra default、Settings DropDownList、provider / context / max output / standard API pricing / status / recommended 表示、legacy 値の保持と明示移行、runtime / app metadata / context budget の共有である。dynamic discovery、価格自動同期、usage metering、reasoning / pro / cache / PTC / multi-agent settings、provider catalog は blocked scope とする
 - AI-ED-001 は AI tool 向け snapshot handle ベース undo / redo 要望を正式 backlog へ受理した first slice であり、current buffer、AI write 前 snapshot、AI write 後 snapshot、disk snapshot を比較する inspection contract を主対象にする
 - AI-ED-001 は MD-BL-020 の preview / merge foundation と [docs/adr/0006-local-file-sync-and-conflict-save.md](adr/0006-local-file-sync-and-conflict-save.md) の snapshot-aware save contract に依存する
 - AI-ED-002 は AI-ED-001 の inspection 結果を受けて restore / merge / discard / cancel を選べる apply / resolve action を扱う

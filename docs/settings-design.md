@@ -178,7 +178,7 @@ Target categories after expansion:
 
 #### OpenAI Section
 
-現行 scaffold では `Enabled` / `Base URL` / `Model` / `API Key` の編集 UI を配線し、`Configured` は configured state の read-only 表示として扱う。first slice target では model 選択を registry 正本ベースへ移す。詳細は [docs/ai-model-registry-design.md](docs/ai-model-registry-design.md) を参照する。
+`Enabled` / `Base URL` / `Model` / `API Key` の編集 UI を配線し、`Configured` は configured state の read-only 表示として扱う。Model は main-owned registry から受け取った候補だけを扱う DropDownList とし、context window、最大出力、標準 API 価格、status、推奨状態を同じ registry facts から表示する。詳細は [docs/ai-model-registry-design.md](docs/ai-model-registry-design.md) を参照する。
 
 このとき settings が保持するのは selected modelId だけであり、context window、価格、status などの catalog facts は model registry 正本から解決する。
 
@@ -186,7 +186,8 @@ Target categories after expansion:
 - Base URL
 - Model
   - registry ベースの picker を使う
-  - 候補には display name、model ID、context window、価格、status を表示する
+  - native DropDownList の各候補には display name、model ID、context window、基準の input / output 価格、status を compact label として表示する
+  - 選択中 model の summary には cached input 価格、最大出力、推奨状態、長文入力時の価格倍率を表示する
   - deprecated model は通常候補から外し、既存選択中のときだけ warning 付きで扱う
     - first slice では既存の settings key を維持しつつ、その値として registry の `modelId` を保存する
   - registry 非掲載の legacy model 値が残っている場合は warning と migration 導線を表示する

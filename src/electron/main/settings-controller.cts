@@ -89,6 +89,7 @@ type SettingsControllerOptions = {
   settingsPath: string
   secretsPath: string
   defaultOpenAiModel: string
+  isSelectableOpenAiModel: (modelId: unknown) => boolean
   defaultUpdateFeedUrl: string | null
   appLocale: string
   createDefaultFetchAclText: () => string
@@ -102,6 +103,7 @@ type SettingsControllerOptions = {
 }
 
 type SettingsController = {
+  assertValidSettingsUpdate: (patch: unknown) => void
   createDefaultSettings: () => SettingsState
   getHasPersistedSettings: () => boolean
   getHasReadableSettings: () => boolean
@@ -128,6 +130,7 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
     settingsPath,
     secretsPath,
     defaultOpenAiModel,
+    isSelectableOpenAiModel,
     defaultUpdateFeedUrl,
     appLocale,
     createDefaultFetchAclText,
@@ -216,6 +219,21 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
 
     const trimmedValue = value.trim()
     return trimmedValue.length === 0 ? defaultOpenAiModel : trimmedValue
+  }
+
+  function assertValidSettingsUpdate(patch: unknown) {
+    if (!isPlainObject(patch) || !isPlainObject(patch.ai) || !isPlainObject(patch.ai.openai)) {
+      return
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(patch.ai.openai, 'model')) {
+      return
+    }
+
+    const modelId = patch.ai.openai.model
+    if (!isSelectableOpenAiModel(modelId)) {
+      throw new Error('Select an available OpenAI model from the model registry')
+    }
   }
 
   function normalizeSearchDepth(value: unknown): SearchDepth {
@@ -522,6 +540,7 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
   }
 
   return {
+    assertValidSettingsUpdate,
     createDefaultSettings,
     getHasPersistedSettings: () => hasPersistedSettings,
     getHasReadableSettings: () => hasReadableSettings,

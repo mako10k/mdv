@@ -272,6 +272,10 @@ test('revalidates a manual hunk edit through real Electron IPC and applies only 
     const outgoingRequest = fixture.openAiServer.requests[0]
     expect(outgoingRequest.method).toBe('POST')
     expect(outgoingRequest.url).toBe('/v1/responses')
+    expect(outgoingRequest.body).toMatchObject({
+      model: 'gpt-5.6-terra',
+      reasoning: { effort: 'none' },
+    })
     expect(outgoingRequest.rawBody).toContain('write_target')
     expect(outgoingRequest.rawBody).not.toContain(discardedProposalSecret)
     expect(outgoingRequest.rawBody).not.toContain(appliedProposalSecret)

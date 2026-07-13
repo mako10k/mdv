@@ -17,9 +17,6 @@ type ChatAppProps = {
 type ContextAttachmentKind = 'editor' | 'document' | 'selection'
 
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
-const MODEL_CONTEXT_WINDOW_BY_NAME: Record<string, number> = {
-  'gpt-5.4-mini': 128000,
-}
 const ATTACHMENT_PREVIEW_LIMIT = 220
 const ASSISTANT_DELTA_FLUSH_FAST_MS = 40
 const ASSISTANT_DELTA_FLUSH_STEADY_MS = 80
@@ -409,12 +406,18 @@ function estimateTokens(text: string): number {
   return text.length === 0 ? 0 : Math.ceil(text.length / 4)
 }
 
-function getModelContextWindow(model: string | null | undefined): number {
-  return MODEL_CONTEXT_WINDOW_BY_NAME[typeof model === 'string' ? model : ''] || DEFAULT_MODEL_CONTEXT_WINDOW
+function getModelContextWindow(
+  model: string | null | undefined,
+  contextWindows: Readonly<Record<string, number>>,
+): number {
+  return contextWindows[typeof model === 'string' ? model : ''] || DEFAULT_MODEL_CONTEXT_WINDOW
 }
 
-function getInlineAttachmentTokenBudget(model: string | null | undefined): number {
-  return Math.max(512, Math.floor(getModelContextWindow(model) * 0.05))
+function getInlineAttachmentTokenBudget(
+  model: string | null | undefined,
+  contextWindows: Readonly<Record<string, number>> = {},
+): number {
+  return Math.max(512, Math.floor(getModelContextWindow(model, contextWindows) * 0.05))
 }
 
 function formatLineBadge(text: string, span: MdvAiNormalizedSpan | null): string {
@@ -535,8 +538,9 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
   const [statusToasts, setStatusToasts] = useState<StatusToast[]>([])
   const [isSending, setIsSending] = useState(false)
   const [headerContext, setHeaderContext] = useState<MdvAiContextPayload | null>(null)
-  const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget('gpt-5.4-mini'))
+  const [inlineAttachmentTokenBudget, setInlineAttachmentTokenBudget] = useState(() => getInlineAttachmentTokenBudget(null))
   const inlineAttachmentTokenBudgetRef = useRef(inlineAttachmentTokenBudget)
+  const modelContextWindowsRef = useRef<Record<string, number>>({})
   const localeRef = useRef<'ja' | 'en'>(document.documentElement.lang === 'ja' ? 'ja' : 'en')
   const statusToastTimersRef = useRef(new Map<string, number>())
 
@@ -622,7 +626,10 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
   useEffect(() => {
     let active = true
     const applyBudgetFromSettings = (nextSettings: MdvSettings) => {
-      setInlineAttachmentTokenBudget(getInlineAttachmentTokenBudget(nextSettings.ai.openai.model))
+      setInlineAttachmentTokenBudget(getInlineAttachmentTokenBudget(
+        nextSettings.ai.openai.model,
+        modelContextWindowsRef.current,
+      ))
     }
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
       if (!active) {
@@ -648,11 +655,18 @@ function ChatApp({ variant = 'dock', autoFocusNonce = 0, onRequestClose, default
       setPendingContexts((currentContexts) => currentContexts.map((attachment) => relocalizeAttachment(attachment, nextTranslations.chat, nextTranslations.common, inlineAttachmentTokenBudgetRef.current)))
     })
 
-    void window.mdvDesktop?.settings.getSettings().then((nextSettings) => {
+    void Promise.all([
+      window.mdvDesktop?.settings.getSettings(),
+      window.mdvDesktop?.getAppMetadata?.(),
+    ]).then(([nextSettings, appMetadata]) => {
       if (!active || !nextSettings) {
         return
       }
 
+      modelContextWindowsRef.current = Object.fromEntries((appMetadata?.aiModels.models ?? [])
+        .flatMap((entry) => entry.contextWindowTokens === null
+          ? []
+          : [[entry.modelId, entry.contextWindowTokens] as const]))
       applyBudgetFromSettings(nextSettings)
     })
 

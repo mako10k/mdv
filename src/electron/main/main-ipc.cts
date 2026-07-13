@@ -169,6 +169,7 @@ type MainIpcContext = {
   checkForAppUpdates: (options: { silent: boolean }) => Promise<unknown>
   downloadAvailableUpdate: () => Promise<unknown>
   installDownloadedUpdate: () => boolean
+  assertValidSettingsUpdate: (patch: unknown) => void
   sanitizeSettings: (candidate: Record<string, unknown>) => SettingsState
   mergePlainObjects: <T>(base: T, patch: unknown) => T
   isPlainObject: (value: unknown) => value is PlainObject
@@ -256,6 +257,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     checkForAppUpdates,
     downloadAvailableUpdate,
     installDownloadedUpdate,
+    assertValidSettingsUpdate,
     sanitizeSettings,
     mergePlainObjects,
     isPlainObject,
@@ -493,6 +495,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
   })
 
   ipcMain.handle('mdv:settings-update', async (_event: unknown, patch: unknown) => {
+    assertValidSettingsUpdate(patch)
     const nextSettingsState = sanitizeSettings(mergePlainObjects(getSettingsState(), isPlainObject(patch) ? patch : {}))
     setSettingsState(nextSettingsState)
     await persistSettings()

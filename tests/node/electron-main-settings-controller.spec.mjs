@@ -9,7 +9,8 @@ function createController() {
   return createSettingsController({
     settingsPath: '/tmp/settings.json',
     secretsPath: '/tmp/secrets.json',
-    defaultOpenAiModel: 'gpt-5.4-mini',
+    defaultOpenAiModel: 'gpt-5.6-terra',
+    isSelectableOpenAiModel: (modelId) => ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(modelId),
     defaultUpdateFeedUrl: 'https://updates.example.com',
     appLocale: 'ja-JP',
     createDefaultFetchAclText: () => 'allow https://example.com/*',
@@ -29,8 +30,28 @@ test('createDefaultSettings reflects locale and defaults', () => {
 
   assert.equal(settings.general.locale, 'ja')
   assert.equal(settings.general.themeMode, 'system')
-  assert.equal(settings.ai.openai.model, 'gpt-5.4-mini')
+  assert.equal(settings.ai.openai.model, 'gpt-5.6-terra')
   assert.equal(settings.updates.feedUrl, 'https://updates.example.com')
+})
+
+test('settings keep a legacy model on load but reject it as a new update', () => {
+  const controller = createController()
+  const legacySettings = controller.sanitizeSettings({
+    ai: {
+      openai: {
+        enabled: true,
+        model: 'gpt-5.4-mini',
+      },
+    },
+  })
+
+  assert.equal(legacySettings.ai.openai.model, 'gpt-5.4-mini')
+  assert.doesNotThrow(() => controller.assertValidSettingsUpdate({
+    ai: { openai: { model: 'gpt-5.6-sol' } },
+  }))
+  assert.throws(() => controller.assertValidSettingsUpdate({
+    ai: { openai: { model: 'gpt-5.4-mini' } },
+  }), /model registry/)
 })
 
 test('sanitizeSettings clamps and normalizes invalid values', () => {

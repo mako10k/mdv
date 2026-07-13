@@ -83,6 +83,7 @@ function createContext(overrides = {}) {
     checkForAppUpdates: async () => ({ started: true }),
     downloadAvailableUpdate: async () => ({ started: true }),
     installDownloadedUpdate: () => true,
+    assertValidSettingsUpdate: () => {},
     sanitizeSettings: (value) => value,
     mergePlainObjects: (base, patch) => ({ ...base, ...patch }),
     isPlainObject: (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
@@ -150,6 +151,36 @@ test('settings bootstrap returns persisted/readable flags and launch panel', () 
     hasInitialLaunchRequest: true,
     initialPanel: 'write',
   })
+})
+
+test('settings update validates a model selection before persistence', async () => {
+  const calls = []
+  const currentSettings = { ai: { openai: { model: 'gpt-5.6-terra' } } }
+  const { handles } = createContext({
+    getSettingsState: () => currentSettings,
+    assertValidSettingsUpdate: (patch) => calls.push(['validate', patch.ai.openai.model]),
+    mergePlainObjects: (_base, patch) => patch,
+    sanitizeSettings: (value) => {
+      calls.push(['sanitize', value.ai.openai.model])
+      return value
+    },
+    setSettingsState: (value) => calls.push(['set', value.ai.openai.model]),
+    persistSettings: async () => calls.push(['persist']),
+    broadcastSettingsChanged: () => calls.push(['broadcast']),
+  })
+
+  const result = await handles.get('mdv:settings-update')({}, {
+    ai: { openai: { model: 'gpt-5.6-sol' } },
+  })
+
+  assert.deepEqual(result, { ai: { openai: { model: 'gpt-5.6-sol' } } })
+  assert.deepEqual(calls, [
+    ['validate', 'gpt-5.6-sol'],
+    ['sanitize', 'gpt-5.6-sol'],
+    ['set', 'gpt-5.6-sol'],
+    ['persist'],
+    ['broadcast'],
+  ])
 })
 
 test('open-file delegates to readUtf8File when no existing editor exists', async () => {

@@ -54,6 +54,12 @@ const { registerAppLifecycle } = require('./main/lifecycle.cjs')
 const { registerMainIpcHandlers } = require('./main/main-ipc.cjs')
 const { createCloseController } = require('./main/close-controller.cjs')
 const { createSettingsController } = require('./main/settings-controller.cjs')
+const {
+  getModelContextWindowTokens,
+  getModelRegistryMetadata,
+  getModelRuntimeReasoningEffort,
+  isSelectableModelId,
+} = require('./main/model-registry.cjs')
 const { createUpdaterController } = require('./main/updater-controller.cjs')
 const { createWindowController } = require('./main/window-controller.cjs')
 const {
@@ -88,9 +94,6 @@ const hiddenLaunchRevealTimerByWindowId = new Map()
 const editorRuntimeStateByWindowId = new Map()
 const aiSessionBuffersByEditorWindowId = new Map()
 const DEFAULT_MODEL_CONTEXT_WINDOW = 16000
-const MODEL_CONTEXT_WINDOW_BY_NAME = {
-  'gpt-5.4-mini': 128000,
-}
 const DEFAULT_TOKEN_TO_CHAR_RATIO = 4
 const DEFAULT_FETCH_REQUEST_TIMEOUT_MS = 15_000
 const DEFAULT_FETCH_IDLE_TIMEOUT_MS = 5_000
@@ -139,6 +142,7 @@ const settingsController = createSettingsController({
   settingsPath,
   secretsPath,
   defaultOpenAiModel,
+  isSelectableOpenAiModel: isSelectableModelId,
   defaultUpdateFeedUrl,
   appLocale: app.getLocale(),
   createDefaultFetchAclText,
@@ -463,7 +467,7 @@ async function showOpenDialog(window, options) {
 }
 
 function getModelContextWindow(model) {
-  return MODEL_CONTEXT_WINDOW_BY_NAME[model] || DEFAULT_MODEL_CONTEXT_WINDOW
+  return getModelContextWindowTokens(model, DEFAULT_MODEL_CONTEXT_WINDOW)
 }
 
 function getInlineTokenBudget() {
@@ -2434,6 +2438,7 @@ async function confirmAiWriteAction(parentWindow, options) {
 }
 
 const {
+  assertValidSettingsUpdate,
   createDefaultSettings,
   getHasPersistedSettings,
   getHasReadableSettings,
@@ -2585,6 +2590,7 @@ function getAppMetadata() {
     version,
     releaseTag: `v${version}`,
     platform: process.platform,
+    aiModels: getModelRegistryMetadata(settingsState.ai.openai.model),
   }
 }
 
@@ -2741,7 +2747,7 @@ const aiToolDefinitions = [
   {
     type: 'function',
     name: 'get_app_metadata',
-    description: 'Get canonical application metadata such as product name, version, release tag, and platform.',
+    description: 'Get canonical application metadata such as product name, version, release tag, platform, and the main-owned OpenAI model registry.',
     parameters: buildAiToolParameters({}),
   },
   {
@@ -3051,7 +3057,7 @@ const aiToolHelpDocs = {
     ],
   },
   get_app_metadata: {
-    summary: 'Return canonical application metadata sourced from the authoritative app version.',
+    summary: 'Return canonical application and OpenAI model-registry metadata from main-process sources of truth.',
     parameters: [],
     examples: [
       { description: 'Application metadata', args: {} },
@@ -4848,6 +4854,7 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent, 
 
   const client = createOpenAiClient()
   const openAiTools = getValidatedOpenAiToolDefinitions()
+  const runtimeReasoningEffort = getModelRuntimeReasoningEffort(settingsState.ai.openai.model)
   const toolEvents = []
   // Use an accumulating input for the tool loop. We deliberately avoid previous_response_id on all creates
   // (including continuations after function calls). This is the controlling fix for the "Previous response with id ... not found"
@@ -4870,6 +4877,9 @@ async function requestOpenAiChatResponse(editorWindow, messages, onStreamEvent, 
 
       const responseStream = createOpenAiResponseStream(client, {
         model: settingsState.ai.openai.model,
+        ...(runtimeReasoningEffort
+          ? { reasoning: { effort: runtimeReasoningEffort } }
+          : {}),
         instructions: openAiChatInstructions,
         input: workingInput,
         // previous_response_id omitted entirely (was: previousResponseId || undefined). This removes the source of
@@ -5971,6 +5981,7 @@ registerMainIpcHandlers({
   checkForAppUpdates,
   downloadAvailableUpdate,
   installDownloadedUpdate,
+  assertValidSettingsUpdate,
   sanitizeSettings,
   mergePlainObjects,
   isPlainObject,
