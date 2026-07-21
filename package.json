@@ -1,7 +1,7 @@
 {
   "name": "mdv",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Markdown workspace for Windows with editing, preview, assistant dock, and export tools.",
   "author": "GitHub Copilot",
   "type": "module",
@@ -22,7 +22,7 @@
     "codex:map": "node ./scripts/codex-workspace.mjs map",
     "codex:validate": "node ./scripts/codex-workspace.mjs validate",
     "typecheck:electron-openai": "tsc -p tsconfig.electron-openai.json --noEmit",
-    "build": "npm run mdast:build && tsc -b && npm run typecheck:electron-openai && vite build",
+    "build": "npm run mdast:build && tsc -b && npm run typecheck:electron-openai && vite build && node ./scripts/check-renderer-security-bundle.mjs",
     "start": "npm run electron:build && electron .",
     "win:host:generate": "bash ./scripts/build-win-host.sh -Action generate",
     "win:host:generate:clean": "bash ./scripts/build-win-host.sh -Action generate -Clean",
@@ -84,9 +84,10 @@
     "@toast-ui/editor": "^3.2.2",
     "commander": "^14.0.0",
     "diff": "^8.0.2",
+    "dompurify": "3.4.12",
     "electron-updater": "^6.8.3",
     "katex": "^0.17.0",
-    "markdown-it": "^14.1.0",
+    "markdown-it": "^14.3.0",
     "markdown-it-container": "^4.0.0",
     "markdown-it-footnote": "^4.0.0",
     "markdown-it-task-lists": "^2.1.1",
@@ -104,6 +105,9 @@
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.12",
     "yaml": "^2.9.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.12"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

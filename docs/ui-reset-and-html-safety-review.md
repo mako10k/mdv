@@ -31,6 +31,7 @@
 - editor の link は [src/App.tsx](../src/App.tsx) の document click hook で既定 navigation を止め、raw `href` を [electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) 経由で [src/electron/main/document-link-controller.cts](../src/electron/main/document-link-controller.cts) へ送る。HTTP(S) だけが [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) の `openExternalLink()` へ進み、local regular file は MDV で開く
 - unsupported protocol、missing path、directory は main process で block される。さらに [src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) が expected app entry 外への top-level navigation と renderer-originated new-window request を deny する
 - Markdown image、WYSIWYG image、raw HTML subresource に user-controlled `file:` URL が残っても、[src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) の Electron request boundary が packaged application assets 外への自動 load を拒否する
+- Toast UI Editor 3.2.2 の published ESM に内包された DOMPurify 2.3.3 は、[ADR 0026](adr/0026-toast-ui-sanitizer-build-binding.md) に従う Vite pre-transform で MDV の exact direct DOMPurify dependency へ接続する。package-manager override や dependency audit だけを実装更新の証拠にはせず、upstream marker が一意でなければ build を失敗させる
 
 不足している点:
 

@@ -16,6 +16,10 @@ async function readWorkspacePackageJson() {
   return JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8'))
 }
 
+async function readWorkspacePackageLock() {
+  return JSON.parse(await fs.readFile(path.join(process.cwd(), 'package-lock.json'), 'utf8'))
+}
+
 import { runReleaseCheck } from '../../scripts/check-release-candidate.mjs'
 import { runGithubReleasePreparation } from '../../scripts/prepare-github-release.mjs'
 
@@ -295,4 +299,17 @@ test('workspace package config includes Windows updater publish metadata', async
       url: 'https://github.com/mako10k/mdv/releases/latest/download',
     },
   ])
+})
+
+test('workspace resolves the patched Markdown security dependency set', async () => {
+  const packageJson = await readWorkspacePackageJson()
+  const packageLock = await readWorkspacePackageLock()
+
+  assert.equal(packageJson.dependencies['markdown-it'], '^14.3.0')
+  assert.equal(packageJson.dependencies.dompurify, '3.4.12')
+  assert.equal(packageJson.overrides.dompurify, '3.4.12')
+  assert.equal(packageLock.packages['node_modules/markdown-it'].version, '14.3.0')
+  assert.equal(packageLock.packages['node_modules/linkify-it'].version, '5.0.2')
+  assert.equal(packageLock.packages['node_modules/js-yaml'].version, '4.3.0')
+  assert.equal(packageLock.packages['node_modules/dompurify'].version, '3.4.12')
 })
