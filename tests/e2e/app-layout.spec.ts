@@ -614,6 +614,11 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         pending.resolve(null)
       },
       openExternalLink: async () => ({ status: 'opened' }),
+      openDocumentLink: async (href: string) => ({
+        status: 'opened',
+        target: /^https?:/i.test(href) ? 'external' : 'local',
+        displayName: href,
+      }),
       log: () => {},
       getLogPath: async () => '',
     } satisfies Partial<DesktopApi>
@@ -2281,6 +2286,47 @@ test.describe('markdown insert commands', () => {
     await page.locator('.view-switch button').nth(1).click()
     await expect(page.locator('.preview-panel')).toContainText('wrap me')
     await expect(page.locator('.preview-panel a')).toHaveAttribute('href', 'https://example.com')
+  })
+
+  test('preview routes a relative link through the document-link bridge without navigating', async ({ page }) => {
+    await page.evaluate(() => {
+      const testWindow = window as Window & { __openedDocumentHrefs?: string[] }
+      const desktop = testWindow.mdvDesktop
+      if (!desktop) {
+        throw new Error('Missing desktop test bridge')
+      }
+      testWindow.__openedDocumentHrefs = []
+      testWindow.mdvDesktop = {
+        ...desktop,
+        openDocumentLink: async (href) => {
+          testWindow.__openedDocumentHrefs?.push(href)
+          return { status: 'opened', target: 'local', displayName: 'next step.md' }
+        },
+      }
+    })
+    await openWritePanel(page)
+    await replaceMarkdownDocument(page, '[Next](../guide/next%20step.md#overview)\n\n![Local image](file:///tmp/local-image.png)')
+    await page.locator('.view-switch button').nth(1).click()
+    const pageUrlBefore = page.url()
+
+    await expect(page.locator('.preview-panel img[src^="file:"]')).toHaveCount(0)
+    await expect(page.locator('.preview-panel')).toContainText('![Local image](file:///tmp/local-image.png)')
+    await page.locator('.preview-panel a').click()
+
+    await expect.poll(() => page.evaluate(() => (window as Window & { __openedDocumentHrefs?: string[] }).__openedDocumentHrefs)).toEqual([
+      '../guide/next%20step.md#overview',
+    ])
+    expect(page.url()).toBe(pageUrlBefore)
+    await expect(page.locator('.statusbar')).toContainText(/MDV で開きました|Opened in MDV/)
+
+    await openWritePanel(page)
+    await switchToastEditorMode(page, 'wysiwyg')
+    await page.locator('.toastui-editor-ww-container a').click()
+    await expect.poll(() => page.evaluate(() => (window as Window & { __openedDocumentHrefs?: string[] }).__openedDocumentHrefs)).toEqual([
+      '../guide/next%20step.md#overview',
+      '../guide/next%20step.md#overview',
+    ])
+    expect(page.url()).toBe(pageUrlBefore)
   })
 
   test('image command wraps the current selection and updates the preview image', async ({ page }) => {

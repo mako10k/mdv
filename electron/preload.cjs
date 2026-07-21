@@ -191,6 +191,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
     },
   },
   openExternalLink: (href) => ipcRenderer.invoke('mdv:open-external-link', href),
+  openDocumentLink: (href) => ipcRenderer.invoke('mdv:open-document-link', href),
   onServerCommand: (callback) => {
     const wrappedListener = (_event, command) => {
       callback(command)

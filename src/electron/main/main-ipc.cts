@@ -203,6 +203,7 @@ type MainIpcContext = {
   ) => Promise<AiChatResponse>
   emitAiChatStreamEvent: (window: BrowserWindowLike | null, payload: Record<string, unknown>) => void
   openExternalLink: (window: BrowserWindowLike | null, href: string) => Promise<unknown>
+  openDocumentLink: (window: BrowserWindowLike | null, href: string) => Promise<unknown>
   ensureDraftWorkspace: (payload: unknown) => Promise<DraftWorkspace>
   importImageAsset: (payload: unknown) => Promise<ImportedImageAsset>
   cleanupImportedAssetFiles: (filePaths: unknown) => Promise<void>
@@ -286,6 +287,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     requestOpenAiChatResponse,
     emitAiChatStreamEvent,
     openExternalLink,
+    openDocumentLink,
     ensureDraftWorkspace,
     importImageAsset,
     cleanupImportedAssetFiles,
@@ -721,6 +723,14 @@ function registerMainIpcHandlers(context: MainIpcContext) {
       return { status: 'blocked' }
     }
     return openExternalLink(BrowserWindow.fromWebContents((event as IpcEventLike).sender), href)
+  })
+
+  ipcMain.handle('mdv:open-document-link', async (event: unknown, href: unknown) => {
+    if (typeof href !== 'string' || href.length === 0) {
+      writeLog('WARN', 'ipc', 'open-document-link received invalid href', href)
+      return { status: 'blocked', target: 'local', reason: 'invalid-target' }
+    }
+    return openDocumentLink(BrowserWindow.fromWebContents((event as IpcEventLike).sender), href)
   })
 
   ipcMain.handle('mdv:ensure-draft-workspace', async (_event: unknown, payload: unknown) => {

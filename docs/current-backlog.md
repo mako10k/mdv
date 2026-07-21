@@ -66,7 +66,20 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 
 ### P0 Editor Core
 
-現時点で未着手の P0 はない。MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled placeholder を Toast UI の内部 placeholder widget から app 側 overlay へ退避し、WYSIWYG 編集開始時の renderer crash を解消した。
+現時点で未着手の P0 はない。
+
+2026-07-21 MD-BL-024 rendered link activation と editor window navigation hardening 結果:
+
+- `design_contract`: [docs/link-navigation-design.md](link-navigation-design.md)
+- `contract_state: active_contract`
+- `backlog_state: completed`
+- `inventory_status: inventory_confirmed`
+- `allowed_scope`: preview / WYSIWYG の HTTP(S) external open、relative / absolute / `file:` local regular-file open、existing editor focus、main-owned navigation / new-window deny、expected app-entry identity check、packaged application assets 外への `file:` subresource deny、invalid target の fail-closed status
+- `blocked_scope`: custom protocol、directory browser、cross-document fragment jump、managed-client topology 変更、link target の write / repair / Markdown rewrite
+- `result`: renderer は raw `href` を dedicated preload IPC へ渡し、main process は source window の tracked path から local target を解決する。HTTP(S) は既存 permission flow、local regular file は MDV の new-window / existing-window focus へ分離した。全 app window は expected renderer entry 外への top-level navigation と new-window request を deny し、drift 後の load completion へ open-file request を再配送しない。さらに Electron request boundary で packaged application assets 外への `file:` subresource を拒否し、Markdown image、WYSIWYG image、raw HTML から user-controlled local file を自動 load しない
+- `evidence`: 受理根拠は 2026-07-21 Windows packaged runtime の `ERR_FILE_NOT_FOUND` navigation と続く `get-close-state` timeout。完了根拠は `src/electron/main/document-link-controller.cts`、`src/electron/main/window-controller.cts`、`tests/node/electron-main-document-link-controller.spec.mjs`、`tests/node/electron-main-window-controller.spec.mjs`、`tests/e2e/app-layout.spec.ts`、`tests/e2e-electron/document-links.spec.ts`
+
+MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled placeholder を Toast UI の内部 placeholder widget から app 側 overlay へ退避し、WYSIWYG 編集開始時の renderer crash を解消した。
 
 ### P1 Editor Comfort
 
@@ -224,6 +237,15 @@ v0.1.14 で閉じた最小範囲:
   - 残件: `src/electron/main.cts` に残る tracked-file watcher / file snapshot / AI tool orchestration / semantic cache / fetch / structure mutation などの巨大責務をさらに controller 単位へ分解する
   - 残件: `src/electron/main.cts` の `@ts-nocheck` を外せる粒度まで main process 本体の責務面積を縮め、最終的に型付けする
   - 残件: repo-wide では、wrapper としての `electron/main.cjs` 説明を除く旧参照が周辺 docs / review guidance に残っていないか継続監査する
+- ENG-BL-002:
+  - `design_contract`: [docs/local-file-sync-design.md](local-file-sync-design.md)
+  - `contract_state: active_contract`
+  - `backlog_state: completed`
+  - `inventory_status: inventory_confirmed`
+  - `allowed_scope`: watch arm / re-arm failure の bounded backoff、同一 error の log suppression、tracked path 変更 / window close での retry cancellation、manual reload fallback の維持、controller-level regression
+  - `blocked_scope`: polling、native watcher replacement、UNC backend の delivery 保証、save conflict policy 変更
+  - `result`: synchronous throw と asynchronous watcher error の両方で、error signature とは独立した連続 failure counter により retry を 1 秒、5 秒、30 秒、5 分へ backoff し、5 分で cap する。最初の 4 failure 後は既出 signature の WARN を抑止し、新しい error code / message は backoff を戻さず 1 回だけ再通知する。file change 後は failure epoch を reset する。Watcher record identity、current tracked path、window lifetime を retry 登録時と timer 発火時に再検証し、path 変更 / window close 後の stale event が旧 path を復活させない
+  - `evidence`: 受理根拠は 2026-07-21 Windows packaged runtime で UNC file watch が `EISDIR` を約 1 秒間隔で無期限 retry し、同期追記される `mdv.log` が約 119 MB まで肥大化したこと。完了根拠は `src/electron/main/tracked-file-controller.cts` と `tests/node/electron-main-tracked-file-controller.spec.mjs`
 
 ## Usernote Intake
 
@@ -419,6 +441,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
+- MD-BL-024 と ENG-BL-002 は 2026-07-21 に完了済み。rendered link activation は main-owned document navigation contract へ移し、UNC watcher failure は bounded backoff と log suppression で fail-soft にした
 - MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate、MD-BL-019 は完了済み。recommended order で次に扱う group は P2 Editor Expansion であり、画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く

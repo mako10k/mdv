@@ -20,6 +20,8 @@
 - Main process は現在 attached された file path だけを watch し、renderer へ lightweight change notification を送る。
 - Watch notification は content push ではない。Renderer は clean buffer のときだけ既存 `read-file` path で本文と snapshot を読み直し、baseline を更新する。
 - Dirty buffer で外部変更が起きた場合、renderer は editor content を自動置換しない。保存時に snapshot-aware conflict flow で user choice を求める。
+- Watch の arm / re-arm が失敗した場合は fail-soft とし、同じ error を無期限に短周期 retry / log しない。Retry は error signature の変化では reset しない bounded backoff と signature-aware log suppression を持ち、window close または tracked path 変更で確実に解除する。
+- Watch を利用できない path でも editor open / save / manual reload は維持する。Watcher failure は main process event loop や log storage を占有してはならない。
 
 ## Manual Reload Contract
 
@@ -31,6 +33,6 @@
 
 ## Non-Goals
 
-- UNC/network filesystem の watcher 実装修正や backend-specific 動作保証はこの contract に含めない。
+- UNC/network filesystem で native watcher notification が必ず届くという backend-specific 保証は含めない。
 - Polling、watcher replacement、reload interval setting は含めない。
 - Dirty buffer の強制破棄 reload、file write / mutation、save conflict policy の変更は含めない。

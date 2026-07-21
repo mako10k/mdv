@@ -9,7 +9,7 @@
 - 現行 editor renderer は [src/App.tsx](../src/App.tsx) で `markdown-it` の `html: true` を有効化している
 - 現行 AI chat renderer は [src/ai-chat/ChatMarkdown.tsx](../src/ai-chat/ChatMarkdown.tsx) で `html: false` を使っている
 - ただし両方の renderer は React 側で `dangerouslySetInnerHTML` を使って HTML 文字列を DOM に挿入している
-- 外部リンク遷移は renderer 直開きではなく main process 側の許可フローに送っている
+- editor の rendered link activation は renderer 直開きではなく main process 側の document-link flow に送り、HTTP(S) は既存の外部リンク許可フローへ、local regular file は MDV の editor window へ分岐する
 
 結論だけ先に言うと、現行の HTML 安全性は「全面的に安全」ではない。editor preview は user Markdown に含まれる raw HTML を描画できる設計であり、AI chat は通常の raw HTML を抑止しているが、Mermaid SVG と Markdown render 結果を明示的に DOM へ挿入している。エクスポート時だけ別系統のサニタイズがあるため、実行時描画と export の安全境界も一致していない。
 
@@ -28,8 +28,9 @@
 
 制限されている点:
 
-- 外部リンクは renderer から直接開かれず、main process 管理の許可フローへ送られる。[src/App.tsx](../src/App.tsx) の document click hook で横取りしたあと、[electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) を経由して [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) の `openExternalLink()` に送っている
-- `http:` / `https:` 以外の protocol は [src/App.tsx](../src/App.tsx) で弾かれる
+- editor の link は [src/App.tsx](../src/App.tsx) の document click hook で既定 navigation を止め、raw `href` を [electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) 経由で [src/electron/main/document-link-controller.cts](../src/electron/main/document-link-controller.cts) へ送る。HTTP(S) だけが [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) の `openExternalLink()` へ進み、local regular file は MDV で開く
+- unsupported protocol、missing path、directory は main process で block される。さらに [src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) が expected app entry 外への top-level navigation と renderer-originated new-window request を deny する
+- Markdown image、WYSIWYG image、raw HTML subresource に user-controlled `file:` URL が残っても、[src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) の Electron request boundary が packaged application assets 外への自動 load を拒否する
 
 不足している点:
 
@@ -62,13 +63,15 @@
 - ただし「`html: false` だから安全」と言い切れる構造ではない
 - Mermaid 由来 SVG と Markdown renderer 出力の trust boundary は明示すべき
 
-### 4. 外部リンク遷移は main process で制御される
+### 4. Document link activation と app document identity は main process で制御される
 
-- editor は [src/App.tsx](../src/App.tsx)、AI chat は [src/ai-chat/ChatApp.tsx](../src/ai-chat/ChatApp.tsx) でクリックを横取りする
-- 外部リンク遷移は renderer 直開きではなく、main process 管理で扱う。[electron/preload.cjs](../electron/preload.cjs) と [src/electron/main/main-ipc.cts](../src/electron/main/main-ipc.cts) を経由して [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) で扱う
+- editor は [src/App.tsx](../src/App.tsx)、AI chat は [src/ai-chat/ChatApp.tsx](../src/ai-chat/ChatApp.tsx) でクリックを横取りする。Editor link の current contract は [link-navigation-design](link-navigation-design.md) と [ADR 0025](adr/0025-main-owned-document-navigation-and-link-activation.md) を正とする
+- editor の HTTP(S) / local-file 分類は [src/electron/main/document-link-controller.cts](../src/electron/main/document-link-controller.cts)、external permission は [src/electron/main/file-controller.cts](../src/electron/main/file-controller.cts) で分離して扱う。AI chat の external link は従来どおり external permission flow を直接使う
 - `block-untrusted` 設定や confirmation dialog があり、許可済みルールも管理する
+- app window 自身の document identity は [src/electron/main/window-controller.cts](../src/electron/main/window-controller.cts) が保持し、renderer click helper の成否に依存せず app entry 外への navigation を拒否する
+- 同 controller は top-level navigation guard と subresource guard を分離し、production の packaged application assets を除く `file:` subresource を拒否する。top-level は request failure document を生成しないよう `will-navigate` 側で拒否する
 
-これは良い境界だが、HTML 自体のサニタイズと混同してはいけない。main process 管理のリンク遷移制御は「クリック後の防御」であり、DOM 注入面の防御ではない。
+これは良い境界だが、HTML 自体のサニタイズと混同してはいけない。main process 管理の document navigation と `file:` request 制御は DOM 注入面を無害化する一般 sanitizer ではなく、HTTP(S) subresource、event attribute、DOM 構造そのものには別の review が必要である。
 
 ## Current UI Inventory
 

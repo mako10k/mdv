@@ -112,6 +112,7 @@ function createContext(overrides = {}) {
     requestOpenAiChatResponse: async () => ({ status: 'completed', reply: 'ok', model: 'gpt', responseId: 'r1' }),
     emitAiChatStreamEvent: () => {},
     openExternalLink: async () => ({ status: 'opened' }),
+    openDocumentLink: async () => ({ status: 'opened', target: 'local', displayName: 'doc.md' }),
     ensureDraftWorkspace: async () => ({ workspaceId: 'w1', rootDir: '/tmp/w1' }),
     importImageAsset: async () => null,
     cleanupImportedAssetFiles: async () => {},
@@ -232,6 +233,24 @@ test('open-external-link blocks invalid href payloads', async () => {
   const result = await handles.get('mdv:open-external-link')(event, '')
 
   assert.deepEqual(result, { status: 'blocked' })
+})
+
+test('open-document-link delegates raw href with the sender window', async () => {
+  const calls = []
+  const { handles, focusedWindow } = createContext({
+    openDocumentLink: async (window, href) => {
+      calls.push({ window, href })
+      return { status: 'opened', target: 'local', displayName: 'target.md' }
+    },
+  })
+  const senderWindow = { id: 9, isDestroyed: () => false }
+  const event = { sender: { __window: senderWindow } }
+
+  const result = await handles.get('mdv:open-document-link')(event, '../target.md')
+
+  assert.deepEqual(result, { status: 'opened', target: 'local', displayName: 'target.md' })
+  assert.deepEqual(calls, [{ window: senderWindow, href: '../target.md' }])
+  assert.notEqual(calls[0].window, focusedWindow)
 })
 
 test('ai chat read handlers abbreviate inline data image payload text', async () => {

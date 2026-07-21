@@ -157,6 +157,13 @@ type MdvExternalLinkResult = {
   status: 'opened' | 'cancelled' | 'blocked'
 }
 
+type MdvDocumentLinkResult = {
+  status: 'opened' | 'focused' | 'cancelled' | 'blocked'
+  target: 'external' | 'local'
+  displayName?: string
+  reason?: 'invalid-target' | 'missing-source-path' | 'missing-file' | 'not-file' | 'unsupported-scheme' | 'managed-client'
+}
+
 type MdvJsonValue = string | number | boolean | null | MdvJsonValue[] | { [key: string]: MdvJsonValue }
 
 type MdvMdastHeadingOutlineItem = {
@@ -817,6 +824,7 @@ interface Window {
       onSettingsChanged: (callback: (settings: MdvSettings) => void) => () => void
     }
     openExternalLink: (href: string) => Promise<MdvExternalLinkResult>
+    openDocumentLink: (href: string) => Promise<MdvDocumentLinkResult>
     onServerCommand: (callback: (command: MdvServerCommand) => void) => () => void
     sendServerCommandResult: (payload: {
       requestId: string

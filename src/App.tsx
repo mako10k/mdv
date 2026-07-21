@@ -76,6 +76,15 @@ type MarkdownInlineToken = {
   content: string
 }
 
+type MarkdownRendererToken = {
+  attrGet: (name: string) => string | null
+  children?: MarkdownRendererToken[]
+}
+
+type MarkdownRendererLike = {
+  renderInlineAsText: (tokens: MarkdownRendererToken[], options: unknown, env: unknown) => string
+}
+
 type MarkdownParserInstance = InstanceType<typeof MarkdownIt>
 
 type MarkdownInlineParserState = {
@@ -347,6 +356,24 @@ const markdownParser = new MarkdownIt({
   .use(markdownItFootnote)
   .use(markdownItContainer, 'note')
 
+const defaultMarkdownLinkValidator = markdownParser.validateLink.bind(markdownParser)
+markdownParser.validateLink = (href: string) => /^file:/i.test(href.trim()) || defaultMarkdownLinkValidator(href)
+const defaultMarkdownImageRenderer = markdownParser.renderer.rules.image
+markdownParser.renderer.rules.image = (
+  tokens: MarkdownRendererToken[],
+  index: number,
+  options: unknown,
+  env: unknown,
+  renderer: MarkdownRendererLike,
+) => {
+  const source = tokens[index].attrGet('src')?.trim() ?? ''
+  if (/^file:/i.test(source)) {
+    const alt = renderer.renderInlineAsText(tokens[index].children ?? [], options, env)
+    return markdownParser.utils.escapeHtml(`![${alt}](${source})`)
+  }
+
+  return defaultMarkdownImageRenderer(tokens, index, options, env, renderer)
+}
 markdownParser.inline.ruler.before('image', 'inline_data_image', parseInlineDataImage)
 
 function splitMarkdownSegments(markdown: string): MarkdownSegment[] {
@@ -1313,7 +1340,7 @@ function getFocusedTypographyTarget(target: EventTarget | null): TypographyShort
   return null
 }
 
-function resolveExternalAnchor(target: EventTarget | null): HTMLAnchorElement | null {
+function resolveDocumentAnchor(target: EventTarget | null): { anchor: HTMLAnchorElement; href: string } | null {
   if (!(target instanceof Element)) {
     return null
   }
@@ -1324,21 +1351,12 @@ function resolveExternalAnchor(target: EventTarget | null): HTMLAnchorElement | 
     return null
   }
 
-  if (!anchor.href || anchor.hash === anchor.getAttribute('href')) {
+  const href = anchor.getAttribute('href')?.trim() ?? ''
+  if (!href || href.startsWith('#') || !anchor.closest('.preview-panel, .toastui-editor-ww-container')) {
     return null
   }
 
-  try {
-    const url = new URL(anchor.href)
-
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return null
-    }
-
-    return anchor
-  } catch {
-    return null
-  }
+  return { anchor, href }
 }
 
 type ToolbarButtonProps = {
@@ -5766,16 +5784,28 @@ function App() {
         return
       }
 
-      const anchor = resolveExternalAnchor(event.target)
+      const resolvedLink = resolveDocumentAnchor(event.target)
 
-      if (!anchor) {
+      if (!resolvedLink) {
         return
       }
 
       event.preventDefault()
-      void window.mdvDesktop?.openExternalLink(anchor.href).then((result) => {
-        if (!result || result.status === 'opened') {
-          setStatusText(i18nRef.current.app.status.openedLink(anchor.hostname))
+      void window.mdvDesktop?.openDocumentLink(resolvedLink.href).then((result) => {
+        if (!result) {
+          setStatusText(i18nRef.current.app.status.blockedDocumentLink)
+          return
+        }
+
+        if (result.status === 'opened') {
+          setStatusText(result.target === 'external'
+            ? i18nRef.current.app.status.openedLink(result.displayName ?? resolvedLink.href)
+            : i18nRef.current.app.status.openedLocalLink(result.displayName ?? resolvedLink.href))
+          return
+        }
+
+        if (result.status === 'focused') {
+          setStatusText(i18nRef.current.app.status.focusedLocalLink(result.displayName ?? resolvedLink.href))
           return
         }
 
@@ -5784,7 +5814,9 @@ function App() {
           return
         }
 
-        setStatusText(i18nRef.current.app.status.blockedExternalLink)
+        setStatusText(result.target === 'external'
+          ? i18nRef.current.app.status.blockedExternalLink
+          : i18nRef.current.app.status.blockedDocumentLink)
       })
     }
 

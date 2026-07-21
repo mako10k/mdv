@@ -16,6 +16,7 @@ Users may observe missed watcher notifications on some filesystem backends, incl
 - The preload bridge exposes current-file tracking and change notifications from the main process to the renderer.
 - The main process watches only the renderer's currently attached local file path and emits lightweight change events instead of pushing content automatically.
 - The main process re-arms that path watch across delete and recreate cycles so the same file path can resume synchronization after atomic saves or temporary absence.
+- Watch arm / re-arm failure is fail-soft: retries use bounded backoff and repeated failures are log-suppressed so an unsupported UNC/network watch cannot create a hot retry and synchronous-log loop. Changing the tracked path or closing the window cancels the retry lifecycle.
 - When the renderer is not dirty and the watched file changes, it reloads the file from disk and updates the synchronized baseline.
 - The renderer also provides an explicit current-file reload command through F5, the file action toolbar, and the application menu. This command follows [docs/local-file-sync-design.md](../local-file-sync-design.md), uses the existing `read-file` snapshot path, is limited to the currently attached saved file, and does not add a new preload IPC contract.
 - Manual reload is clean-buffer-only. If the renderer has unsaved changes, it reports that reload was skipped and leaves the editor content and later save conflict handling unchanged.
@@ -28,5 +29,6 @@ Users may observe missed watcher notifications on some filesystem backends, incl
 - Dirty state remains renderer-owned, but save safety depends on an explicit snapshot contract shared with the main process.
 - Non-dirty editors now follow local file edits automatically without user prompts.
 - Manual reload gives users a watcher-notification-independent fallback, but it remains a user action rather than polling, a watcher replacement, or a backend-specific watcher guarantee.
+- A backend that cannot provide a native watch may miss automatic refresh, but it must not degrade the main process event loop or grow the runtime log without bound.
 - Merge save can preserve both sides for non-overlapping edits, but conflicting edits return to the editor without writing anything.
 - Save flows on close reuse the same snapshot-aware logic, so window-close save behavior matches normal save behavior.

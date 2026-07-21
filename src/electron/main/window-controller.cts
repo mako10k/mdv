@@ -1,4 +1,5 @@
 const path = require('node:path') as typeof import('node:path')
+const { fileURLToPath, pathToFileURL } = require('node:url') as typeof import('node:url')
 
 type LaunchRequest = {
   filePath?: string | null
@@ -33,6 +34,19 @@ type BrowserWindowLike = {
     getURL: () => string
     isLoading: () => boolean
     openDevTools: (options: { mode: 'detach' }) => void
+    session?: {
+      webRequest: {
+        onBeforeRequest: (
+          filter: { urls: string[] },
+          listener: (details: {
+            url: string
+            resourceType?: string
+            webContentsId?: number
+          }, callback: (response: { cancel?: boolean }) => void) => void,
+        ) => void
+      }
+    }
+    setWindowOpenHandler: (handler: (details: { url: string }) => { action: 'deny' }) => void
   }
   loadURL: (url: string) => void
   loadFile: (filePath: string) => void
@@ -107,6 +121,7 @@ type WindowController = {
   getSettingsWindow: () => BrowserWindowLike | null
   handleEditorWindowClosed: (editorWindowId: number) => void
   isEditorWindow: (targetWindow: BrowserWindowLike | null | undefined) => boolean
+  isExpectedRendererDocument: (targetWindow: BrowserWindowLike, targetUrl: string) => boolean
   loadRendererWindow: (targetWindow: BrowserWindowLike, htmlFileName: string) => void
   openAboutWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
   openAiChatWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
@@ -149,10 +164,135 @@ function createWindowController({
   let fetchPermissionsWindowOwnerEditorId: number | null = null
   let aboutWindow: BrowserWindowLike | null = null
   let aboutWindowOwnerEditorId: number | null = null
+  const expectedRendererUrlByWindowId = new Map<number, string>()
+  const navigationGuardedWindowIds = new Set<number>()
+  const fileRequestGuardedSessions = new WeakSet<object>()
+
+  function getRendererEntryUrl(htmlFileName: string) {
+    if (isDev) {
+      return new URL(htmlFileName, 'http://localhost:5173/').href
+    }
+
+    return pathToFileURL(path.join(rendererDistPath, htmlFileName)).href
+  }
+
+  function isExpectedRendererDocument(targetWindow: BrowserWindowLike, targetUrl: string) {
+    const expectedUrl = expectedRendererUrlByWindowId.get(targetWindow.id)
+    if (!expectedUrl) {
+      return true
+    }
+
+    try {
+      const expected = new URL(expectedUrl)
+      const target = new URL(targetUrl)
+      return expected.protocol === target.protocol
+        && expected.host === target.host
+        && expected.pathname === target.pathname
+        && expected.search === target.search
+    } catch {
+      return false
+    }
+  }
+
+  function isTrustedRendererFileRequest(targetUrl: string) {
+    if (isDev) {
+      return false
+    }
+
+    try {
+      const parsedUrl = new URL(targetUrl)
+      if (parsedUrl.protocol !== 'file:') {
+        return false
+      }
+
+      const rendererRoot = path.resolve(rendererDistPath)
+      const requestedPath = path.resolve(fileURLToPath(parsedUrl))
+      const relativePath = path.relative(rendererRoot, requestedPath)
+      return relativePath === ''
+        || (relativePath !== '..' && !relativePath.startsWith(`..${path.sep}`) && !path.isAbsolute(relativePath))
+    } catch {
+      return false
+    }
+  }
+
+  function protectRendererSessionFileRequests(targetWindow: BrowserWindowLike) {
+    const rendererSession = targetWindow.webContents.session
+    if (!rendererSession || fileRequestGuardedSessions.has(rendererSession)) {
+      return
+    }
+
+    fileRequestGuardedSessions.add(rendererSession)
+    rendererSession.webRequest.onBeforeRequest(
+      { urls: ['file://*/*'] },
+      (details, callback) => {
+        // Top-level document identity is enforced by will-navigate. Let that
+        // guard cancel the navigation without converting the current page into
+        // Chromium's request-failure document.
+        if (details.resourceType === 'mainFrame') {
+          callback({})
+          return
+        }
+
+        if (isTrustedRendererFileRequest(details.url)) {
+          callback({})
+          return
+        }
+
+        callback({ cancel: true })
+        writeLog('WARN', 'navigation', 'Blocked renderer local file subresource outside application assets', {
+          targetUrl: details.url,
+          resourceType: details.resourceType ?? null,
+          webContentsId: details.webContentsId ?? null,
+        })
+      },
+    )
+  }
+
+  function protectRendererWindowNavigation(targetWindow: BrowserWindowLike, expectedUrl: string) {
+    expectedRendererUrlByWindowId.set(targetWindow.id, expectedUrl)
+    protectRendererSessionFileRequests(targetWindow)
+    if (navigationGuardedWindowIds.has(targetWindow.id)) {
+      return
+    }
+
+    navigationGuardedWindowIds.add(targetWindow.id)
+    targetWindow.once('closed', () => {
+      expectedRendererUrlByWindowId.delete(targetWindow.id)
+      navigationGuardedWindowIds.delete(targetWindow.id)
+    })
+    targetWindow.webContents.on('will-navigate', (...args: unknown[]) => {
+      const event = args[0] as { preventDefault?: () => void }
+      const navigationTarget = typeof args[1] === 'string'
+        ? args[1]
+        : typeof (args[1] as { url?: unknown } | undefined)?.url === 'string'
+          ? (args[1] as { url: string }).url
+          : ''
+
+      if (isExpectedRendererDocument(targetWindow, navigationTarget)) {
+        return
+      }
+
+      event.preventDefault?.()
+      writeLog('WARN', 'navigation', 'Blocked renderer top-level navigation', {
+        windowId: targetWindow.id,
+        targetUrl: navigationTarget,
+      })
+    })
+    targetWindow.webContents.setWindowOpenHandler(({ url }) => {
+      writeLog('WARN', 'navigation', 'Blocked renderer new-window request', {
+        windowId: targetWindow.id,
+        targetUrl: url,
+      })
+      return { action: 'deny' }
+    })
+  }
 
   function loadRendererWindow(targetWindow: BrowserWindowLike, htmlFileName: string) {
+    const expectedUrl = getRendererEntryUrl(htmlFileName)
+    protectRendererWindowNavigation(targetWindow, expectedUrl)
+
     if (isDev) {
-      targetWindow.loadURL(`http://localhost:5173/${htmlFileName}`)
+      targetWindow.loadURL(expectedUrl)
       return
     }
 
@@ -175,8 +315,18 @@ function createWindowController({
     return Boolean(targetWindow) && !isSettingsWindow(targetWindow) && !isFetchPermissionsWindow(targetWindow) && !isAboutWindow(targetWindow)
   }
 
+  function isUsableEditorWindow(targetWindow: BrowserWindowLike | null | undefined): targetWindow is BrowserWindowLike {
+    if (!targetWindow) {
+      return false
+    }
+
+    return !targetWindow.isDestroyed()
+      && isEditorWindow(targetWindow)
+      && isExpectedRendererDocument(targetWindow, targetWindow.webContents.getURL())
+  }
+
   function getDefaultEditorWindow() {
-    return BrowserWindow.getAllWindows().find((targetWindow) => isEditorWindow(targetWindow)) ?? null
+    return BrowserWindow.getAllWindows().find((targetWindow) => isUsableEditorWindow(targetWindow)) ?? null
   }
 
   function getEditorWindowForAiAction(candidateWindow: BrowserWindowLike | null | undefined) {
@@ -187,7 +337,7 @@ function createWindowController({
     if (isSettingsWindow(candidateWindow)) {
       if (settingsWindowOwnerEditorId) {
         const ownerWindow = BrowserWindow.fromId(settingsWindowOwnerEditorId)
-        if (ownerWindow && !ownerWindow.isDestroyed()) {
+        if (isUsableEditorWindow(ownerWindow)) {
           return ownerWindow
         }
       }
@@ -198,7 +348,7 @@ function createWindowController({
     if (isFetchPermissionsWindow(candidateWindow)) {
       if (fetchPermissionsWindowOwnerEditorId) {
         const ownerWindow = BrowserWindow.fromId(fetchPermissionsWindowOwnerEditorId)
-        if (ownerWindow && !ownerWindow.isDestroyed()) {
+        if (isUsableEditorWindow(ownerWindow)) {
           return ownerWindow
         }
       }
@@ -209,7 +359,7 @@ function createWindowController({
     if (isAboutWindow(candidateWindow)) {
       if (aboutWindowOwnerEditorId) {
         const ownerWindow = BrowserWindow.fromId(aboutWindowOwnerEditorId)
-        if (ownerWindow && !ownerWindow.isDestroyed()) {
+        if (isUsableEditorWindow(ownerWindow)) {
           return ownerWindow
         }
       }
@@ -217,12 +367,11 @@ function createWindowController({
       return getDefaultEditorWindow()
     }
 
-    return candidateWindow
+    return isUsableEditorWindow(candidateWindow) ? candidateWindow : getDefaultEditorWindow()
   }
 
   function sendMenuAction(action: string) {
     const targetWindow = getEditorWindowForAiAction(BrowserWindow.getFocusedWindow())
-      ?? BrowserWindow.getAllWindows().find((targetWindow) => isEditorWindow(targetWindow))
 
     if (!targetWindow) {
       writeLog('WARN', 'menu', 'No window available for action', action)
@@ -553,6 +702,14 @@ function createWindowController({
       return
     }
 
+    if (!isExpectedRendererDocument(targetWindow, targetWindow.webContents.getURL())) {
+      writeLog('WARN', 'navigation', 'Ignored open-file dispatch outside expected app entry', {
+        windowId: targetWindow.id,
+        currentUrl: targetWindow.webContents.getURL(),
+      })
+      return
+    }
+
     const resolvedLaunchRequest = {
       filePath: launchRequest.filePath || null,
       initialPanel: resolveInitialPanelForLaunch(launchRequest),
@@ -634,7 +791,16 @@ function createWindowController({
     })
 
     mainWindow.webContents.on('did-finish-load', () => {
-      writeLog('INFO', 'webContents', 'did-finish-load', mainWindow.webContents.getURL())
+      const currentUrl = mainWindow.webContents.getURL()
+      writeLog('INFO', 'webContents', 'did-finish-load', currentUrl)
+
+      if (!isExpectedRendererDocument(mainWindow, currentUrl)) {
+        writeLog('WARN', 'navigation', 'Ignored load completion outside expected app entry', {
+          windowId: mainWindow.id,
+          currentUrl,
+        })
+        return
+      }
 
       if (initialLaunchRequest?.filePath || initialLaunchRequest?.explicitInitialPanel) {
         dispatchOpenFileToWindow(mainWindow, initialLaunchRequest)
@@ -727,6 +893,8 @@ function createWindowController({
       approvedWindowCloseIds.delete(mainWindow.id)
       pendingWindowCloseIds.delete(mainWindow.id)
       launchStateByWindowId.delete(mainWindow.id)
+      expectedRendererUrlByWindowId.delete(mainWindow.id)
+      navigationGuardedWindowIds.delete(mainWindow.id)
       clearEditorRuntimeState(mainWindow.id)
       handleEditorWindowClosed(mainWindow.id)
     })
@@ -771,6 +939,7 @@ function createWindowController({
     getSettingsWindow: () => settingsWindow,
     handleEditorWindowClosed,
     isEditorWindow,
+    isExpectedRendererDocument,
     loadRendererWindow,
     openAboutWindow,
     openAiChatWindow,

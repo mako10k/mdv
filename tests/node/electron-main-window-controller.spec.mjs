@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const { createWindowController } = require('../../electron/lib/main/window-controller.cjs')
@@ -9,6 +10,16 @@ function createBrowserWindowHarness() {
   const allWindows = []
   let nextId = 1
   let focusedWindow = null
+  let beforeFileRequestFilter = null
+  let beforeFileRequestListener = null
+  const sharedSession = {
+    webRequest: {
+      onBeforeRequest: (filter, listener) => {
+        beforeFileRequestFilter = filter
+        beforeFileRequestListener = listener
+      },
+    },
+  }
 
   class FakeBrowserWindow {
     constructor(options = {}) {
@@ -20,13 +31,19 @@ function createBrowserWindowHarness() {
       this.focusCount = 0
       this.loadURLCalls = []
       this.loadFileCalls = []
+      this.currentUrl = 'app://index.html'
+      this.windowOpenHandler = null
       this.listeners = new Map()
       this.webContents = {
         isLoading: () => false,
         send: () => {},
         on: (event, handler) => this.onWebContents(event, handler),
-        getURL: () => 'app://index.html',
+        getURL: () => this.currentUrl,
         openDevTools: () => {},
+        session: sharedSession,
+        setWindowOpenHandler: (handler) => {
+          this.windowOpenHandler = handler
+        },
       }
       allWindows.push(this)
     }
@@ -35,6 +52,15 @@ function createBrowserWindowHarness() {
       const handlers = this.listeners.get(event) || []
       handlers.push(handler)
       this.listeners.set(event, handlers)
+    }
+
+    once(event, handler) {
+      const wrappedHandler = (...args) => {
+        const handlers = this.listeners.get(event) || []
+        this.listeners.set(event, handlers.filter((candidate) => candidate !== wrappedHandler))
+        handler(...args)
+      }
+      this.on(event, wrappedHandler)
     }
 
     emit(event, ...args) {
@@ -88,10 +114,12 @@ function createBrowserWindowHarness() {
 
     loadURL(url) {
       this.loadURLCalls.push(url)
+      this.currentUrl = url
     }
 
     loadFile(filePath) {
       this.loadFileCalls.push(filePath)
+      this.currentUrl = pathToFileURL(filePath).href
     }
   }
 
@@ -99,7 +127,17 @@ function createBrowserWindowHarness() {
   FakeBrowserWindow.getFocusedWindow = () => focusedWindow
   FakeBrowserWindow.fromId = (id) => allWindows.find((window) => window.id === id && !window.destroyed) ?? null
 
-  return { BrowserWindow: FakeBrowserWindow, allWindows }
+  return {
+    BrowserWindow: FakeBrowserWindow,
+    allWindows,
+    getBeforeFileRequestFilter: () => beforeFileRequestFilter,
+    invokeBeforeFileRequest: (details) => new Promise((resolve) => {
+      if (!beforeFileRequestListener) {
+        throw new Error('No before-request listener registered')
+      }
+      beforeFileRequestListener(details, resolve)
+    }),
+  }
 }
 
 function createMenuMessages() {
@@ -295,4 +333,92 @@ test('queueOrDispatchOpenFile queues until an editor window is ready', () => {
 
   editorWindow.emitWebContents('render-process-gone', {}, { reason: 'crashed' })
   assert.deepEqual(clearedProposalWindowIds, [editorWindow.id])
+})
+
+test('editor windows deny navigation outside the expected app entry and ignore drifted load completion', async () => {
+  const {
+    BrowserWindow,
+    getBeforeFileRequestFilter,
+    invokeBeforeFileRequest,
+  } = createBrowserWindowHarness()
+  const logs = []
+  let applicationMenu = null
+  const controller = createWindowController({
+    BrowserWindow,
+    Menu: {
+      setApplicationMenu: (menu) => { applicationMenu = menu },
+      buildFromTemplate: (template) => template,
+    },
+    isDev: false,
+    windowIcon: '/tmp/icon.png',
+    preloadPath: '/tmp/preload.cjs',
+    rendererDistPath: '/tmp/dist',
+    writeLog: (...parts) => logs.push(parts),
+    getMainI18n: createMenuMessages,
+    focusWindow: (window) => window.focus(),
+    approveWindowClose: () => {},
+    approvedWindowCloseIds: new Set(),
+    pendingWindowCloseIds: new Set(),
+    resolveInitialPanelForLaunch: () => 'preview',
+    findEditorWindowByTrackedFilePath: () => null,
+    getPendingLaunchRequest: () => null,
+    setPendingLaunchRequest: () => {},
+    launchStateByWindowId: new Map(),
+    hiddenLaunchRevealTimerByWindowId: new Map(),
+    emitDebugChannelEvent: () => {},
+    confirmEditorWindowClose: async () => {},
+    clearEditorRuntimeState: () => {},
+    isManagedClient: () => false,
+    registerManagedClient: async () => {},
+    setManagedMainWindow: () => {},
+  })
+
+  const editorWindow = await controller.createWindow({ filePath: '/tmp/source.md', explicitInitialPanel: 'preview' })
+  const sent = []
+  editorWindow.webContents.send = (channel, payload) => sent.push({ channel, payload })
+  const navigationEvent = { prevented: false, preventDefault() { this.prevented = true } }
+
+  editorWindow.emitWebContents('will-navigate', navigationEvent, 'file:///tmp/dist/target.md')
+  assert.equal(navigationEvent.prevented, true)
+  const queryNavigationEvent = { prevented: false, preventDefault() { this.prevented = true } }
+  editorWindow.emitWebContents('will-navigate', queryNavigationEvent, 'file:///tmp/dist/index.html?reload=1')
+  assert.equal(queryNavigationEvent.prevented, true)
+  const fragmentNavigationEvent = { prevented: false, preventDefault() { this.prevented = true } }
+  editorWindow.emitWebContents('will-navigate', fragmentNavigationEvent, 'file:///tmp/dist/index.html#section')
+  assert.equal(fragmentNavigationEvent.prevented, false)
+  assert.deepEqual(editorWindow.windowOpenHandler({ url: 'https://example.com' }), { action: 'deny' })
+  assert.deepEqual(getBeforeFileRequestFilter(), { urls: ['file://*/*'] })
+  assert.deepEqual(await invokeBeforeFileRequest({
+    url: 'file:///tmp/dist/assets/index.js',
+    resourceType: 'script',
+    webContentsId: editorWindow.id,
+  }), {})
+  assert.deepEqual(await invokeBeforeFileRequest({
+    url: 'file:///tmp/private-image.png',
+    resourceType: 'image',
+    webContentsId: editorWindow.id,
+  }), { cancel: true })
+  assert.deepEqual(await invokeBeforeFileRequest({
+    url: 'file:///tmp/dist/../private-image.png',
+    resourceType: 'image',
+    webContentsId: editorWindow.id,
+  }), { cancel: true })
+  assert.deepEqual(await invokeBeforeFileRequest({
+    url: 'file:///tmp/outside-app-entry.html',
+    resourceType: 'mainFrame',
+    webContentsId: editorWindow.id,
+  }), {})
+
+  editorWindow.currentUrl = 'file:///tmp/dist/target.md'
+  editorWindow.emitWebContents('did-finish-load')
+  controller.dispatchOpenFileToWindow(editorWindow, { filePath: '/tmp/other.md', explicitInitialPanel: 'preview' })
+  controller.createApplicationMenu()
+  applicationMenu[0].submenu[2].click()
+
+  assert.deepEqual(sent, [])
+  assert.equal(controller.getDefaultEditorWindow(), null)
+  assert.ok(logs.some((entry) => entry[1] === 'navigation' && entry[2] === 'Ignored load completion outside expected app entry'))
+  assert.ok(logs.some((entry) => entry[1] === 'navigation' && entry[2] === 'Ignored open-file dispatch outside expected app entry'))
+  assert.ok(logs.some((entry) => entry[1] === 'menu' && entry[2] === 'No window available for action'))
+  assert.ok(logs.some((entry) => entry[1] === 'navigation' && entry[2] === 'Blocked renderer local file subresource outside application assets'))
 })

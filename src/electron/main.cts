@@ -38,6 +38,7 @@ const {
   isInlineExportImagePath,
 } = require('./main/file-controller.cjs')
 const { createTrackedFileController } = require('./main/tracked-file-controller.cjs')
+const { createDocumentLinkController } = require('./main/document-link-controller.cjs')
 const { createSemanticCacheController } = require('./main/semantic-cache-controller.cjs')
 const { createProtectedContextController } = require('./main/protected-context-controller.cjs')
 const { createChangeProposalController } = require('./main/change-proposal-controller.cjs')
@@ -302,6 +303,7 @@ const {
   getEditorWindowForAiAction,
   getSettingsWindow,
   isEditorWindow,
+  isExpectedRendererDocument,
   openAboutWindow,
   openAiChatWindow,
   openFetchPermissionsWindow,
@@ -333,6 +335,17 @@ const {
   saveContentToPath,
   saveHtmlExportToPath,
 } = fileController
+const documentLinkController = createDocumentLinkController({
+  fsPromises,
+  ensureEditorRuntimeState,
+  openExternalLink,
+  findEditorWindowByTrackedFilePath,
+  focusWindow,
+  createWindow,
+  isManagedClient,
+  writeLog,
+})
+const { openDocumentLink } = documentLinkController
 
 class AiToolUserError extends Error {
   constructor(toolName, reason, fix, code = 'invalid_arguments') {
@@ -2413,7 +2426,11 @@ function findEditorWindowByTrackedFilePath(filePath) {
   }
 
   return BrowserWindow.getAllWindows().find((window) => {
-    if (!isEditorWindow(window) || window.isDestroyed()) {
+    if (
+      !isEditorWindow(window)
+      || window.isDestroyed()
+      || !isExpectedRendererDocument(window, window.webContents.getURL())
+    ) {
       return false
     }
 
@@ -6013,6 +6030,7 @@ registerMainIpcHandlers({
   requestOpenAiChatResponse,
   emitAiChatStreamEvent,
   openExternalLink,
+  openDocumentLink,
   ensureDraftWorkspace,
   importImageAsset,
   cleanupImportedAssetFiles,
