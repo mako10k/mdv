@@ -177,6 +177,7 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
     getSettings: () => ipcRenderer.invoke('mdv:settings-get'),
     migrateLegacyTheme: (themeMode) => ipcRenderer.invoke('mdv:settings-migrate-legacy-theme', themeMode),
     updateSettings: (patch) => ipcRenderer.invoke('mdv:settings-update', patch),
+    adjustTypography: (adjustment) => ipcRenderer.invoke('mdv:settings-adjust-typography', adjustment),
     saveOpenAiApiKey: (apiKey) => ipcRenderer.invoke('mdv:settings-save-openai-api-key', apiKey),
     clearOpenAiApiKey: () => ipcRenderer.invoke('mdv:settings-clear-openai-api-key'),
     saveTavilyApiKey: (apiKey) => ipcRenderer.invoke('mdv:settings-save-tavily-api-key', apiKey),

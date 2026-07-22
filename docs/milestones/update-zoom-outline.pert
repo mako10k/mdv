@@ -34,6 +34,7 @@ milestone ZOOM_DESIGNED:
 
 milestone ZOOM_IMPLEMENTED:
   title "MD-BL-025 実装完了"
+  state reached
 
 milestone ZOOM_RELEASE_READY:
   title "MD-BL-025 個別release候補"
@@ -103,6 +104,8 @@ task IMPLEMENT_ZOOM ZOOM_DESIGNED -> ZOOM_IMPLEMENTED:
     optimistic 1d
     most_likely 2d
     pessimistic 4d
+  status done
+  source "docs/milestones/update-zoom-implementation.md"
 
 task VALIDATE_ZOOM ZOOM_IMPLEMENTED -> ZOOM_RELEASE_READY:
   title "通常scroll・既存Ctrl/Cmd +/-/0・上下限・対象surface・再起動後状態をbrowser/Electronで回帰検証する"

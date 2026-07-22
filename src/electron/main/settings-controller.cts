@@ -10,6 +10,10 @@ type InitialEditType = 'wysiwyg' | 'markdown'
 type PreviewStyle = 'vertical' | 'tab'
 type WriteMode = 'suggest' | 'direct'
 type SearchDepth = 'advanced' | 'basic'
+type TypographyTarget = 'editor' | 'chat'
+type TypographyAdjustment =
+  | { target: TypographyTarget; kind: 'delta'; steps: number }
+  | { target: TypographyTarget; kind: 'reset' }
 
 type FetchSettings = {
   aclText: string
@@ -103,6 +107,12 @@ type SettingsControllerOptions = {
 }
 
 type SettingsController = {
+  adjustTypographySettings: (settingsState: SettingsState, adjustment: unknown) => {
+    changed: boolean
+    target: TypographyTarget
+    valuePx: number
+    settings: SettingsState
+  }
   assertValidSettingsUpdate: (patch: unknown) => void
   createDefaultSettings: () => SettingsState
   getHasPersistedSettings: () => boolean
@@ -116,7 +126,7 @@ type SettingsController = {
   normalizeAllowedMethodList: (value: unknown) => string[]
   normalizeSecret: (value: unknown) => string | null
   persistSecrets: () => Promise<void>
-  persistSettings: () => Promise<void>
+  persistSettings: (nextSettingsState?: SettingsState) => Promise<void>
   sanitizeSecrets: (candidate: Record<string, unknown> | null | undefined) => SecretsState
   sanitizeSettings: (candidate: Record<string, unknown> | null | undefined) => SettingsState
   setSecretsState: (nextSecretsState: SecretsState) => void
@@ -206,6 +216,64 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
       return 12
     }
     return Math.min(16, Math.max(11, Math.round(numericValue)))
+  }
+
+  function parseTypographyAdjustment(value: unknown): TypographyAdjustment {
+    if (!isPlainObject(value) || (value.target !== 'editor' && value.target !== 'chat')) {
+      throw new Error('Invalid typography adjustment target')
+    }
+
+    if (value.kind === 'reset') {
+      if (Object.prototype.hasOwnProperty.call(value, 'steps')) {
+        throw new Error('Typography reset must not include steps')
+      }
+
+      return { target: value.target, kind: 'reset' }
+    }
+
+    if (value.kind !== 'delta' || !Number.isInteger(value.steps) || Number(value.steps) === 0) {
+      throw new Error('Typography delta steps must be a non-zero integer')
+    }
+
+    return {
+      target: value.target,
+      kind: 'delta',
+      steps: Number(value.steps),
+    }
+  }
+
+  function adjustTypographySettings(currentSettings: SettingsState, value: unknown) {
+    const adjustment = parseTypographyAdjustment(value)
+    const currentValue = adjustment.target === 'chat'
+      ? currentSettings.ai.chatFontSizePx
+      : currentSettings.editor.fontSizePx
+    const nextValue = adjustment.target === 'chat'
+      ? adjustment.kind === 'reset'
+        ? 12
+        : clampChatFontSizePx(currentValue + adjustment.steps)
+      : adjustment.kind === 'reset'
+        ? 13
+        : clampEditorFontSizePx(currentValue + adjustment.steps)
+
+    if (nextValue === currentValue) {
+      return {
+        changed: false,
+        target: adjustment.target,
+        valuePx: currentValue,
+        settings: currentSettings,
+      }
+    }
+
+    const nextSettings = adjustment.target === 'chat'
+      ? sanitizeSettings(mergePlainObjects(currentSettings, { ai: { chatFontSizePx: nextValue } }))
+      : sanitizeSettings(mergePlainObjects(currentSettings, { editor: { fontSizePx: nextValue } }))
+
+    return {
+      changed: true,
+      target: adjustment.target,
+      valuePx: nextValue,
+      settings: nextSettings,
+    }
   }
 
   function normalizeWriteMode(value: unknown): WriteMode {
@@ -511,9 +579,9 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
   let hasPersistedSettings = fs.existsSync(settingsPath)
   let hasReadableSettings = Boolean(loadSettings.didLoadPersisted)
 
-  async function persistSettings() {
+  async function persistSettings(nextSettingsState: SettingsState = settingsState) {
     await fsPromises.mkdir(path.dirname(settingsPath), { recursive: true })
-    await fsPromises.writeFile(settingsPath, `${JSON.stringify(settingsState, null, 2)}\n`, 'utf8')
+    await fsPromises.writeFile(settingsPath, `${JSON.stringify(nextSettingsState, null, 2)}\n`, 'utf8')
     hasPersistedSettings = true
     hasReadableSettings = true
   }
@@ -540,6 +608,7 @@ function createSettingsController(options: SettingsControllerOptions): SettingsC
   }
 
   return {
+    adjustTypographySettings,
     assertValidSettingsUpdate,
     createDefaultSettings,
     getHasPersistedSettings: () => hasPersistedSettings,

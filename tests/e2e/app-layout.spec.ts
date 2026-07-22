@@ -144,6 +144,24 @@ async function triggerPrimaryShortcut(page: Page, key: string) {
   }, { shortcutKey: key, isMac: process.platform === 'darwin' })
 }
 
+async function dispatchWheel(page: Page, selector: string, options: {
+  deltaY: number
+  primaryModifier?: boolean
+  shiftKey?: boolean
+}) {
+  return page.locator(selector).evaluate((element, wheelOptions) => {
+    const event = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: wheelOptions.primaryModifier !== false,
+      shiftKey: wheelOptions.shiftKey === true,
+      deltaY: wheelOptions.deltaY,
+    })
+    element.dispatchEvent(event)
+    return event.defaultPrevented
+  }, options)
+}
+
 async function installDesktopImageResolutionStub(page: Page, options: {
   openFilePayload?: {
     path: string
@@ -169,6 +187,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
   changeProposalCancelFailures?: number
   changeProposalReviseFailures?: number
   changeProposalReviseAckLosses?: number
+  typographyAdjustmentDelayMs?: number
 } = { dataUrlMap: {} }) {
   await page.addInitScript((config) => {
     const baseSettings: MdvSettings = {
@@ -228,6 +247,10 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         feedUrl: null,
       },
     }
+    let currentSettings = baseSettings
+    const settingsChangedCallbacks = new Set<(settings: MdvSettings) => void>()
+    const typographyAdjustments: MdvTypographyAdjustment[] = []
+    let nextTypographyAdjustmentError: string | null = null
 
     type DesktopApi = NonNullable<Window['mdvDesktop']>
 
@@ -277,6 +300,21 @@ async function installDesktopImageResolutionStub(page: Page, options: {
         edit: { kind: 'replace-hunk-body', markdown: 'LAMBDA\n' },
       },
     ]
+
+    const typographyTestWindow = testWindow as Window & {
+      __mdvTypographyTest?: {
+        getAdjustments: () => MdvTypographyAdjustment[]
+        getSettings: () => MdvSettings
+        rejectNext: (message: string) => void
+      }
+    }
+    typographyTestWindow.__mdvTypographyTest = {
+      getAdjustments: () => typographyAdjustments.map((adjustment) => ({ ...adjustment })),
+      getSettings: () => currentSettings,
+      rejectNext: (message) => {
+        nextTypographyAdjustmentError = message
+      },
+    }
 
     const requestAiEditor = (request: MdvAiEditorRequest) => new Promise<MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null>((resolve, reject) => {
       if (!aiEditorRequestCallback) {
@@ -381,12 +419,57 @@ async function installDesktopImageResolutionStub(page: Page, options: {
           hasReadableSettings: false,
           hasInitialLaunchRequest: false,
           initialPanel: 'preview',
-          settings: baseSettings,
+          settings: currentSettings,
         }),
-        getSettings: async () => baseSettings,
-        onSettingsChanged: () => () => {},
-        updateSettings: async () => baseSettings,
-        migrateLegacyTheme: async () => baseSettings,
+        getSettings: async () => currentSettings,
+        onSettingsChanged: (callback: (settings: MdvSettings) => void) => {
+          settingsChangedCallbacks.add(callback)
+          return () => settingsChangedCallbacks.delete(callback)
+        },
+        updateSettings: async () => currentSettings,
+        adjustTypography: async (adjustment: MdvTypographyAdjustment) => {
+          typographyAdjustments.push({ ...adjustment })
+
+          if (config.typographyAdjustmentDelayMs) {
+            await new Promise((resolve) => window.setTimeout(resolve, config.typographyAdjustmentDelayMs))
+          }
+
+          if (nextTypographyAdjustmentError) {
+            const message = nextTypographyAdjustmentError
+            nextTypographyAdjustmentError = null
+            throw new Error(message)
+          }
+
+          const currentValue = adjustment.target === 'chat'
+            ? currentSettings.ai.chatFontSizePx
+            : currentSettings.editor.fontSizePx
+          const valuePx = adjustment.target === 'chat'
+            ? adjustment.kind === 'reset'
+              ? 12
+              : Math.min(16, Math.max(11, currentValue + adjustment.steps))
+            : adjustment.kind === 'reset'
+              ? 13
+              : Math.min(18, Math.max(11, currentValue + adjustment.steps))
+          const changed = valuePx !== currentValue
+
+          if (changed) {
+            currentSettings = adjustment.target === 'chat'
+              ? { ...currentSettings, ai: { ...currentSettings.ai, chatFontSizePx: valuePx } }
+              : { ...currentSettings, editor: { ...currentSettings.editor, fontSizePx: valuePx } }
+
+            for (const callback of settingsChangedCallbacks) {
+              callback(currentSettings)
+            }
+          }
+
+          return {
+            changed,
+            target: adjustment.target,
+            valuePx,
+            settings: currentSettings,
+          }
+        },
+        migrateLegacyTheme: async () => currentSettings,
         saveOpenAiApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
         clearOpenAiApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
         saveTavilyApiKey: async () => ({ openaiConfigured: true, tavilyConfigured: false }),
@@ -662,6 +745,116 @@ test('startup shows preview as the primary surface', async ({ page }) => {
   await expect(page.getByRole('button', { name: /(文書全体をコピー|Copy full document)/ })).toHaveCount(0)
   await expect(computedStyle(page, '.preview-panel', 'visibility')).resolves.toBe('visible')
   await expect(computedStyle(page, '.editor-panel', 'visibility')).resolves.toBe('hidden')
+})
+
+test('primary-modifier wheel adjusts preview typography without browser zoom fallback', async ({ page }) => {
+  const burstResult = await page.locator('.preview-panel').evaluate((element) => {
+    const events = [
+      new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 }),
+      new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100 }),
+    ]
+
+    for (const event of events) {
+      element.dispatchEvent(event)
+    }
+
+    return events.map((event) => event.defaultPrevented)
+  })
+
+  expect(burstResult).toEqual([true, true])
+  await expect.poll(() => page.evaluate(() => {
+    const testApi = (window as Window & {
+      __mdvTypographyTest?: { getAdjustments: () => MdvTypographyAdjustment[] }
+    }).__mdvTypographyTest
+    return testApi?.getAdjustments().length ?? -1
+  })).toBe(1)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('14px')
+
+  expect(await dispatchWheel(page, '.preview-panel', { deltaY: 100 })).toBe(true)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('13px')
+
+  expect(await dispatchWheel(page, '.preview-panel', { deltaY: -100, primaryModifier: false })).toBe(false)
+  expect(await dispatchWheel(page, '.topbar', { deltaY: -100 })).toBe(true)
+  expect(await dispatchWheel(page, '.preview-panel', { deltaY: -100, shiftKey: true })).toBe(false)
+  await expect.poll(() => page.evaluate(() => {
+    const testApi = (window as Window & {
+      __mdvTypographyTest?: { getAdjustments: () => MdvTypographyAdjustment[] }
+    }).__mdvTypographyTest
+    return testApi?.getAdjustments().length ?? -1
+  })).toBe(2)
+})
+
+test('wheel and keyboard resolve editor, WYSIWYG, and chat typography targets', async ({ page }) => {
+  await openWritePanel(page)
+  expect(await dispatchWheel(page, '.toastui-editor-md-container', { deltaY: -100 })).toBe(true)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('14px')
+
+  await switchToastEditorMode(page, 'wysiwyg')
+  expect(await dispatchWheel(page, '.toastui-editor-ww-container .ProseMirror', { deltaY: 100 })).toBe(true)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('13px')
+
+  await page.locator('.toastui-editor-ww-container .ProseMirror').evaluate((element) => {
+    element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '0',
+      code: 'Digit0',
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    }))
+  })
+  await expect(page.locator('.statusbar-status')).toContainText(/(13px に戻しました|reset to 13px)/)
+
+  await page.locator('.toastui-editor-ww-container .ProseMirror').evaluate((element) => {
+    element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '+',
+      code: 'Equal',
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    }))
+  })
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('14px')
+
+  await page.locator('.toastui-editor-ww-container .ProseMirror').evaluate((element) => {
+    element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: '0',
+      code: 'Digit0',
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    }))
+  })
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('13px')
+
+  await openAiDock(page)
+  expect(await dispatchWheel(page, '.ai-chat-transcript', { deltaY: -100 })).toBe(true)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--chat-font-size'))).toBe('13px')
+  expect(await dispatchWheel(page, '.ai-chat-composer', { deltaY: 100 })).toBe(true)
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--chat-font-size'))).toBe('12px')
+})
+
+test('typography failure resyncs and active proposals block background wheel changes', async ({ page }) => {
+  await page.evaluate(() => {
+    const testApi = (window as Window & {
+      __mdvTypographyTest?: { rejectNext: (message: string) => void }
+    }).__mdvTypographyTest
+    testApi?.rejectNext('typography persistence failed')
+  })
+
+  expect(await dispatchWheel(page, '.preview-panel', { deltaY: -100 })).toBe(true)
+  await expect(page.locator('.statusbar-status')).toContainText('typography persistence failed')
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--editor-font-size'))).toBe('13px')
+
+  const proposalPage = await page.context().newPage()
+  await setupChangeProposalPage(proposalPage)
+  expect(await dispatchWheel(proposalPage, '.toastui-editor-md-container', { deltaY: -100 })).toBe(true)
+  await expect.poll(() => proposalPage.evaluate(() => {
+    const testApi = (window as Window & {
+      __mdvTypographyTest?: { getAdjustments: () => MdvTypographyAdjustment[] }
+    }).__mdvTypographyTest
+    return testApi?.getAdjustments().length ?? -1
+  })).toBe(0)
+  await proposalPage.close()
 })
 
 test.describe('AI change proposal review', () => {
@@ -2068,6 +2261,12 @@ test.describe('AI chat streaming', () => {
             void patch
             return baseSettings
           },
+          adjustTypography: async (adjustment) => ({
+            changed: false,
+            target: adjustment.target,
+            valuePx: adjustment.target === 'chat' ? baseSettings.ai.chatFontSizePx : baseSettings.editor.fontSizePx,
+            settings: baseSettings,
+          }),
           migrateLegacyTheme: async (themeMode) => {
             void themeMode
             return baseSettings

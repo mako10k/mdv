@@ -251,8 +251,10 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
         aiChangeProposalRevisionFailed: (message: string) => `変更提案の編集を保存できませんでした: ${message}`,
         editorFontSizeChanged: (size: number) => `エディタ文字サイズを ${size}px に変更しました`,
         editorFontSizeReset: (size: number) => `エディタ文字サイズを ${size}px に戻しました`,
+        editorFontSizeLimit: (size: number) => `エディタ文字サイズは ${size}px です（上限または下限）`,
         chatFontSizeChanged: (size: number) => `AI chat 文字サイズを ${size}px に変更しました`,
         chatFontSizeReset: (size: number) => `AI chat 文字サイズを ${size}px に戻しました`,
+        chatFontSizeLimit: (size: number) => `AI chat 文字サイズは ${size}px です（上限または下限）`,
       },
     },
     settings: {
@@ -771,8 +773,10 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
         aiChangeProposalRevisionFailed: (message: string) => `Could not save the change proposal edit: ${message}`,
         editorFontSizeChanged: (size: number) => `Editor text size set to ${size}px`,
         editorFontSizeReset: (size: number) => `Editor text size reset to ${size}px`,
+        editorFontSizeLimit: (size: number) => `Editor text size is ${size}px (minimum or maximum)`,
         chatFontSizeChanged: (size: number) => `AI chat text size set to ${size}px`,
         chatFontSizeReset: (size: number) => `AI chat text size reset to ${size}px`,
+        chatFontSizeLimit: (size: number) => `AI chat text size is ${size}px (minimum or maximum)`,
       },
     },
     settings: {

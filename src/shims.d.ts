@@ -387,6 +387,19 @@ type MdvSettings = {
   }
 }
 
+type MdvTypographyTarget = 'editor' | 'chat'
+
+type MdvTypographyAdjustment =
+  | { target: MdvTypographyTarget; kind: 'delta'; steps: number }
+  | { target: MdvTypographyTarget; kind: 'reset' }
+
+type MdvTypographyAdjustmentResult = {
+  changed: boolean
+  target: MdvTypographyTarget
+  valuePx: number
+  settings: MdvSettings
+}
+
 type MdvSettingsPatch = {
   general?: Partial<MdvSettings['general']>
   editor?: Partial<MdvSettings['editor']>
@@ -816,6 +829,7 @@ interface Window {
       getSettings: () => Promise<MdvSettings>
       migrateLegacyTheme: (themeMode: 'light' | 'dark') => Promise<MdvSettings>
       updateSettings: (patch: MdvSettingsPatch) => Promise<MdvSettings>
+      adjustTypography: (adjustment: MdvTypographyAdjustment) => Promise<MdvTypographyAdjustmentResult>
       saveOpenAiApiKey: (apiKey: string) => Promise<MdvProviderStatus>
       clearOpenAiApiKey: () => Promise<MdvProviderStatus>
       saveTavilyApiKey: (apiKey: string) => Promise<MdvProviderStatus>

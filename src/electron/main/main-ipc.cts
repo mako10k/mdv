@@ -68,11 +68,34 @@ type SettingsState = {
   general: {
     themeMode: string
   }
+  editor: {
+    fontSizePx: number
+  }
   ai: {
+    chatFontSizePx: number
     openai: {
       model: string
     }
   }
+}
+
+type TypographyAdjustmentResult = {
+  changed: boolean
+  target: 'editor' | 'chat'
+  valuePx: number
+  settings: SettingsState
+}
+
+type SettingsMutationPlan<Value> = {
+  nextState: SettingsState
+  changed: boolean
+  value: Value
+}
+
+type SettingsMutationOutcome<Value> = {
+  settings: SettingsState
+  changed: boolean
+  value: Value
 }
 
 type SecretsState = {
@@ -170,10 +193,13 @@ type MainIpcContext = {
   downloadAvailableUpdate: () => Promise<unknown>
   installDownloadedUpdate: () => boolean
   assertValidSettingsUpdate: (patch: unknown) => void
+  adjustTypographySettings: (settingsState: SettingsState, adjustment: unknown) => TypographyAdjustmentResult
   sanitizeSettings: (candidate: Record<string, unknown>) => SettingsState
   mergePlainObjects: <T>(base: T, patch: unknown) => T
   isPlainObject: (value: unknown) => value is PlainObject
-  persistSettings: () => Promise<void>
+  enqueueSettingsMutation: <Value>(
+    mutate: (currentState: SettingsState) => SettingsMutationPlan<Value>,
+  ) => Promise<SettingsMutationOutcome<Value>>
   broadcastSettingsChanged: () => void
   normalizeSecret: (value: unknown) => string | null
   getSecretsState: () => SecretsState
@@ -216,7 +242,6 @@ type MainIpcContext = {
   managedClientId: string
   postServerJson: (path: string, payload: unknown) => Promise<unknown>
   logFilePath: string
-  setSettingsState: (nextSettingsState: SettingsState) => void
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -259,10 +284,11 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     downloadAvailableUpdate,
     installDownloadedUpdate,
     assertValidSettingsUpdate,
+    adjustTypographySettings,
     sanitizeSettings,
     mergePlainObjects,
     isPlainObject,
-    persistSettings,
+    enqueueSettingsMutation,
     broadcastSettingsChanged,
     normalizeSecret,
     getSecretsState,
@@ -300,7 +326,6 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     managedClientId,
     postServerJson,
     logFilePath,
-    setSettingsState,
   } = context
 
   ipcMain.handle('mdv:open-file', async () => {
@@ -479,30 +504,57 @@ function registerMainIpcHandlers(context: MainIpcContext) {
   ipcMain.handle('mdv:updater-install', async () => ({ started: installDownloadedUpdate() }))
 
   ipcMain.handle('mdv:settings-migrate-legacy-theme', async (_event: unknown, themeMode: unknown) => {
-    const settingsState = getSettingsState()
-    if (getHasPersistedSettings() || settingsState.general.themeMode !== 'system') {
-      return settingsState
-    }
-    if (themeMode !== 'light' && themeMode !== 'dark') {
-      return settingsState
-    }
+    const outcome = await enqueueSettingsMutation((settingsState) => {
+      if (
+        getHasPersistedSettings()
+        || settingsState.general.themeMode !== 'system'
+        || (themeMode !== 'light' && themeMode !== 'dark')
+      ) {
+        return { nextState: settingsState, changed: false, value: null }
+      }
 
-    const nextSettingsState = sanitizeSettings(mergePlainObjects(settingsState, {
-      general: { themeMode },
-    }))
-    setSettingsState(nextSettingsState)
-    await persistSettings()
-    broadcastSettingsChanged()
-    return nextSettingsState
+      return {
+        nextState: sanitizeSettings(mergePlainObjects(settingsState, {
+          general: { themeMode },
+        })),
+        changed: true,
+        value: null,
+      }
+    })
+
+    return outcome.settings
   })
 
   ipcMain.handle('mdv:settings-update', async (_event: unknown, patch: unknown) => {
     assertValidSettingsUpdate(patch)
-    const nextSettingsState = sanitizeSettings(mergePlainObjects(getSettingsState(), isPlainObject(patch) ? patch : {}))
-    setSettingsState(nextSettingsState)
-    await persistSettings()
-    broadcastSettingsChanged()
-    return nextSettingsState
+    const outcome = await enqueueSettingsMutation((settingsState) => ({
+      nextState: sanitizeSettings(mergePlainObjects(settingsState, isPlainObject(patch) ? patch : {})),
+      changed: true,
+      value: null,
+    }))
+
+    return outcome.settings
+  })
+
+  ipcMain.handle('mdv:settings-adjust-typography', async (_event: unknown, adjustment: unknown) => {
+    const outcome = await enqueueSettingsMutation((settingsState) => {
+      const result = adjustTypographySettings(settingsState, adjustment)
+
+      return {
+        nextState: result.settings,
+        changed: result.changed,
+        value: {
+          changed: result.changed,
+          target: result.target,
+          valuePx: result.valuePx,
+        },
+      }
+    })
+
+    return {
+      ...outcome.value,
+      settings: outcome.settings,
+    }
   })
 
   ipcMain.handle('mdv:settings-save-openai-api-key', async (_event: unknown, apiKey: unknown) => {

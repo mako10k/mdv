@@ -28,10 +28,8 @@ import ChatApp from './ai-chat/ChatApp'
 import ChangePreviewDialog from './change-preview/ChangePreviewDialog'
 import {
   applyTypographyToRoot,
-  clampChatFontSizePx,
-  clampEditorFontSizePx,
-  DEFAULT_CHAT_FONT_SIZE_PX,
-  DEFAULT_EDITOR_FONT_SIZE_PX,
+  MAX_EDITOR_FONT_SIZE_PX,
+  MIN_EDITOR_FONT_SIZE_PX,
 } from './shared/desktopTypography'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import 'katex/dist/katex.min.css'
@@ -107,6 +105,8 @@ type MarkdownInlineParserState = {
 const DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT = 32
 const MIN_ASSISTANT_DOCK_WIDTH_PERCENT = 24
 const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
+const TYPOGRAPHY_WHEEL_BURST_GATE_MS = 120
+const MAX_COALESCED_TYPOGRAPHY_STEPS = MAX_EDITOR_FONT_SIZE_PX - MIN_EDITOR_FONT_SIZE_PX
 
 const INLINE_DATA_IMAGE_WIDGET_PATTERN = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/
 const INLINE_DATA_IMAGE_DATA_URL_PATTERN = /^data:image\/[a-zA-Z0-9.+-]+(?:;[a-zA-Z0-9.+-]+(?:=[^,()\s]*)?)*,[^()\s]+$/
@@ -1296,7 +1296,15 @@ function getActionForShortcut(event: KeyboardEvent): MdvMenuAction | null {
 }
 
 type TypographyShortcutAction = 'increase' | 'decrease' | 'reset'
-type TypographyShortcutTarget = 'editor' | 'chat'
+type TypographyShortcutTarget = MdvTypographyTarget
+
+function getTypographyTargetElement(target: EventTarget | null): Element | null {
+  return target instanceof Element
+    ? target
+    : target instanceof Node
+      ? target.parentElement
+      : null
+}
 
 function getTypographyShortcutAction(event: KeyboardEvent): TypographyShortcutAction | null {
   if (event.defaultPrevented || event.isComposing || !isPrimaryModifierPressed(event) || event.altKey) {
@@ -1319,11 +1327,7 @@ function getTypographyShortcutAction(event: KeyboardEvent): TypographyShortcutAc
 }
 
 function getFocusedTypographyTarget(target: EventTarget | null): TypographyShortcutTarget | null {
-  const targetElement = target instanceof Element
-    ? target
-    : target instanceof Node
-      ? target.parentElement
-      : null
+  const targetElement = getTypographyTargetElement(target)
 
   if (!targetElement) {
     return null
@@ -1338,6 +1342,34 @@ function getFocusedTypographyTarget(target: EventTarget | null): TypographyShort
   }
 
   return null
+}
+
+function getPointerTypographyTarget(target: EventTarget | null): MdvTypographyTarget | null {
+  const targetElement = getTypographyTargetElement(target)
+
+  if (!targetElement) {
+    return null
+  }
+
+  if (targetElement.closest('.ai-chat-transcript, .ai-chat-composer')) {
+    return 'chat'
+  }
+
+  if (targetElement.closest('.cm-scroller, .CodeMirror-scroll, .toastui-editor-md-container, .toastui-editor-ww-container, .preview-panel')) {
+    return 'editor'
+  }
+
+  return null
+}
+
+function hasTypographyWheelModifier(event: WheelEvent, platform: string | undefined): boolean {
+  if (event.altKey || event.shiftKey) {
+    return false
+  }
+
+  return platform === 'darwin'
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey
 }
 
 function resolveDocumentAnchor(target: EventTarget | null): { anchor: HTMLAnchorElement; href: string } | null {
@@ -3282,10 +3314,14 @@ function App() {
   const i18nRef = useRef(t)
   const canAbandonCurrentBufferRef = useRef<(nextActionLabel: string) => boolean>(() => true)
   const runDesktopActionRef = useRef<(action: MdvMenuAction) => void>(() => {})
-  const typographySettingsRef = useRef({
-    editorFontSizePx: clampEditorFontSizePx(bootstrap?.settings.editor.fontSizePx ?? DEFAULT_EDITOR_FONT_SIZE_PX),
-    chatFontSizePx: clampChatFontSizePx(bootstrap?.settings.ai.chatFontSizePx ?? DEFAULT_CHAT_FONT_SIZE_PX),
-  })
+  const typographyAdjustmentQueueRef = useRef<MdvTypographyAdjustment[]>([])
+  const typographyAdjustmentInFlightRef = useRef(false)
+  const drainTypographyAdjustmentQueueRef = useRef<() => void>(() => {})
+  const typographyWheelGateRef = useRef<{
+    target: MdvTypographyTarget
+    steps: -1 | 1
+    acceptedAt: number
+  } | null>(null)
   const outlineRequestIdRef = useRef(0)
   const outlineListRef = useRef<HTMLDivElement | null>(null)
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
@@ -3362,6 +3398,95 @@ function App() {
       toastTimerRef.current = null
     }, 2600)
   }
+
+  const syncAuthoritativeTypography = (nextSettings: MdvSettings) => {
+    applyTypographyToRoot(nextSettings)
+  }
+
+  const drainTypographyAdjustmentQueue = useEffectEvent(() => {
+    if (typographyAdjustmentInFlightRef.current) {
+      return
+    }
+
+    const nextAdjustment = typographyAdjustmentQueueRef.current.shift()
+    if (!nextAdjustment) {
+      return
+    }
+
+    const settingsApi = window.mdvDesktop?.settings
+    if (!settingsApi) {
+      typographyAdjustmentQueueRef.current = []
+      return
+    }
+
+    typographyAdjustmentInFlightRef.current = true
+
+    void (async () => {
+      try {
+        const result = await settingsApi.adjustTypography(nextAdjustment)
+        syncAuthoritativeTypography(result.settings)
+
+        const status = i18nRef.current.app.status
+        setStatusText(
+          result.target === 'chat'
+            ? nextAdjustment.kind === 'reset'
+              ? status.chatFontSizeReset(result.valuePx)
+              : !result.changed
+                ? status.chatFontSizeLimit(result.valuePx)
+                : status.chatFontSizeChanged(result.valuePx)
+            : nextAdjustment.kind === 'reset'
+              ? status.editorFontSizeReset(result.valuePx)
+              : !result.changed
+                ? status.editorFontSizeLimit(result.valuePx)
+                : status.editorFontSizeChanged(result.valuePx),
+        )
+      } catch (error: unknown) {
+        typographyAdjustmentQueueRef.current = []
+
+        try {
+          syncAuthoritativeTypography(await settingsApi.getSettings())
+        } catch {
+          // Preserve the original mutation error as the user-facing failure.
+        }
+
+        setStatusText(error instanceof Error ? error.message : String(error))
+      } finally {
+        typographyAdjustmentInFlightRef.current = false
+        drainTypographyAdjustmentQueueRef.current()
+      }
+    })()
+  })
+
+  const enqueueTypographyAdjustment = useEffectEvent((adjustment: MdvTypographyAdjustment) => {
+    const queue = typographyAdjustmentQueueRef.current
+    const previous = queue.at(-1)
+
+    if (previous?.kind === 'delta' && adjustment.kind === 'delta' && previous.target === adjustment.target) {
+      const steps = Math.max(
+        -MAX_COALESCED_TYPOGRAPHY_STEPS,
+        Math.min(MAX_COALESCED_TYPOGRAPHY_STEPS, previous.steps + adjustment.steps),
+      )
+
+      if (steps === 0) {
+        queue.pop()
+      } else {
+        queue[queue.length - 1] = { ...previous, steps }
+      }
+    } else {
+      queue.push(adjustment)
+    }
+
+    drainTypographyAdjustmentQueueRef.current()
+  })
+
+  useEffect(() => {
+    drainTypographyAdjustmentQueueRef.current = drainTypographyAdjustmentQueue
+
+    return () => {
+      drainTypographyAdjustmentQueueRef.current = () => {}
+      typographyAdjustmentQueueRef.current = []
+    }
+  }, [])
 
   const openAssistantDock = (options?: { focus?: boolean; statusMessage?: string }) => {
     setIsAssistantDockOpen(true)
@@ -3464,11 +3589,7 @@ function App() {
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.settings.onSettingsChanged((nextSettings) => {
-      typographySettingsRef.current = {
-        editorFontSizePx: clampEditorFontSizePx(nextSettings.editor.fontSizePx),
-        chatFontSizePx: clampChatFontSizePx(nextSettings.ai.chatFontSizePx),
-      }
-      applyTypographyToRoot(nextSettings)
+      syncAuthoritativeTypography(nextSettings)
 
       if (!isLocale(nextSettings.general.locale) || nextSettings.general.locale === localeRef.current) {
         return
@@ -5581,6 +5702,52 @@ function App() {
   }), [])
 
   useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (!hasTypographyWheelModifier(event, window.mdvDesktop?.platform)) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (activeChangeProposalIdRef.current || event.deltaY === 0) {
+        return
+      }
+
+      const target = getPointerTypographyTarget(event.target)
+      if (!target) {
+        return
+      }
+
+      const steps = event.deltaY < 0 ? 1 : -1
+      const previousGate = typographyWheelGateRef.current
+      const elapsed = previousGate ? event.timeStamp - previousGate.acceptedAt : Number.POSITIVE_INFINITY
+
+      if (
+        previousGate
+        && previousGate.target === target
+        && previousGate.steps === steps
+        && elapsed >= 0
+        && elapsed < TYPOGRAPHY_WHEEL_BURST_GATE_MS
+      ) {
+        return
+      }
+
+      typographyWheelGateRef.current = {
+        target,
+        steps,
+        acceptedAt: event.timeStamp,
+      }
+      enqueueTypographyAdjustment({ target, kind: 'delta', steps })
+    }
+
+    window.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel, true)
+    }
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (activeChangeProposalIdRef.current) {
         const key = event.key.toLowerCase()
@@ -5605,44 +5772,11 @@ function App() {
         }
 
         event.preventDefault()
-        const currentTypography = typographySettingsRef.current
-        const nextValue = target === 'chat'
-          ? typographyAction === 'reset'
-            ? DEFAULT_CHAT_FONT_SIZE_PX
-            : clampChatFontSizePx(currentTypography.chatFontSizePx + (typographyAction === 'increase' ? 1 : -1))
-          : typographyAction === 'reset'
-            ? DEFAULT_EDITOR_FONT_SIZE_PX
-            : clampEditorFontSizePx(currentTypography.editorFontSizePx + (typographyAction === 'increase' ? 1 : -1))
-
-        const patch = target === 'chat'
-          ? { ai: { chatFontSizePx: nextValue } }
-          : { editor: { fontSizePx: nextValue } }
-
-        typographySettingsRef.current = target === 'chat'
-          ? { ...currentTypography, chatFontSizePx: nextValue }
-          : { ...currentTypography, editorFontSizePx: nextValue }
-
-        void window.mdvDesktop?.settings.updateSettings(patch)
-          .then((updatedSettings) => {
-            typographySettingsRef.current = {
-              editorFontSizePx: clampEditorFontSizePx(updatedSettings.editor.fontSizePx),
-              chatFontSizePx: clampChatFontSizePx(updatedSettings.ai.chatFontSizePx),
-            }
-
-            setStatusText(
-              target === 'chat'
-                ? typographyAction === 'reset'
-                  ? i18nRef.current.app.status.chatFontSizeReset(updatedSettings.ai.chatFontSizePx)
-                  : i18nRef.current.app.status.chatFontSizeChanged(updatedSettings.ai.chatFontSizePx)
-                : typographyAction === 'reset'
-                  ? i18nRef.current.app.status.editorFontSizeReset(updatedSettings.editor.fontSizePx)
-                  : i18nRef.current.app.status.editorFontSizeChanged(updatedSettings.editor.fontSizePx),
-            )
-          })
-          .catch((error: unknown) => {
-            typographySettingsRef.current = currentTypography
-            setStatusText(error instanceof Error ? error.message : String(error))
-          })
+        enqueueTypographyAdjustment(
+          typographyAction === 'reset'
+            ? { target, kind: 'reset' }
+            : { target, kind: 'delta', steps: typographyAction === 'increase' ? 1 : -1 },
+        )
         return
       }
 

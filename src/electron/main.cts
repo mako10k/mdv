@@ -55,6 +55,7 @@ const { registerAppLifecycle } = require('./main/lifecycle.cjs')
 const { registerMainIpcHandlers } = require('./main/main-ipc.cjs')
 const { createCloseController } = require('./main/close-controller.cjs')
 const { createSettingsController } = require('./main/settings-controller.cjs')
+const { createSettingsMutationQueue } = require('./main/settings-mutation-queue.cjs')
 const {
   getModelContextWindowTokens,
   getModelRegistryMetadata,
@@ -157,6 +158,19 @@ const settingsController = createSettingsController({
 })
 let settingsState = settingsController.getSettingsState()
 let secretsState = settingsController.getSecretsState()
+const settingsMutationQueue = createSettingsMutationQueue({
+  getState: () => settingsState,
+  persistState: (nextSettingsState) => settingsController.persistSettings(nextSettingsState),
+  commitState: (nextSettingsState) => {
+    settingsController.setSettingsState(nextSettingsState)
+    settingsState = nextSettingsState
+    broadcastSettingsChanged()
+  },
+})
+
+function enqueueSettingsMutation(mutate) {
+  return settingsMutationQueue.enqueue(mutate)
+}
 
 autosaveRecoveryStore.load()
 
@@ -2457,6 +2471,7 @@ async function confirmAiWriteAction(parentWindow, options) {
 }
 
 const {
+  adjustTypographySettings,
   assertValidSettingsUpdate,
   createDefaultSettings,
   getHasPersistedSettings,
@@ -2468,7 +2483,6 @@ const {
   normalizeAllowedMethodList,
   normalizeSecret,
   persistSecrets,
-  persistSettings,
   sanitizeSecrets,
   sanitizeSettings,
 } = settingsController
@@ -4007,25 +4021,45 @@ async function resolveFetchAclDecision(editorWindow, targetUrl, method, headers)
       return mergeFetchHeaders(headers, decision.forcedHeaders)
     }
 
-    settingsState = sanitizeSettings(mergePlainObjects(settingsState, {
-      ai: {
-        fetch: {
-          aclText: addFetchAclDecisionRule(settingsState.ai.fetch.aclText, {
-            decision: promptResult.action,
-            origin: targetUrl.origin,
-            path: targetUrl.pathname,
-            applyToOrigin: promptResult.applyToOrigin,
-            pathMatch: promptResult.applyToOrigin ? 'prefix' : 'exact',
-            method: decision.methodDecision ? method : undefined,
-            headers: decision.pendingHeaders.map((entry) => entry.name),
-          }),
-        },
-      },
-    }))
-    await persistSettings()
-    broadcastSettingsChanged()
+    const aclMutation = await enqueueSettingsMutation((currentSettingsState) => {
+      const currentDecision = evaluateFetchAcl(currentSettingsState.ai.fetch.aclText, {
+        url: targetUrl,
+        method,
+        headerNames: Object.keys(headers),
+      })
 
-    decision = evaluateFetchAcl(settingsState.ai.fetch.aclText, {
+      if (currentDecision.status !== 'pending') {
+        return {
+          nextState: currentSettingsState,
+          changed: false,
+          value: null,
+        }
+      }
+
+      const nextSettingsState = sanitizeSettings(mergePlainObjects(currentSettingsState, {
+        ai: {
+          fetch: {
+            aclText: addFetchAclDecisionRule(currentSettingsState.ai.fetch.aclText, {
+              decision: promptResult.action,
+              origin: targetUrl.origin,
+              path: targetUrl.pathname,
+              applyToOrigin: promptResult.applyToOrigin,
+              pathMatch: promptResult.applyToOrigin ? 'prefix' : 'exact',
+              method: currentDecision.methodDecision ? method : undefined,
+              headers: currentDecision.pendingHeaders.map((entry) => entry.name),
+            }),
+          },
+        },
+      }))
+
+      return {
+        nextState: nextSettingsState,
+        changed: nextSettingsState.ai.fetch.aclText !== currentSettingsState.ai.fetch.aclText,
+        value: null,
+      }
+    })
+
+    decision = evaluateFetchAcl(aclMutation.settings.ai.fetch.aclText, {
       url: targetUrl,
       method,
       headerNames: Object.keys(headers),
@@ -6001,10 +6035,11 @@ registerMainIpcHandlers({
   downloadAvailableUpdate,
   installDownloadedUpdate,
   assertValidSettingsUpdate,
+  adjustTypographySettings,
   sanitizeSettings,
   mergePlainObjects,
   isPlainObject,
-  persistSettings,
+  enqueueSettingsMutation,
   broadcastSettingsChanged,
   normalizeSecret,
   getSecretsState: () => secretsState,
@@ -6045,10 +6080,6 @@ registerMainIpcHandlers({
   managedClientId,
   postServerJson,
   logFilePath,
-  setSettingsState: (nextSettingsState) => {
-    settingsController.setSettingsState(nextSettingsState)
-    settingsState = nextSettingsState
-  },
 })
 registerAppLifecycle({
   app,

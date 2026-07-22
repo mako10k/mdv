@@ -105,6 +105,70 @@ test('sanitizeSettings clamps and normalizes invalid values', () => {
   assert.equal(settings.updates.feedUrl, null)
 })
 
+test('typography adjustment applies typed delta and reset operations', () => {
+  const controller = createController()
+  const settings = controller.createDefaultSettings()
+  const editorResult = controller.adjustTypographySettings(settings, {
+    target: 'editor',
+    kind: 'delta',
+    steps: 2,
+  })
+  const chatSettings = controller.sanitizeSettings({
+    ...editorResult.settings,
+    ai: {
+      ...editorResult.settings.ai,
+      chatFontSizePx: 16,
+    },
+  })
+  const chatResult = controller.adjustTypographySettings(chatSettings, {
+    target: 'chat',
+    kind: 'reset',
+  })
+
+  assert.equal(editorResult.changed, true)
+  assert.equal(editorResult.target, 'editor')
+  assert.equal(editorResult.valuePx, 15)
+  assert.equal(editorResult.settings.editor.fontSizePx, 15)
+  assert.equal(chatResult.changed, true)
+  assert.equal(chatResult.valuePx, 12)
+  assert.equal(chatResult.settings.ai.chatFontSizePx, 12)
+})
+
+test('typography adjustment reports bounds as a no-op', () => {
+  const controller = createController()
+  const settings = controller.sanitizeSettings({ editor: { fontSizePx: 18 } })
+  const result = controller.adjustTypographySettings(settings, {
+    target: 'editor',
+    kind: 'delta',
+    steps: 1,
+  })
+
+  assert.equal(result.changed, false)
+  assert.equal(result.valuePx, 18)
+  assert.equal(result.settings, settings)
+})
+
+test('typography adjustment rejects mixed or invalid payloads', () => {
+  const controller = createController()
+  const settings = controller.createDefaultSettings()
+
+  assert.throws(() => controller.adjustTypographySettings(settings, {
+    target: 'editor',
+    kind: 'reset',
+    steps: 1,
+  }), /must not include steps/)
+  assert.throws(() => controller.adjustTypographySettings(settings, {
+    target: 'chat',
+    kind: 'delta',
+    steps: 0,
+  }), /non-zero integer/)
+  assert.throws(() => controller.adjustTypographySettings(settings, {
+    target: 'outline',
+    kind: 'delta',
+    steps: 1,
+  }), /target/)
+})
+
 test('sanitizeSecrets trims strings and clears blanks', () => {
   const controller = createController()
   const secrets = controller.sanitizeSecrets({

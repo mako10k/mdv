@@ -76,7 +76,11 @@ function createContext(overrides = {}) {
     openFetchPermissionsWindow: () => ({ status: 'opened' }),
     openAboutWindow: () => ({ status: 'opened' }),
     launchStateByWindowId: new Map(),
-    getSettingsState: () => ({ general: { themeMode: 'system' } }),
+    getSettingsState: () => ({
+      general: { themeMode: 'system' },
+      editor: { fontSizePx: 13 },
+      ai: { chatFontSizePx: 12, openai: { model: 'gpt-5.6-terra' } },
+    }),
     getHasPersistedSettings: () => false,
     getHasReadableSettings: () => false,
     getUpdaterStateSnapshot: () => ({ state: 'idle' }),
@@ -84,6 +88,22 @@ function createContext(overrides = {}) {
     downloadAvailableUpdate: async () => ({ started: true }),
     installDownloadedUpdate: () => true,
     assertValidSettingsUpdate: () => {},
+    adjustTypographySettings: (settings, adjustment) => {
+      const currentValue = adjustment.target === 'chat' ? settings.ai.chatFontSizePx : settings.editor.fontSizePx
+      const valuePx = adjustment.kind === 'reset'
+        ? adjustment.target === 'chat' ? 12 : 13
+        : currentValue + adjustment.steps
+      const nextSettings = adjustment.target === 'chat'
+        ? { ...settings, ai: { ...settings.ai, chatFontSizePx: valuePx } }
+        : { ...settings, editor: { ...settings.editor, fontSizePx: valuePx } }
+
+      return {
+        changed: valuePx !== currentValue,
+        target: adjustment.target,
+        valuePx,
+        settings: nextSettings,
+      }
+    },
     sanitizeSettings: (value) => value,
     mergePlainObjects: (base, patch) => ({ ...base, ...patch }),
     isPlainObject: (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value),
@@ -127,6 +147,23 @@ function createContext(overrides = {}) {
     logFilePath: '/tmp/mdv.log',
     setSettingsState: () => {},
     ...overrides,
+  }
+
+  if (typeof context.enqueueSettingsMutation !== 'function') {
+    context.enqueueSettingsMutation = async (mutate) => {
+      const plan = mutate(context.getSettingsState())
+      if (plan.changed) {
+        await context.persistSettings(plan.nextState)
+        context.setSettingsState(plan.nextState)
+        context.broadcastSettingsChanged()
+      }
+
+      return {
+        settings: plan.changed ? plan.nextState : context.getSettingsState(),
+        changed: plan.changed,
+        value: plan.value,
+      }
+    }
   }
 
   registerMainIpcHandlers(context)
@@ -178,8 +215,48 @@ test('settings update validates a model selection before persistence', async () 
   assert.deepEqual(calls, [
     ['validate', 'gpt-5.6-sol'],
     ['sanitize', 'gpt-5.6-sol'],
-    ['set', 'gpt-5.6-sol'],
     ['persist'],
+    ['set', 'gpt-5.6-sol'],
+    ['broadcast'],
+  ])
+})
+
+test('typography adjustment returns authoritative typed result', async () => {
+  let currentSettings = {
+    general: { themeMode: 'system' },
+    editor: { fontSizePx: 13 },
+    ai: { chatFontSizePx: 12, openai: { model: 'gpt-5.6-terra' } },
+  }
+  const calls = []
+  const { handles } = createContext({
+    getSettingsState: () => currentSettings,
+    setSettingsState: (nextSettings) => {
+      currentSettings = nextSettings
+      calls.push(['set', nextSettings.editor.fontSizePx])
+    },
+    persistSettings: async (nextSettings) => calls.push(['persist', nextSettings.editor.fontSizePx]),
+    broadcastSettingsChanged: () => calls.push(['broadcast']),
+  })
+
+  const result = await handles.get('mdv:settings-adjust-typography')({}, {
+    target: 'editor',
+    kind: 'delta',
+    steps: 1,
+  })
+
+  assert.deepEqual(result, {
+    changed: true,
+    target: 'editor',
+    valuePx: 14,
+    settings: {
+      general: { themeMode: 'system' },
+      editor: { fontSizePx: 14 },
+      ai: { chatFontSizePx: 12, openai: { model: 'gpt-5.6-terra' } },
+    },
+  })
+  assert.deepEqual(calls, [
+    ['persist', 14],
+    ['set', 14],
     ['broadcast'],
   ])
 })
