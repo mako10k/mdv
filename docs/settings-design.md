@@ -6,6 +6,8 @@
 
 今回の設定画面は単なる UI ではなく、AI 機能、外部リンク許可、renderer 表示設定、将来の provider 拡張を支える共通基盤として扱う。
 
+editor / AI chat の文字サイズ正本、keyboard / wheel target、typed adjustment、settings mutation ordering は [Typography Interaction Design](typography-interaction-design.md) を current contract とする。
+
 ## Goals
 
 - editor window と assistant surface の両方から開ける設定画面を用意する

@@ -30,6 +30,7 @@ milestone UPDATE_INVENTORY_DONE:
 
 milestone ZOOM_DESIGNED:
   title "MD-BL-025 設計契約確定"
+  state reached
 
 milestone ZOOM_IMPLEMENTED:
   title "MD-BL-025 実装完了"
@@ -93,6 +94,8 @@ task DESIGN_ZOOM EDITOR_INVENTORY_DONE -> ZOOM_DESIGNED:
     optimistic 1d
     most_likely 2d
     pessimistic 3d
+  status done
+  source "docs/typography-interaction-design.md"
 
 task IMPLEMENT_ZOOM ZOOM_DESIGNED -> ZOOM_IMPLEMENTED:
   title "既存typography contractへ修飾wheel gestureを統合する"

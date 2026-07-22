@@ -180,7 +180,7 @@ v0.1.14 で閉じた最小範囲:
 7. [棚卸待ち] MD-BL-009 スペルチェック
 8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
 9. [棚卸待ち] MD-BL-011 PDF 出力
-10. [棚卸確認済み / 設計待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
+10. [設計確認済み / 実装待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
 11. [棚卸確認済み / 設計待ち] MD-BL-026 狭幅時のレスポンシブ outline 表示
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
@@ -195,16 +195,18 @@ v0.1.14 で閉じた最小範囲:
 
 - MD-BL-025:
   - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
-  - `design_contract`: implementation 前に current typography / shortcut contract を更新する。現行実装の基準は `src/shared/desktopTypography.ts`、`src/App.tsx`、Settings typography controls とする
-  - `contract_state: decision_change_required`
+  - `design_contract`: [Typography Interaction Design](typography-interaction-design.md)
+  - `contract_state: active_contract`
   - `backlog_state: accepted_active`
   - `inventory_status: inventory_confirmed`
   - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
+  - `design_status: design_confirmed`
+  - `design_evidence`: [ADR 0027 Main-Owned Typography Adjustment](adr/0027-main-owned-typography-adjustment.md)
   - `user_outcome`: `Ctrl+マウスホイール` で表示を段階的に拡大縮小し、長文の閲覧・編集時にその場で読みやすさを調整できる
   - `allowed_scope`: 通常の wheel scroll を維持した修飾キー付き gesture、既存 font-size bounds / persistence / keyboard shortcut との統合、editor / preview / AI chat のどの surface を対象にするかの棚卸、過剰な連続 wheel event を抑える step / throttle、browser と Electron の回帰
   - `blocked_scope`: 修飾キーなし wheel の横取り、OS display scaling の変更、意図しない Electron `webContents` 全体 zoom による app chrome / dialog / responsive breakpoint の破壊、既存 `Ctrl/Cmd + +/-/0` の削除
   - `acceptance_direction`: gesture の対象 surface と現在値が一貫し、通常 scroll は変わらず、上下限で破綻せず、再起動後の扱いが Settings の文字サイズ contract と矛盾しない
-  - `next_slice`: `DESIGN_ZOOM`。focus-based keyboard target と pointer-based wheel target を分離し、target 解決後の size change / persistence だけを共有する design contract を先に確定する
+  - `next_slice`: `IMPLEMENT_ZOOM`。focus-based keyboard resolver と pointer-based wheel resolver を分離したまま、main-owned typed adjustment / settings mutation queue、preload、renderer coordinator、回帰 test を同じ slice で実装する
 - MD-BL-026:
   - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
