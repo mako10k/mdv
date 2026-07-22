@@ -181,7 +181,7 @@ v0.1.14 で閉じた最小範囲:
 8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
 9. [棚卸待ち] MD-BL-011 PDF 出力
 10. [実装済み / 検証待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
-11. [棚卸確認済み / 設計完了] MD-BL-026 狭幅時のレスポンシブ outline 表示
+11. [renderer実装済み / product integration blocked] MD-BL-026 狭幅時のレスポンシブ outline 表示
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -221,13 +221,16 @@ v0.1.14 で閉じた最小範囲:
   - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
   - `design_status: design_confirmed`
   - `design_evidence`: [ADR 0028 Container-Owned Responsive Outline Drawer](adr/0028-container-owned-responsive-outline-drawer.md)
-  - `implementation_status: implemented`
+  - `implementation_status: renderer_implemented_integration_blocked`
   - `implementation_evidence`: [MD-BL-026 Responsive Outline Implementation](milestones/update-outline-implementation.md)
+  - `validation_status: partial_pass_blocked`
+  - `validation_evidence`: [MD-BL-026 Responsive Outline Validation](milestones/update-outline-validation.md)
+  - `validation_result`: Windows candidate integrity / deploy、packaged keyboard-only、60見出しの内部scroll / jump、AI dock keyboard resizeによる839.6px compact / 904.7px wide再判定、preview正規化、Chromium accessibility treeは合格。通常editor windowは`minWidth: 1200`のためwindow resize単独でcompactへ到達できず、実screen readerも未確認なのでrelease-readyとは扱わない
   - `user_outcome`: window 幅が狭い場合でも outline pane が本文幅を奪い続けず、本文を実用的な幅で読める
   - `allowed_scope`: `.workspace-main-column` の実幅900pxを境界にした wide persistent pane / compact icon trigger + non-modal overlay drawer、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む responsive 回帰
   - `blocked_scope`: outline 内容や heading tracking の再実装、hover だけに依存する操作、閉じた outline が本文上へ不可視に残る状態、狭幅時に本文を実用不能な幅まで縮める固定 pane、AI dock の responsive contract を無関係に全面再設計すること
   - `acceptance_direction`: compact 時は本文を優先して outline を一操作で開閉し、閉じた状態では本文を覆わない。開いた状態は背景を inert にしない transient drawer とし、現在位置と見出し jump を維持する。preview には outline / trigger を追加しない
-  - `next_slice`: `VALIDATE_OUTLINE`。packaged Windowsの実用本文領域、keyboard-only操作、実screen readerでのnavigation disclosure、長いoutlineのscroll / close到達性、AI dock resizeを含む実機回帰を行い、`OUTLINE_RELEASE_READY` 可否を判断する
+  - `next_slice`: `RECONCILE_OUTLINE_WINDOW_CONTRACT`。履歴上は設計根拠が確認できない1200px editor minimumとcurrent responsive contractの不一致を解消する。推奨候補はcontractへ到達できるminimumへの変更だが、1200px維持が必要な新証拠が出た場合は実装せずdecision changeを提示する。test内でminimumを緩和しないElectron回帰を追加後、candidateを再生成し、定義済みNarrator / NVDA基準を含む`VALIDATE_OUTLINE`を再実行する
 
 2026-06-18 MD-BL-019 棚卸結果:
 

@@ -44,8 +44,11 @@ milestone OUTLINE_DESIGNED:
   state reached
 
 milestone OUTLINE_IMPLEMENTED:
-  title "MD-BL-026 実装完了"
+  title "MD-BL-026 renderer slice実装完了"
   state reached
+
+milestone OUTLINE_WINDOW_CONTRACT_READY:
+  title "MD-BL-026 packaged window contract不一致解消"
 
 milestone OUTLINE_RELEASE_READY:
   title "MD-BL-026 個別release候補"
@@ -137,12 +140,23 @@ task IMPLEMENT_OUTLINE OUTLINE_DESIGNED -> OUTLINE_IMPLEMENTED:
   status done
   source "docs/milestones/update-outline-implementation.md"
 
-task VALIDATE_OUTLINE OUTLINE_IMPLEMENTED -> OUTLINE_RELEASE_READY:
+task RECONCILE_OUTLINE_WINDOW_CONTRACT OUTLINE_IMPLEMENTED -> OUTLINE_WINDOW_CONTRACT_READY:
+  title "packaged editor minimumとresponsive outline contractの不一致を解消する"
+  estimate:
+    optimistic 0.5d
+    most_likely 1d
+    pessimistic 2d
+  source "docs/milestones/update-outline-validation.md"
+
+task VALIDATE_OUTLINE OUTLINE_WINDOW_CONTRACT_READY -> OUTLINE_RELEASE_READY:
   title "実用本文幅・非表示overlay・keyboard/focus/screen-reader・heading jumpを狭幅の各surfaceで回帰検証する"
   estimate:
     optimistic 1d
     most_likely 2d
     pessimistic 3d
+  status blocked
+  blocked_reason "keyboard・長いoutline・AI dock・Chromium accessibility treeは合格したが、packaged editor window contractの不一致解消と定義済み基準による実screen reader確認が残る"
+  source "docs/milestones/update-outline-validation.md"
 
 task PREPARE_UPDATER_FOUNDATION UPDATE_INVENTORY_DONE -> UPDATER_FOUNDATION_READY:
   title "REL-BL-001の必要なupdater runtime・version metadata surfaceを完了または既完了と確認する"

@@ -2,10 +2,10 @@
 
 - Date: 2026-07-22
 - PERT task: `IMPLEMENT_OUTLINE`
-- Result: implemented
-- Validation status: `VALIDATE_OUTLINE` pending
+- Result: renderer implemented; product integration blocked
+- Validation status: partial pass; blocked ([evidence](update-outline-validation.md))
 - Release readiness: `OUTLINE_RELEASE_READY` not reached
-- Remaining validation: packaged Windowsの実用本文領域、keyboard-only操作、実screen reader、長いoutline、AI dock resize
+- Remaining validation: packaged editor window minimumのcontract整合と実screen reader
 - Governing contract: [Responsive Outline Design](../responsive-outline-design.md)
 - Decision record: [ADR 0028](../adr/0028-container-owned-responsive-outline-drawer.md)
 
@@ -34,4 +34,4 @@
 
 ## Remaining Validation Boundary
 
-`IMPLEMENT_OUTLINE` は完了したが、`OUTLINE_RELEASE_READY` ではない。次の `VALIDATE_OUTLINE` でpackaged Windowsの実用本文領域、keyboard-only操作、実screen readerでのnavigation disclosure、長いoutlineのscroll / close到達性、AI dock resizeを含む実機回帰を行う。
+`IMPLEMENT_OUTLINE` のrenderer sliceは完了したが、[packaged validation](update-outline-validation.md) でmain processが所有する `BrowserWindow` の `minWidth: 1200` がwindow resize単独のcompact到達を妨げることが判明した。keyboard-only、長いoutline、AI dock resize、Chromium accessibility treeは合格したが、product integrationと`OUTLINE_RELEASE_READY`は未完了である。次は `RECONCILE_OUTLINE_WINDOW_CONTRACT` でwindow minimumとcurrent contractの不一致を解消し、その後にpackaged再検証と実screen reader確認を行う。

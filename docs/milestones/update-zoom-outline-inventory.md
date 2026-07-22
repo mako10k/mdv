@@ -71,4 +71,4 @@
 
 Both become dependency-ready after this inventory. Product ordering remains governed by `docs/current-backlog.md`; this inventory does not assign implementation priority.
 
-Follow-up: `DESIGN_ZOOM` and `DESIGN_OUTLINE` are complete. Current runnable / blocked state is defined by [the PERT plan](update-zoom-outline.pert), where `IMPLEMENT_OUTLINE` is runnable and `VALIDATE_ZOOM` remains blocked on high-resolution trackpad evidence.
+Follow-up: `DESIGN_ZOOM`、`DESIGN_OUTLINE`、`IMPLEMENT_OUTLINE` のrenderer sliceは完了した。Current runnable / blocked stateは [the PERT plan](update-zoom-outline.pert) を正本とし、packaged validationで見つかったeditor window contract不一致を解消する `RECONCILE_OUTLINE_WINDOW_CONTRACT` がrunnable、`VALIDATE_ZOOM` はhigh-resolution trackpad evidence待ちでblockedである。
