@@ -1,0 +1,164 @@
+project MDV_UPDATE_ZOOM_OUTLINE:
+  version 1
+  title "Release Note確認・表示ズーム・狭幅outlineのマイルストーン"
+  description |
+    REL-BL-002、MD-BL-025、MD-BL-026を、現状棚卸、設計契約、実装、
+    検証の順で進める。3件を同じreleaseへ同梱する前提にはしない。
+    finishは各項目が独立してrelease候補になれる状態を表し、release versionと
+    公開時期は別途判断する。三点見積りは計画比較用で、納期の約束ではない。
+    product priorityはcurrent-backlogを正本とし、この文書ではtask間の数値priorityを
+    固定しない。Supporting Backlogの棚卸はcurrent-backlogのP2棚卸gateを待つ。
+    blocked taskの待ち時間はPERT所要日数に含まれない。REL-BL-001依存の見積りは
+    updater棚卸後に必ずrebaselineする。
+  as_of 2026-07-22
+  duration_unit day
+  finish DELIVERY_OPTIONS_READY
+
+milestone NOW:
+  title "バックログ受理済み"
+  state reached
+
+milestone EDITOR_INVENTORY_DONE:
+  title "MD-BL-025・MD-BL-026の現行契約と実装の棚卸完了"
+
+milestone SUPPORTING_INVENTORY_ALLOWED:
+  title "Supporting Backlogの棚卸開始可能"
+
+milestone UPDATE_INVENTORY_DONE:
+  title "REL-BL-001・REL-BL-002の現行契約と実装の棚卸完了"
+
+milestone ZOOM_DESIGNED:
+  title "MD-BL-025 設計契約確定"
+
+milestone ZOOM_IMPLEMENTED:
+  title "MD-BL-025 実装完了"
+
+milestone ZOOM_RELEASE_READY:
+  title "MD-BL-025 個別release候補"
+
+milestone OUTLINE_DESIGNED:
+  title "MD-BL-026 設計契約確定"
+
+milestone OUTLINE_IMPLEMENTED:
+  title "MD-BL-026 実装完了"
+
+milestone OUTLINE_RELEASE_READY:
+  title "MD-BL-026 個別release候補"
+
+milestone UPDATE_NOTE_DESIGNED:
+  title "REL-BL-002 設計契約確定"
+
+milestone UPDATER_FOUNDATION_READY:
+  title "REL-BL-001 必要範囲完了"
+
+milestone UPDATE_NOTE_IMPLEMENTED:
+  title "REL-BL-002 実装完了"
+
+milestone UPDATE_NOTE_RELEASE_READY:
+  title "REL-BL-002 個別release候補"
+
+milestone DELIVERY_OPTIONS_READY:
+  title "3項目の個別release候補が出揃う"
+
+task INVENTORY_EDITOR NOW -> EDITOR_INVENTORY_DONE:
+  title "typography・responsive layoutの現状とdecision gapを棚卸する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 3d
+
+task WAIT_SUPPORTING_PRIORITY NOW -> SUPPORTING_INVENTORY_ALLOWED:
+  title "current-backlogの先行P2棚卸gateを確認する"
+  estimate:
+    optimistic 0d
+    most_likely 0d
+    pessimistic 1d
+  status blocked
+  blocked_reason "Recommended Execution Orderの先行P2棚卸が未完了"
+  source "docs/current-backlog.md#recommended-execution-order"
+
+task INVENTORY_UPDATE SUPPORTING_INVENTORY_ALLOWED -> UPDATE_INVENTORY_DONE:
+  title "REL-BL-001・REL-BL-002のupdater実装とdecision gapを棚卸する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 3d
+
+task DESIGN_ZOOM EDITOR_INVENTORY_DONE -> ZOOM_DESIGNED:
+  title "Ctrl+マウスホイールの対象surface・step・永続化契約を設計する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 3d
+
+task IMPLEMENT_ZOOM ZOOM_DESIGNED -> ZOOM_IMPLEMENTED:
+  title "既存typography contractへ修飾wheel gestureを統合する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 4d
+
+task VALIDATE_ZOOM ZOOM_IMPLEMENTED -> ZOOM_RELEASE_READY:
+  title "通常scroll・既存Ctrl/Cmd +/-/0・上下限・対象surface・再起動後状態をbrowser/Electronで回帰検証する"
+  estimate:
+    optimistic 1d
+    most_likely 1d
+    pessimistic 2d
+
+task DESIGN_OUTLINE EDITOR_INVENTORY_DONE -> OUTLINE_DESIGNED:
+  title "狭幅時のcollapse・icon・floating候補と本文優先contractを設計する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 4d
+
+task IMPLEMENT_OUTLINE OUTLINE_DESIGNED -> OUTLINE_IMPLEMENTED:
+  title "選定したresponsive outlineとaccessibility操作を実装する"
+  estimate:
+    optimistic 2d
+    most_likely 4d
+    pessimistic 7d
+
+task VALIDATE_OUTLINE OUTLINE_IMPLEMENTED -> OUTLINE_RELEASE_READY:
+  title "実用本文幅・非表示overlay・keyboard/focus/screen-reader・heading jumpを狭幅の各surfaceで回帰検証する"
+  estimate:
+    optimistic 1d
+    most_likely 2d
+    pessimistic 3d
+
+task PREPARE_UPDATER_FOUNDATION UPDATE_INVENTORY_DONE -> UPDATER_FOUNDATION_READY:
+  title "REL-BL-001の必要なupdater runtime・version metadata surfaceを完了または既完了と確認する"
+  estimate:
+    optimistic 1d
+    most_likely 3d
+    pessimistic 8d
+
+task DESIGN_UPDATE_NOTE UPDATER_FOUNDATION_READY -> UPDATE_NOTE_DESIGNED:
+  title "Release Noteの取得元・version束縛・安全な表示・失敗時契約を設計する"
+  estimate:
+    optimistic 2d
+    most_likely 3d
+    pessimistic 5d
+
+task IMPLEMENT_UPDATE_NOTE UPDATE_NOTE_DESIGNED -> UPDATE_NOTE_IMPLEMENTED:
+  title "更新判断前のRelease Note表示と延期・続行導線を実装する"
+  estimate:
+    optimistic 3d
+    most_likely 5d
+    pessimistic 8d
+
+task VALIDATE_UPDATE_NOTE UPDATE_NOTE_IMPLEMENTED -> UPDATE_NOTE_RELEASE_READY:
+  title "Windows installerでversion/source integrity・安全な表示・取得失敗・延期・更新適用を統合検証する"
+  estimate:
+    optimistic 2d
+    most_likely 3d
+    pessimistic 5d
+
+gate ZOOM_OPTION_READY ZOOM_RELEASE_READY -> DELIVERY_OPTIONS_READY:
+  reason "MD-BL-025が個別にrelease可能であること"
+
+gate OUTLINE_OPTION_READY OUTLINE_RELEASE_READY -> DELIVERY_OPTIONS_READY:
+  reason "MD-BL-026が個別にrelease可能であること"
+
+gate UPDATE_NOTE_OPTION_READY UPDATE_NOTE_RELEASE_READY -> DELIVERY_OPTIONS_READY:
+  reason "REL-BL-002が個別にrelease可能であること"

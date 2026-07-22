@@ -194,6 +194,7 @@ v0.1.14 で閉じた最小範囲:
 - MD-BL-025 と MD-BL-026 は MD-BL-019 の未完了 scope として再開せず、既存 typography / outline density 改善を前提にした新しい interaction / responsive layout scope として扱う
 
 - MD-BL-025:
+  - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に current typography / shortcut contract を更新する。現行実装の基準は `src/shared/desktopTypography.ts`、`src/App.tsx`、Settings typography controls とする
   - `contract_state: decision_change_required`
   - `backlog_state: accepted_active`
@@ -203,6 +204,7 @@ v0.1.14 で閉じた最小範囲:
   - `blocked_scope`: 修飾キーなし wheel の横取り、OS display scaling の変更、意図しない Electron `webContents` 全体 zoom による app chrome / dialog / responsive breakpoint の破壊、既存 `Ctrl/Cmd + +/-/0` の削除
   - `acceptance_direction`: gesture の対象 surface と現在値が一貫し、通常 scroll は変わらず、上下限で破綻せず、再起動後の扱いが Settings の文字サイズ contract と矛盾しない
 - MD-BL-026:
+  - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
   - `contract_state: decision_change_required`
   - `backlog_state: accepted_active`
@@ -263,6 +265,7 @@ v0.1.14 で閉じた最小範囲:
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 - model registry の release 前整合チェックに必要な main-owned metadata surface は AI-CFG-003 first slice で完了した。updater、version metadata の他 consumer、candidate binary との release 統合は REL-BL-001 の後続として残す
 - REL-BL-002:
+  - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に Windows updater の user-choice / release-note acquisition contract を定義する。[ADR 0016](adr/0016-windows-update-channel-and-version-metadata.md) は installer auto-update と portable manual-update の境界を示す判断記録として参照する
   - `contract_state: decision_change_required`
   - `backlog_state: accepted_active`
