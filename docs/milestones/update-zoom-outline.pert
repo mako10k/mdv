@@ -20,6 +20,7 @@ milestone NOW:
 
 milestone EDITOR_INVENTORY_DONE:
   title "MD-BL-025・MD-BL-026の現行契約と実装の棚卸完了"
+  state reached
 
 milestone SUPPORTING_INVENTORY_ALLOWED:
   title "Supporting Backlogの棚卸開始可能"
@@ -66,6 +67,8 @@ task INVENTORY_EDITOR NOW -> EDITOR_INVENTORY_DONE:
     optimistic 1d
     most_likely 2d
     pessimistic 3d
+  status done
+  source "docs/milestones/update-zoom-outline-inventory.md"
 
 task WAIT_SUPPORTING_PRIORITY NOW -> SUPPORTING_INVENTORY_ALLOWED:
   title "current-backlogの先行P2棚卸gateを確認する"

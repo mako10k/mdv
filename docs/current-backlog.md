@@ -180,8 +180,8 @@ v0.1.14 で閉じた最小範囲:
 7. [棚卸待ち] MD-BL-009 スペルチェック
 8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
 9. [棚卸待ち] MD-BL-011 PDF 出力
-10. [新規受理 / 棚卸待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
-11. [新規受理 / 棚卸待ち] MD-BL-026 狭幅時のレスポンシブ outline 表示
+10. [棚卸確認済み / 設計待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
+11. [棚卸確認済み / 設計待ち] MD-BL-026 狭幅時のレスポンシブ outline 表示
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -198,21 +198,25 @@ v0.1.14 で閉じた最小範囲:
   - `design_contract`: implementation 前に current typography / shortcut contract を更新する。現行実装の基準は `src/shared/desktopTypography.ts`、`src/App.tsx`、Settings typography controls とする
   - `contract_state: decision_change_required`
   - `backlog_state: accepted_active`
-  - `inventory_status: inventory_pending`
+  - `inventory_status: inventory_confirmed`
+  - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
   - `user_outcome`: `Ctrl+マウスホイール` で表示を段階的に拡大縮小し、長文の閲覧・編集時にその場で読みやすさを調整できる
   - `allowed_scope`: 通常の wheel scroll を維持した修飾キー付き gesture、既存 font-size bounds / persistence / keyboard shortcut との統合、editor / preview / AI chat のどの surface を対象にするかの棚卸、過剰な連続 wheel event を抑える step / throttle、browser と Electron の回帰
   - `blocked_scope`: 修飾キーなし wheel の横取り、OS display scaling の変更、意図しない Electron `webContents` 全体 zoom による app chrome / dialog / responsive breakpoint の破壊、既存 `Ctrl/Cmd + +/-/0` の削除
   - `acceptance_direction`: gesture の対象 surface と現在値が一貫し、通常 scroll は変わらず、上下限で破綻せず、再起動後の扱いが Settings の文字サイズ contract と矛盾しない
+  - `next_slice`: `DESIGN_ZOOM`。focus-based keyboard target と pointer-based wheel target を分離し、target 解決後の size change / persistence だけを共有する design contract を先に確定する
 - MD-BL-026:
   - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
   - `contract_state: decision_change_required`
   - `backlog_state: accepted_active`
-  - `inventory_status: inventory_pending`
+  - `inventory_status: inventory_confirmed`
+  - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
   - `user_outcome`: window 幅が狭い場合でも outline pane が本文幅を奪い続けず、本文を実用的な幅で読める
   - `allowed_scope`: breakpoint に応じた collapse、icon trigger、floating / overlay drawer などの比較、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む narrow viewport 回帰
   - `blocked_scope`: outline 内容や heading tracking の再実装、hover だけに依存する操作、閉じた outline が本文上へ不可視に残る状態、狭幅時に本文を実用不能な幅まで縮める固定 pane、AI dock の responsive contract を無関係に全面再設計すること
   - `acceptance_direction`: 狭幅時は本文を優先しつつ outline を一操作で開閉でき、閉じた状態では本文を覆わず、開いた状態でも現在位置と見出し jump を失わない。フロート化・アイコン化はこの outcome を満たす候補であり、実装方式は inventory / design で決める
+  - `next_slice`: `DESIGN_OUTLINE`。desktop side pane を維持する breakpoint と、狭幅時の transient icon / overlay contract、focus / close behavior、本文の実用領域 gate を先に確定する
 
 2026-06-18 MD-BL-019 棚卸結果:
 
