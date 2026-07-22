@@ -30,10 +30,9 @@
 - Evidence: one request / result representation, runtime rejection of mixed or invalid payloads, no-op without persist / broadcast, failure without public-state commit, queue recovery, latest-state fetch ACL re-evaluation, targeted Node 24 passed
 - Verdict: `early pass` with no blocker
 
-## Remaining `VALIDATE_ZOOM`
+## `VALIDATE_ZOOM` Handoff
 
-- The renderer currently uses a provisional 120ms same-direction burst gate. Calibrate it on a discrete mouse wheel and a high-resolution trackpad; retain or change it only with recorded device evidence.
-- Repeat the fixed zoom factor / app chrome, cross-window broadcast, and restart persistence checks against the packaged Windows candidate; include the Settings window surface.
-- Run the broader regression set selected by `npm run codex:validate` before release readiness is claimed.
+- Broad regression, packaged Windows candidate, trusted input, Settings / cross-editor broadcast, restart persistence, and a physical discrete mouse check passed. See [Typography Gesture Validation](update-zoom-validation.md).
+- The renderer still uses a provisional 120ms same-direction burst gate. A high-resolution trackpad was unavailable, so device-cadence calibration remains blocked and release readiness is not claimed.
 
 This implementation evidence marks `IMPLEMENT_ZOOM` complete. It does not mark `VALIDATE_ZOOM`, `ZOOM_RELEASE_READY`, or a release version complete.

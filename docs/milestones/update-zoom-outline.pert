@@ -113,6 +113,9 @@ task VALIDATE_ZOOM ZOOM_IMPLEMENTED -> ZOOM_RELEASE_READY:
     optimistic 1d
     most_likely 1d
     pessimistic 2d
+  status blocked
+  blocked_reason "通常マウス・自動回帰・packaged Windows検証は合格したが、高解像度trackpadの検証機材がない"
+  source "docs/milestones/update-zoom-validation.md"
 
 task DESIGN_OUTLINE EDITOR_INVENTORY_DONE -> OUTLINE_DESIGNED:
   title "狭幅時のcollapse・icon・floating候補と本文優先contractを設計する"

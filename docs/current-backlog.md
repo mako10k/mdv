@@ -204,11 +204,14 @@ v0.1.14 で閉じた最小範囲:
   - `design_evidence`: [ADR 0027 Main-Owned Typography Adjustment](adr/0027-main-owned-typography-adjustment.md)
   - `implementation_status: implemented`
   - `implementation_evidence`: [MD-BL-025 Typography Gesture Implementation](milestones/update-zoom-implementation.md)
+  - `validation_status: partial_pass_blocked`
+  - `validation_evidence`: [MD-BL-025 Typography Gesture Validation](milestones/update-zoom-validation.md)
+  - `validation_result`: Node 119、Electron 51、browser 75、release workflow 30、Windows candidate integrity / deploy、packaged trusted wheel、app chrome不変、cross-editor / Settings broadcast、再起動永続化、通常マウス1 notch = 1px は合格。高解像度trackpadは検証機材がなく未実施のため、release-readyとは扱わない
   - `user_outcome`: `Ctrl+マウスホイール` で表示を段階的に拡大縮小し、長文の閲覧・編集時にその場で読みやすさを調整できる
   - `allowed_scope`: 通常の wheel scroll を維持した修飾キー付き gesture、既存 font-size bounds / persistence / keyboard shortcut との統合、editor / preview / AI chat のどの surface を対象にするかの棚卸、過剰な連続 wheel event を抑える step / throttle、browser と Electron の回帰
   - `blocked_scope`: 修飾キーなし wheel の横取り、OS display scaling の変更、意図しない Electron `webContents` 全体 zoom による app chrome / dialog / responsive breakpoint の破壊、既存 `Ctrl/Cmd + +/-/0` の削除
   - `acceptance_direction`: gesture の対象 surface と現在値が一貫し、通常 scroll は変わらず、上下限で破綻せず、再起動後の扱いが Settings の文字サイズ contract と矛盾しない
-  - `next_slice`: `VALIDATE_ZOOM`。provisional 120ms burst gateを discrete wheel / high-resolution trackpad で校正し、packaged Electron の zoom factor / app chrome、cross-window broadcast、再起動後 persistence を確認する
+  - `next_slice`: `VALIDATE_ZOOM` の残件。packaged Windows上の高解像度trackpadで短いgestureが上下限へ飛ばず、継続操作が段階的に進み、反転が不自然に待たされないことを確認する。120ms burst gateはその実機証拠までprovisionalのままとする
 - MD-BL-026:
   - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
   - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
