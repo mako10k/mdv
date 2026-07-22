@@ -181,7 +181,7 @@ v0.1.14 で閉じた最小範囲:
 8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
 9. [棚卸待ち] MD-BL-011 PDF 出力
 10. [実装済み / 検証待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
-11. [棚卸確認済み / 設計待ち] MD-BL-026 狭幅時のレスポンシブ outline 表示
+11. [棚卸確認済み / 設計完了] MD-BL-026 狭幅時のレスポンシブ outline 表示
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -214,16 +214,18 @@ v0.1.14 で閉じた最小範囲:
   - `next_slice`: `VALIDATE_ZOOM` の残件。packaged Windows上の高解像度trackpadで短いgestureが上下限へ飛ばず、継続操作が段階的に進み、反転が不自然に待たされないことを確認する。120ms burst gateはその実機証拠までprovisionalのままとする
 - MD-BL-026:
   - `milestone_plan`: [docs/milestones/update-zoom-outline.pert](milestones/update-zoom-outline.pert)
-  - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
-  - `contract_state: decision_change_required`
+  - `design_contract`: [Responsive Outline Design](responsive-outline-design.md)
+  - `contract_state: active_contract`
   - `backlog_state: accepted_active`
   - `inventory_status: inventory_confirmed`
   - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
+  - `design_status: design_confirmed`
+  - `design_evidence`: [ADR 0028 Container-Owned Responsive Outline Drawer](adr/0028-container-owned-responsive-outline-drawer.md)
   - `user_outcome`: window 幅が狭い場合でも outline pane が本文幅を奪い続けず、本文を実用的な幅で読める
-  - `allowed_scope`: breakpoint に応じた collapse、icon trigger、floating / overlay drawer などの比較、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む narrow viewport 回帰
+  - `allowed_scope`: `.workspace-main-column` の実幅900pxを境界にした wide persistent pane / compact icon trigger + non-modal overlay drawer、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む responsive 回帰
   - `blocked_scope`: outline 内容や heading tracking の再実装、hover だけに依存する操作、閉じた outline が本文上へ不可視に残る状態、狭幅時に本文を実用不能な幅まで縮める固定 pane、AI dock の responsive contract を無関係に全面再設計すること
-  - `acceptance_direction`: 狭幅時は本文を優先しつつ outline を一操作で開閉でき、閉じた状態では本文を覆わず、開いた状態でも現在位置と見出し jump を失わない。フロート化・アイコン化はこの outcome を満たす候補であり、実装方式は inventory / design で決める
-  - `next_slice`: `DESIGN_OUTLINE`。desktop side pane を維持する breakpoint と、狭幅時の transient icon / overlay contract、focus / close behavior、本文の実用領域 gate を先に確定する
+  - `acceptance_direction`: compact 時は本文を優先して outline を一操作で開閉し、閉じた状態では本文を覆わない。開いた状態は背景を inert にしない transient drawer とし、現在位置と見出し jump を維持する。preview には outline / trigger を追加しない
+  - `next_slice`: `IMPLEMENT_OUTLINE`。`.workspace-main-column` の実幅900pxを境界に、wide persistent paneとcompact transient drawer、trigger / close / focus transition、既存heading jump / active tracking共有、responsive / accessibility回帰を実装する
 
 2026-06-18 MD-BL-019 棚卸結果:
 

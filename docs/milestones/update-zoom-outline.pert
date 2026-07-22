@@ -41,6 +41,7 @@ milestone ZOOM_RELEASE_READY:
 
 milestone OUTLINE_DESIGNED:
   title "MD-BL-026 設計契約確定"
+  state reached
 
 milestone OUTLINE_IMPLEMENTED:
   title "MD-BL-026 実装完了"
@@ -123,6 +124,8 @@ task DESIGN_OUTLINE EDITOR_INVENTORY_DONE -> OUTLINE_DESIGNED:
     optimistic 1d
     most_likely 2d
     pessimistic 4d
+  status done
+  source "docs/responsive-outline-design.md"
 
 task IMPLEMENT_OUTLINE OUTLINE_DESIGNED -> OUTLINE_IMPLEMENTED:
   title "選定したresponsive outlineとaccessibility操作を実装する"

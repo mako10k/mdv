@@ -4,7 +4,8 @@
 - PERT task: `INVENTORY_EDITOR`
 - Result: complete
 - Backlog state: both items remain `accepted_active`
-- Contract state: both items remain `decision_change_required`; this inventory does not authorize implementation
+- Inventory-time contract state: both items were `decision_change_required`; this inventory alone did not authorize implementation
+- Follow-up: MD-BL-025 became `active_contract` in [Typography Interaction Design](../typography-interaction-design.md), and MD-BL-026 became `active_contract` in [Responsive Outline Design](../responsive-outline-design.md)
 
 ## MD-BL-025 Ctrl+Mouse-Wheel Zoom
 
@@ -17,7 +18,7 @@
 - No `wheel` handler or Electron `webContents` zoom call exists in the renderer, main process, or current tests.
 - Settings sanitization tests cover the numeric bounds. Browser tests cover the resulting typography CSS, but do not directly cover the existing typography shortcut, persistence, or failure rollback.
 
-### Design Decisions Still Required
+### Design Decisions Required at Inventory Time
 
 - Define a pointer-location contract for the wheel gesture separately from the existing focus-based keyboard contract. Do not broaden one helper to silently carry both meanings.
 - Decide whether pointer positions in editor and preview both update `editor.fontSizePx`, and whether the complete AI dock or only specific AI content updates `ai.chatFontSizePx`.
@@ -25,7 +26,7 @@
 - Define wheel delta normalization, one-pixel size steps, event coalescing, persistence ordering, and rollback so a physical wheel gesture does not flood settings IPC or apply stale acknowledgements.
 - Preserve `Ctrl/Cmd + +/-/0`, the current bounds, Settings synchronization, proposal-modal interaction blocking, and browser/Electron coverage. Do not use global `webContents` zoom because that would scale app chrome and alter responsive breakpoints.
 
-### Recommended Design Starting Point
+### Recommended Starting Point at Inventory Time
 
 - Reuse the persisted typography settings and their existing bounds.
 - Resolve wheel targets by pointer containment: editor and preview map to editor typography; an explicitly accepted AI dock region maps to chat typography; all other regions retain native wheel behavior.
@@ -42,7 +43,7 @@
 - There is no collapsed state, icon trigger, floating drawer, manual toggle, `aria-expanded` contract, or focus-return behavior.
 - Existing browser coverage confirms outline presence, compact typography, table-action reachability at 760px, and AI-dock stacking at 1000px. It does not assert a minimum usable document size, outline open/close behavior, hidden-overlay cleanup, or keyboard/screen-reader operation.
 
-### Design Decisions Still Required
+### Design Decisions Required at Inventory Time
 
 - Preserve the fixed desktop outline where sufficient width exists, then compare automatic collapse, icon trigger, and floating/overlay drawer behavior for narrow widths.
 - Define breakpoint ownership and manual state transitions, including what happens when the window crosses the breakpoint while the outline is open.
@@ -50,7 +51,7 @@
 - Preserve active-heading indication, heading jump, and outline scroll-follow. Do not add a preview outline as an implicit part of this item.
 - Add practical-width and practical-height assertions for editor-only, preview, and editor-with-AI layouts, including the 981–1100px band.
 
-### Recommended Design Starting Point
+### Recommended Starting Point at Inventory Time
 
 - Keep the current desktop side pane above the selected breakpoint.
 - Below that breakpoint, default to a collapsed icon trigger and open the outline as an explicit overlay/drawer that does not permanently reduce document width or height.
@@ -63,9 +64,11 @@
 - Targeted browser regression on 2026-07-22: 4 passed (`editor mode keeps the outline`, `editor mode uses denser outline`, `narrow editor topbar`, `narrow layout stacks the AI dock`)
 - Repository search confirmed no current wheel handler or Electron zoom call.
 
-## Next PERT Tasks
+## Inventory-Time Next PERT Tasks
 
 - `DESIGN_ZOOM`
 - `DESIGN_OUTLINE`
 
 Both become dependency-ready after this inventory. Product ordering remains governed by `docs/current-backlog.md`; this inventory does not assign implementation priority.
+
+Follow-up: `DESIGN_ZOOM` and `DESIGN_OUTLINE` are complete. Current runnable / blocked state is defined by [the PERT plan](update-zoom-outline.pert), where `IMPLEMENT_OUTLINE` is runnable and `VALIDATE_ZOOM` remains blocked on high-resolution trackpad evidence.
