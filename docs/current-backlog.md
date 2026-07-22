@@ -180,6 +180,8 @@ v0.1.14 で閉じた最小範囲:
 7. [棚卸待ち] MD-BL-009 スペルチェック
 8. [棚卸待ち] MD-BL-010 最近使った文書 / クイックオープン
 9. [棚卸待ち] MD-BL-011 PDF 出力
+10. [新規受理 / 棚卸待ち] MD-BL-025 Ctrl+マウスホイールによる表示拡大縮小
+11. [新規受理 / 棚卸待ち] MD-BL-026 狭幅時のレスポンシブ outline 表示
 
 これらは価値は高いが、現時点では P0/P1 より緊急度が下がる。
 
@@ -189,6 +191,26 @@ v0.1.14 で閉じた最小範囲:
 - MD-BL-019 は outline の行間見直し、editor / AI chat 別 font size、AI chat の padding / margin / 説明文削減を current accepted scope として完了済み
 - MD-BL-020 は save conflict preview だけでなく AI 書き込みの merge UI foundation として扱う。active-editor proposal の hunk apply / discard / manual edit と main-side canonicalization まで current accepted scope を完了した
 - MD-BL-021 は XDG 永続化、span 自動追従、orphaned comment 管理、AI tool CRUD surface をまとめて扱う
+- MD-BL-025 と MD-BL-026 は MD-BL-019 の未完了 scope として再開せず、既存 typography / outline density 改善を前提にした新しい interaction / responsive layout scope として扱う
+
+- MD-BL-025:
+  - `design_contract`: implementation 前に current typography / shortcut contract を更新する。現行実装の基準は `src/shared/desktopTypography.ts`、`src/App.tsx`、Settings typography controls とする
+  - `contract_state: decision_change_required`
+  - `backlog_state: accepted_active`
+  - `inventory_status: inventory_pending`
+  - `user_outcome`: `Ctrl+マウスホイール` で表示を段階的に拡大縮小し、長文の閲覧・編集時にその場で読みやすさを調整できる
+  - `allowed_scope`: 通常の wheel scroll を維持した修飾キー付き gesture、既存 font-size bounds / persistence / keyboard shortcut との統合、editor / preview / AI chat のどの surface を対象にするかの棚卸、過剰な連続 wheel event を抑える step / throttle、browser と Electron の回帰
+  - `blocked_scope`: 修飾キーなし wheel の横取り、OS display scaling の変更、意図しない Electron `webContents` 全体 zoom による app chrome / dialog / responsive breakpoint の破壊、既存 `Ctrl/Cmd + +/-/0` の削除
+  - `acceptance_direction`: gesture の対象 surface と現在値が一貫し、通常 scroll は変わらず、上下限で破綻せず、再起動後の扱いが Settings の文字サイズ contract と矛盾しない
+- MD-BL-026:
+  - `design_contract`: implementation 前に workspace responsive layout contract を更新する。[ADR 0009](adr/0009-ui-information-architecture-reset.md) は workspace-first 方針の判断記録として参照する
+  - `contract_state: decision_change_required`
+  - `backlog_state: accepted_active`
+  - `inventory_status: inventory_pending`
+  - `user_outcome`: window 幅が狭い場合でも outline pane が本文幅を奪い続けず、本文を実用的な幅で読める
+  - `allowed_scope`: breakpoint に応じた collapse、icon trigger、floating / overlay drawer などの比較、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む narrow viewport 回帰
+  - `blocked_scope`: outline 内容や heading tracking の再実装、hover だけに依存する操作、閉じた outline が本文上へ不可視に残る状態、狭幅時に本文を実用不能な幅まで縮める固定 pane、AI dock の responsive contract を無関係に全面再設計すること
+  - `acceptance_direction`: 狭幅時は本文を優先しつつ outline を一操作で開閉でき、閉じた状態では本文を覆わず、開いた状態でも現在位置と見出し jump を失わない。フロート化・アイコン化はこの outcome を満たす候補であり、実装方式は inventory / design で決める
 
 2026-06-18 MD-BL-019 棚卸結果:
 
@@ -230,6 +252,7 @@ v0.1.14 で閉じた最小範囲:
 
 1. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
 2. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
+3. [新規受理 / 棚卸待ち] REL-BL-002 更新適用前の Release Note 確認
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -239,6 +262,16 @@ v0.1.14 で閉じた最小範囲:
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 - model registry の release 前整合チェックに必要な main-owned metadata surface は AI-CFG-003 first slice で完了した。updater、version metadata の他 consumer、candidate binary との release 統合は REL-BL-001 の後続として残す
+- REL-BL-002:
+  - `design_contract`: implementation 前に Windows updater の user-choice / release-note acquisition contract を定義する。[ADR 0016](adr/0016-windows-update-channel-and-version-metadata.md) は installer auto-update と portable manual-update の境界を示す判断記録として参照する
+  - `contract_state: decision_change_required`
+  - `backlog_state: accepted_active`
+  - `inventory_status: inventory_pending`
+  - `dependency`: REL-BL-001 の updater runtime / version metadata surface
+  - `user_outcome`: 利用可能な更新の Release Note をダウンロードまたはインストールの前に読み、作業状況や変更内容を踏まえて更新時期を判断できる
+  - `allowed_scope`: Windows installer update の available version と対応する Release Note 表示、更新を今進める / 後で行う選択、About / update prompt 間の一貫した導線、release-note source / integrity / unavailable fallback の設計、外部由来 content の安全な text / Markdown rendering、main / preload / renderer contract と release integration regression
+  - `blocked_scope`: portable build の自動自己更新化、Release Note を確認できない状態での強制更新、任意 remote HTML の直接描画、GitHub 認証を一般ユーザーへ要求する取得方式、update artifact / version と対応しない note の表示
+  - `acceptance_direction`: 表示した version と適用対象が一致し、ユーザーが note を確認して更新を延期または続行でき、note 取得失敗時も更新判断を誤らせる空表示や別 version の内容へ fallback しない
 - ENG-BL-001 の 2026-06-06 時点の進捗:
   - 完了: `electron/main.cjs` を薄い wrapper へ縮退し、実体を `src/electron/main.cts` と `src/electron/main/*.cts` へ移した
   - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close / file / draft workspace / managed client の責務分解
@@ -441,8 +474,8 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P2 Editor Expansion の棚卸: MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
-2. Supporting Backlog: ENG-BL-001、REL-BL-001 を棚卸する
+1. P2 Editor Expansion の棚卸: MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011、MD-BL-025、MD-BL-026
+2. Supporting Backlog: ENG-BL-001、REL-BL-001、REL-BL-002 を棚卸する
 3. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
 4. AI-P3 context management の棚卸
 5. AI-CM context lifecycle の棚卸
