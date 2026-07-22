@@ -45,6 +45,7 @@ milestone OUTLINE_DESIGNED:
 
 milestone OUTLINE_IMPLEMENTED:
   title "MD-BL-026 実装完了"
+  state reached
 
 milestone OUTLINE_RELEASE_READY:
   title "MD-BL-026 個別release候補"
@@ -133,6 +134,8 @@ task IMPLEMENT_OUTLINE OUTLINE_DESIGNED -> OUTLINE_IMPLEMENTED:
     optimistic 2d
     most_likely 4d
     pessimistic 7d
+  status done
+  source "docs/milestones/update-outline-implementation.md"
 
 task VALIDATE_OUTLINE OUTLINE_IMPLEMENTED -> OUTLINE_RELEASE_READY:
   title "実用本文幅・非表示overlay・keyboard/focus/screen-reader・heading jumpを狭幅の各surfaceで回帰検証する"

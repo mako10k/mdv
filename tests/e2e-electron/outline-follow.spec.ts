@@ -126,6 +126,28 @@ test('outline active heading follows the editor caret', async () => {
     await placeEditorCursorFromStart(page, betaBodyOffset)
     await expect(betaOutline).toHaveAttribute('aria-current', 'location')
     await expect(alphaOutline).not.toHaveAttribute('aria-current', 'location')
+
+    await app.evaluate(({ BrowserWindow }) => {
+      const editorWindow = BrowserWindow.getAllWindows()[0]
+      editorWindow.setMinimumSize(700, 600)
+      editorWindow.setSize(880, 800)
+    })
+    await expect(page.locator('.workspace-main-column')).toHaveAttribute('data-outline-layout', 'compact')
+
+    const outlineTrigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+    await outlineTrigger.click()
+    const outlineDrawer = page.locator('.outline-drawer')
+    await expect(outlineDrawer).toBeVisible()
+    await outlineDrawer.getByRole('button', { name: 'Alpha' }).click()
+    await expect(outlineDrawer).toBeHidden()
+    await expect(outlineDrawer.locator('.outline-item', { hasText: 'Alpha' })).toHaveAttribute('aria-current', 'location')
+    await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('.toastui-editor-md-container')))).toBe(true)
+
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].setSize(1200, 800)
+    })
+    await expect(page.locator('.workspace-main-column')).toHaveAttribute('data-outline-layout', 'wide')
+    await expect(page.locator('.outline-panel-persistent').getByRole('button', { name: 'Alpha' })).toHaveAttribute('aria-current', 'location')
   } finally {
     await forceCloseApp(app)
     await app.close().catch(() => {})

@@ -221,11 +221,13 @@ v0.1.14 で閉じた最小範囲:
   - `inventory_evidence`: [MD-BL-025 / MD-BL-026 Editor Inventory](milestones/update-zoom-outline-inventory.md)
   - `design_status: design_confirmed`
   - `design_evidence`: [ADR 0028 Container-Owned Responsive Outline Drawer](adr/0028-container-owned-responsive-outline-drawer.md)
+  - `implementation_status: implemented`
+  - `implementation_evidence`: [MD-BL-026 Responsive Outline Implementation](milestones/update-outline-implementation.md)
   - `user_outcome`: window 幅が狭い場合でも outline pane が本文幅を奪い続けず、本文を実用的な幅で読める
   - `allowed_scope`: `.workspace-main-column` の実幅900pxを境界にした wide persistent pane / compact icon trigger + non-modal overlay drawer、明示的な再表示・閉じる操作、active heading / jump / scroll-follow の維持、keyboard / focus / screen-reader access、editor / preview / AI dock を含む responsive 回帰
   - `blocked_scope`: outline 内容や heading tracking の再実装、hover だけに依存する操作、閉じた outline が本文上へ不可視に残る状態、狭幅時に本文を実用不能な幅まで縮める固定 pane、AI dock の responsive contract を無関係に全面再設計すること
   - `acceptance_direction`: compact 時は本文を優先して outline を一操作で開閉し、閉じた状態では本文を覆わない。開いた状態は背景を inert にしない transient drawer とし、現在位置と見出し jump を維持する。preview には outline / trigger を追加しない
-  - `next_slice`: `IMPLEMENT_OUTLINE`。`.workspace-main-column` の実幅900pxを境界に、wide persistent paneとcompact transient drawer、trigger / close / focus transition、既存heading jump / active tracking共有、responsive / accessibility回帰を実装する
+  - `next_slice`: `VALIDATE_OUTLINE`。packaged Windowsの実用本文領域、keyboard-only操作、実screen readerでのnavigation disclosure、長いoutlineのscroll / close到達性、AI dock resizeを含む実機回帰を行い、`OUTLINE_RELEASE_READY` 可否を判断する
 
 2026-06-18 MD-BL-019 棚卸結果:
 

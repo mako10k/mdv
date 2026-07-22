@@ -68,6 +68,11 @@ type ChangeProposalReviewState = {
   error: string | null
 }
 
+type OutlineLayoutMode = 'unresolved' | 'wide' | 'compact'
+type PendingOutlineFocus =
+  | { target: 'trigger' }
+  | { target: 'wide'; outlineIndex: number | null }
+
 type MarkdownInlineToken = {
   attrs: string[][] | null
   children?: MarkdownInlineToken[]
@@ -105,6 +110,8 @@ type MarkdownInlineParserState = {
 const DEFAULT_ASSISTANT_DOCK_WIDTH_PERCENT = 32
 const MIN_ASSISTANT_DOCK_WIDTH_PERCENT = 24
 const MAX_ASSISTANT_DOCK_WIDTH_PERCENT = 55
+const OUTLINE_COMPACT_MAX_INLINE_SIZE_PX = 900
+const OUTLINE_NAVIGATION_ID = 'mdv-heading-outline-navigation'
 const TYPOGRAPHY_WHEEL_BURST_GATE_MS = 120
 const MAX_COALESCED_TYPOGRAPHY_STEPS = MAX_EDITOR_FONT_SIZE_PX - MIN_EDITOR_FONT_SIZE_PX
 
@@ -1572,6 +1579,99 @@ function ToolbarGroup({ label, children }: ToolbarGroupProps) {
   )
 }
 
+type OutlineNavigationProps = {
+  variant: 'persistent' | 'drawer'
+  isOpen: boolean
+  label: string
+  emptyLabel: string
+  closeLabel: string
+  items: MdvMdastHeadingOutlineItem[]
+  activeIndex: number
+  isPlaceholder: boolean
+  untitledHeadingLabel: (line: number) => string
+  navigationRef: MutableRefObject<HTMLElement | null>
+  closeButtonRef: MutableRefObject<HTMLButtonElement | null>
+  listRef: MutableRefObject<HTMLDivElement | null>
+  activeItemRef: MutableRefObject<HTMLButtonElement | null>
+  onClose: () => void
+  onJump: (item: MdvMdastHeadingOutlineItem) => void
+}
+
+function OutlineNavigation({
+  variant,
+  isOpen,
+  label,
+  emptyLabel,
+  closeLabel,
+  items,
+  activeIndex,
+  isPlaceholder,
+  untitledHeadingLabel,
+  navigationRef,
+  closeButtonRef,
+  listRef,
+  activeItemRef,
+  onClose,
+  onJump,
+}: OutlineNavigationProps) {
+  const isDrawer = variant === 'drawer'
+
+  return (
+    <nav
+      ref={navigationRef}
+      id={isDrawer ? OUTLINE_NAVIGATION_ID : undefined}
+      className={isDrawer ? 'panel outline-panel outline-drawer' : 'panel outline-panel outline-panel-persistent'}
+      aria-label={label}
+      hidden={isDrawer && !isOpen}
+    >
+      <div className="outline-panel-header">
+        <span>{label}</span>
+        {isDrawer ? (
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="outline-close-button"
+            aria-label={closeLabel}
+            title={closeLabel}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
+        ) : null}
+      </div>
+      {items.length === 0 ? (
+        <div className="outline-empty">{emptyLabel}</div>
+      ) : (
+        <div ref={listRef} className="outline-list">
+          {items.map((item, index) => {
+            const isActiveOutlineItem = index === activeIndex
+            const headingLabel = getOutlineHeadingLabel(item, untitledHeadingLabel)
+
+            return (
+              <button
+                key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
+                type="button"
+                className={isPlaceholder ? 'outline-item outline-item-disabled' : isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
+                style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
+                onClick={() => onJump(item)}
+                title={headingLabel}
+                aria-current={!isPlaceholder && isActiveOutlineItem ? 'location' : undefined}
+                aria-disabled={isPlaceholder ? 'true' : undefined}
+                data-outline-index={index}
+                disabled={isPlaceholder}
+                ref={isActiveOutlineItem ? activeItemRef : null}
+              >
+                <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
+                <span className="outline-item-label">{headingLabel}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </nav>
+  )
+}
+
 function escapeRegExpPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -2592,6 +2692,17 @@ function RenderedIcon() {
   )
 }
 
+function OutlineIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
+      <path d="M8 6h11M8 12h11M8 18h11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="4.5" cy="6" r="1" fill="currentColor" />
+      <circle cx="4.5" cy="12" r="1" fill="currentColor" />
+      <circle cx="4.5" cy="18" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 function OpenIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="toolbar-icon">
@@ -3280,12 +3391,15 @@ function App() {
   const [editorSearchDialogMode, setEditorSearchDialogMode] = useState<EditorSearchDialogMode>('search')
   const [headingOutline, setHeadingOutline] = useState<MdvMdastHeadingOutlineItem[]>([])
   const [headingOutlineMode, setHeadingOutlineMode] = useState<'document' | 'placeholder'>('document')
+  const [outlineLayoutMode, setOutlineLayoutMode] = useState<OutlineLayoutMode>('unresolved')
+  const [isOutlineDrawerOpen, setIsOutlineDrawerOpen] = useState(false)
   const [isUntouchedUntitledBuffer, setIsUntouchedUntitledBuffer] = useState(true)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [editorSessionKey, setEditorSessionKey] = useState(0)
   const [persistedMarkdown, setPersistedMarkdown] = useState<string>(EMPTY_UNTITLED_DOCUMENT)
   const editorRef = useRef<ToastUiEditor | null>(null)
   const workspaceBodyRef = useRef<HTMLDivElement | null>(null)
+  const workspaceMainColumnRef = useRef<HTMLDivElement | null>(null)
   const previewRootRef = useRef<HTMLDivElement | null>(null)
   const previewRelativeImageCacheRef = useRef<Map<string, RelativeImageResolutionCacheEntry>>(new Map())
   const previewRelativeImageResolveFrameRef = useRef<number | null>(null)
@@ -3323,8 +3437,14 @@ function App() {
     acceptedAt: number
   } | null>(null)
   const outlineRequestIdRef = useRef(0)
+  const outlineLayoutModeRef = useRef<OutlineLayoutMode>('unresolved')
+  const pendingOutlineFocusRef = useRef<PendingOutlineFocus | null>(null)
+  const outlinePanelRef = useRef<HTMLElement | null>(null)
+  const outlineTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const outlineCloseButtonRef = useRef<HTMLButtonElement | null>(null)
   const outlineListRef = useRef<HTMLDivElement | null>(null)
   const activeOutlineItemRef = useRef<HTMLButtonElement | null>(null)
+  const hasFocusedOutlineDrawerRef = useRef(false)
   const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
   const currentDraftWorkspaceRef = useRef<MdvDraftWorkspace | null>(null)
   const updateCurrentFilePath = (nextFilePath: string | null) => {
@@ -3377,6 +3497,151 @@ function App() {
   const outlineMarkdownText = markdownText
   const displaySegments = useMemo(() => splitMarkdownSegments(outlineMarkdownText), [outlineMarkdownText])
   const previewHeadingLines = useMemo(() => extractMarkdownHeadingLines(outlineMarkdownText), [outlineMarkdownText])
+
+  const focusOutlineTrigger = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      outlineTriggerRef.current?.focus()
+    })
+  }, [])
+
+  const closeOutlineDrawer = useCallback((options?: { returnFocus?: boolean }) => {
+    setIsOutlineDrawerOpen(false)
+    if (options?.returnFocus) {
+      focusOutlineTrigger()
+    }
+  }, [focusOutlineTrigger])
+
+  const toggleOutlineDrawer = useCallback(() => {
+    if (isOutlineDrawerOpen) {
+      closeOutlineDrawer({ returnFocus: true })
+      return
+    }
+
+    setIsOutlineDrawerOpen(true)
+  }, [closeOutlineDrawer, isOutlineDrawerOpen])
+
+  const selectActivePanel = useCallback((nextPanel: 'write' | 'preview') => {
+    if (nextPanel === 'preview') {
+      setIsOutlineDrawerOpen(false)
+    }
+    setActivePanel(nextPanel)
+  }, [])
+
+  useLayoutEffect(() => {
+    const mainColumn = workspaceMainColumnRef.current
+
+    if (!mainColumn) {
+      return
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === mainColumn)
+      if (!entry) {
+        return
+      }
+
+      const nextMode: OutlineLayoutMode = entry.contentRect.width > OUTLINE_COMPACT_MAX_INLINE_SIZE_PX
+        ? 'wide'
+        : 'compact'
+      const previousMode = outlineLayoutModeRef.current
+
+      if (previousMode === nextMode) {
+        return
+      }
+
+      const focusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      const outlineHadFocus = Boolean(focusedElement && outlinePanelRef.current?.contains(focusedElement))
+      const triggerHadFocus = focusedElement === outlineTriggerRef.current
+      const focusedOutlineIndex = outlineHadFocus
+        ? Number(focusedElement?.closest<HTMLButtonElement>('.outline-item')?.dataset.outlineIndex)
+        : Number.NaN
+
+      if (previousMode === 'wide' && nextMode === 'compact' && outlineHadFocus) {
+        pendingOutlineFocusRef.current = { target: 'trigger' }
+      } else if (previousMode === 'compact' && nextMode === 'wide' && (outlineHadFocus || triggerHadFocus)) {
+        pendingOutlineFocusRef.current = {
+          target: 'wide',
+          outlineIndex: Number.isInteger(focusedOutlineIndex) ? focusedOutlineIndex : null,
+        }
+      }
+
+      outlineLayoutModeRef.current = nextMode
+      setOutlineLayoutMode(nextMode)
+      setIsOutlineDrawerOpen(false)
+    })
+
+    observer.observe(mainColumn, { box: 'content-box' })
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [isStartupPending])
+
+  useLayoutEffect(() => {
+    const pendingFocus = pendingOutlineFocusRef.current
+    if (!pendingFocus) {
+      return
+    }
+
+    pendingOutlineFocusRef.current = null
+
+    if (pendingFocus.target === 'trigger') {
+      outlineTriggerRef.current?.focus()
+      return
+    }
+
+    const panel = outlinePanelRef.current
+    const focusedLogicalItem = pendingFocus.outlineIndex !== null
+      ? panel?.querySelector<HTMLButtonElement>(`.outline-item[data-outline-index="${pendingFocus.outlineIndex}"]`)
+      : null
+    const fallbackItem = panel?.querySelector<HTMLButtonElement>('.outline-item[aria-current="location"]:not(:disabled)')
+      ?? panel?.querySelector<HTMLButtonElement>('.outline-item:not(:disabled)')
+
+    if (focusedLogicalItem && !focusedLogicalItem.disabled) {
+      focusedLogicalItem.focus()
+    } else if (fallbackItem) {
+      fallbackItem.focus()
+    } else if (editorRef.current) {
+      focusEditorAnchorTarget(getActiveEditorRoot(editorRef.current))
+    }
+  }, [outlineLayoutMode])
+
+  useEffect(() => {
+    if (outlineLayoutMode !== 'compact' || !isOutlineDrawerOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      if (outlinePanelRef.current?.contains(target) || outlineTriggerRef.current?.contains(target)) {
+        return
+      }
+
+      closeOutlineDrawer()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      event.preventDefault()
+      event.stopPropagation()
+      closeOutlineDrawer({ returnFocus: true })
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [closeOutlineDrawer, isOutlineDrawerOpen, outlineLayoutMode])
 
   const setStatusText = (message: string, options?: { toast?: boolean }) => {
     setStatusTextState(message)
@@ -4007,6 +4272,10 @@ function App() {
   }, [activeOutlineLine, isPlaceholderOutline, previewHeadingLines, visibleHeadingOutline])
 
   useEffect(() => {
+    if (outlineLayoutMode === 'compact' && !isOutlineDrawerOpen) {
+      return
+    }
+
     const container = outlineListRef.current
     const activeItem = activeOutlineItemRef.current
 
@@ -4015,7 +4284,35 @@ function App() {
     }
 
     scrollElementIntoContainer(container, activeItem)
-  }, [activeOutlineIndex])
+  }, [activeOutlineIndex, isOutlineDrawerOpen, outlineLayoutMode])
+
+  useLayoutEffect(() => {
+    if (outlineLayoutMode !== 'compact' || !isOutlineDrawerOpen) {
+      hasFocusedOutlineDrawerRef.current = false
+      return
+    }
+
+    if (hasFocusedOutlineDrawerRef.current) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      if (outlineLayoutModeRef.current !== 'compact' || !outlinePanelRef.current || hasFocusedOutlineDrawerRef.current) {
+        return
+      }
+
+      const initialItem = outlinePanelRef.current.querySelector<HTMLButtonElement>('.outline-item[aria-current="location"]:not(:disabled)')
+        ?? outlinePanelRef.current.querySelector<HTMLButtonElement>('.outline-item:not(:disabled)')
+      const initialTarget = initialItem ?? outlineCloseButtonRef.current
+
+      initialTarget?.focus()
+      hasFocusedOutlineDrawerRef.current = Boolean(initialTarget)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [activeOutlineIndex, isOutlineDrawerOpen, outlineLayoutMode, visibleHeadingOutline.length])
 
   useEffect(() => {
     const previewRoot = previewRootRef.current
@@ -4114,7 +4411,7 @@ function App() {
     setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
     updatePendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
-    setActivePanel(snapshot.activePanel)
+    selectActivePanel(snapshot.activePanel)
     const nextIsUntouchedUntitledBuffer = inferUntouchedUntitledBuffer(snapshot)
     setIsUntouchedUntitledBuffer(nextIsUntouchedUntitledBuffer)
     setHeadingOutline([])
@@ -4454,7 +4751,7 @@ function App() {
     setDisplayTitle(i18nRef.current.app.untitledTitle)
     persistedMarkdownRef.current = EMPTY_UNTITLED_DOCUMENT
     setPersistedMarkdown(EMPTY_UNTITLED_DOCUMENT)
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.createdNewDocument)
   }
 
@@ -4747,7 +5044,7 @@ function App() {
     }
     editor.setMarkdown(result.nextMarkdown)
     setPendingSearchJump(result.selection)
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.insertedMarkdownCommand(commandLabel))
   }
 
@@ -4774,7 +5071,7 @@ function App() {
       updateMarkdownText(imageResult.nextMarkdown)
       editor.setMarkdown(imageResult.nextMarkdown)
       setPendingSearchJump(imageResult.selection)
-      setActivePanel('write')
+      selectActivePanel('write')
       setStatusText(t.app.status.insertedImageAsset(payload.file.name || 'image'))
       return true
     } catch (error) {
@@ -4784,18 +5081,20 @@ function App() {
   }
 
   const focusEditorSearch = () => {
+    setIsOutlineDrawerOpen(false)
     setEditorSearchDialogMode('search')
     setIsEditorSearchDialogOpen(true)
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.focusedEditorSearch)
   }
 
   const openEditorReplaceDialog = () => {
+    setIsOutlineDrawerOpen(false)
     invalidateEditorSearch()
     setEditorSearchMode('exact')
     setEditorSearchDialogMode('replace')
     setIsEditorSearchDialogOpen(true)
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.focusedEditorSearch)
   }
 
@@ -4827,18 +5126,19 @@ function App() {
   const jumpToEditorSearchResult = (result: EditorSearchResult, index: number, total = editorSearchResults.length) => {
     setSelectedSearchResultIndex(index)
     setPendingSearchJump(result.span)
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.jumpedToSearchResult(index + 1, Math.max(total, index + 1)))
   }
 
   const jumpToOutlineHeading = (item: MdvMdastHeadingOutlineItem) => {
     const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
+    setIsOutlineDrawerOpen(false)
     setPendingSearchJump({
       start: item.position,
       end: item.position,
       isEmpty: true,
     })
-    setActivePanel('write')
+    selectActivePanel('write')
     setStatusText(t.app.status.jumpedToOutlineHeading(headingLabel))
   }
 
@@ -4868,7 +5168,7 @@ function App() {
     if (options?.jump && nextSelectedIndex >= 0 && nextSelectedIndex < nextResults.length) {
       const result = nextResults[nextSelectedIndex]
       setPendingSearchJump(result.span)
-      setActivePanel('write')
+      selectActivePanel('write')
       return
     }
 
@@ -5532,6 +5832,7 @@ function App() {
   }
 
   const handleAiChangeProposalOpen = useEffectEvent((summary: MdvAiChangeProposalSummary) => {
+    setIsOutlineDrawerOpen(false)
     activeChangeProposalIdRef.current = summary.proposalId
     setChangeProposalReview({
       summary,
@@ -5663,12 +5964,12 @@ function App() {
     }
 
     if (action === 'show-editor') {
-      setActivePanel('write')
+      selectActivePanel('write')
       setStatusText(t.app.status.switchedToEditor)
       return
     }
 
-    setActivePanel('preview')
+    selectActivePanel('preview')
     setStatusText(t.app.status.switchedToPreview)
   }
 
@@ -5861,7 +6162,7 @@ function App() {
 
           if (!filePath) {
             if (initialPanel) {
-              setActivePanel(initialPanel)
+              selectActivePanel(initialPanel)
             }
 
             return
@@ -5869,7 +6170,7 @@ function App() {
 
           const payload = await window.mdvDesktop?.readFile(filePath)
           if (initialPanel) {
-            setActivePanel(initialPanel)
+            selectActivePanel(initialPanel)
           }
 
           if (!payload) {
@@ -5890,7 +6191,7 @@ function App() {
     return () => {
       unsubscribe?.()
     }
-  }, [])
+  }, [selectActivePanel])
 
   useEffect(() => {
     const unsubscribe = window.mdvDesktop?.onMenuAction((action) => {
@@ -6082,10 +6383,10 @@ function App() {
           ) : (
             <>
               <div className="view-switch">
-                <ToolbarButton label={`${t.app.editor} (Ctrl/Cmd+1)`} active={activePanel === 'write'} onClick={() => setActivePanel('write')}>
+                <ToolbarButton label={`${t.app.editor} (Ctrl/Cmd+1)`} active={activePanel === 'write'} onClick={() => selectActivePanel('write')}>
                   <EditorIcon />
                 </ToolbarButton>
-                <ToolbarButton label={`${t.app.rendered} (Ctrl/Cmd+2)`} active={activePanel === 'preview'} onClick={() => setActivePanel('preview')}>
+                <ToolbarButton label={`${t.app.rendered} (Ctrl/Cmd+2)`} active={activePanel === 'preview'} onClick={() => selectActivePanel('preview')}>
                   <RenderedIcon />
                 </ToolbarButton>
               </div>
@@ -6183,6 +6484,20 @@ function App() {
                   ) : null}
                 </ToolbarGroup>
                 <ToolbarGroup label={t.app.workspaceActions}>
+                  {activePanel === 'write' && outlineLayoutMode === 'compact' ? (
+                    <button
+                      ref={outlineTriggerRef}
+                      type="button"
+                      className={isOutlineDrawerOpen ? 'active icon-button' : 'icon-button'}
+                      aria-label={isOutlineDrawerOpen ? t.app.closeOutline : t.app.openOutline}
+                      title={isOutlineDrawerOpen ? t.app.closeOutline : t.app.openOutline}
+                      aria-expanded={isOutlineDrawerOpen}
+                      aria-controls={OUTLINE_NAVIGATION_ID}
+                      onClick={toggleOutlineDrawer}
+                    >
+                      <OutlineIcon />
+                    </button>
+                  ) : null}
                   {isAiChatAvailable ? (
                     <ToolbarButton
                       label={`${t.chat.title} (Ctrl/Cmd+I)`}
@@ -6214,7 +6529,7 @@ function App() {
             className={isAssistantDockOpen ? 'workspace-body workspace-body-with-assistant' : 'workspace-body'}
             style={{ '--assistant-dock-width': `${assistantDockWidthPercent}%` } as CSSProperties}
           >
-            <div className="workspace-main-column">
+            <div ref={workspaceMainColumnRef} className="workspace-main-column" data-outline-layout={outlineLayoutMode}>
               {isEditorSearchResultsVisible && (editorSearchError || editorSearchResults.length > 0) ? (
                 <section className="editor-search-results" aria-label={t.app.searchResults}>
                   {editorSearchError ? <div className="editor-search-error">{editorSearchError}</div> : null}
@@ -6232,39 +6547,44 @@ function App() {
                 </section>
               ) : null}
 
-              <div className={activePanel === 'write' ? 'single-panel single-panel-with-outline' : 'single-panel single-panel-preview-only'}>
-                {activePanel === 'write' ? (
-                  <aside className="panel outline-panel" aria-label={t.app.outline}>
-                    <div className="outline-panel-header">{t.app.outline}</div>
-                    {visibleHeadingOutline.length === 0 ? (
-                      <div className="outline-empty">{t.app.outlineEmpty}</div>
-                    ) : (
-                      <div ref={outlineListRef} className="outline-list">
-                        {visibleHeadingOutline.map((item, index) => {
-                          const isActiveOutlineItem = index === activeOutlineIndex
-                          const headingLabel = getOutlineHeadingLabel(item, t.app.outlineUntitledHeading)
-
-                          return (
-                            <button
-                              key={`${item.path.join('.')}:${item.position.line}:${item.position.column}`}
-                              type="button"
-                              className={isPlaceholderOutline ? 'outline-item outline-item-disabled' : isActiveOutlineItem ? 'outline-item active' : 'outline-item'}
-                              style={{ paddingInlineStart: 10 + Math.max(0, item.depth - 1) * 12 }}
-                              onClick={() => jumpToOutlineHeading(item)}
-                              title={headingLabel}
-                              aria-current={!isPlaceholderOutline && isActiveOutlineItem ? 'location' : undefined}
-                              aria-disabled={isPlaceholderOutline ? 'true' : undefined}
-                              disabled={isPlaceholderOutline}
-                              ref={isActiveOutlineItem ? activeOutlineItemRef : null}
-                            >
-                              <span className="outline-item-depth">H{Math.max(1, item.depth)}</span>
-                              <span className="outline-item-label">{headingLabel}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </aside>
+              <div className={activePanel === 'write' ? `single-panel single-panel-with-outline outline-layout-${outlineLayoutMode}` : 'single-panel single-panel-preview-only'}>
+                {activePanel === 'write' && outlineLayoutMode === 'wide' ? (
+                  <OutlineNavigation
+                    variant="persistent"
+                    isOpen
+                    label={t.app.outline}
+                    emptyLabel={t.app.outlineEmpty}
+                    closeLabel={t.app.closeOutline}
+                    items={visibleHeadingOutline}
+                    activeIndex={activeOutlineIndex}
+                    isPlaceholder={isPlaceholderOutline}
+                    untitledHeadingLabel={t.app.outlineUntitledHeading}
+                    navigationRef={outlinePanelRef}
+                    closeButtonRef={outlineCloseButtonRef}
+                    listRef={outlineListRef}
+                    activeItemRef={activeOutlineItemRef}
+                    onClose={() => closeOutlineDrawer({ returnFocus: true })}
+                    onJump={jumpToOutlineHeading}
+                  />
+                ) : null}
+                {activePanel === 'write' && outlineLayoutMode === 'compact' ? (
+                  <OutlineNavigation
+                    variant="drawer"
+                    isOpen={isOutlineDrawerOpen}
+                    label={t.app.outline}
+                    emptyLabel={t.app.outlineEmpty}
+                    closeLabel={t.app.closeOutline}
+                    items={visibleHeadingOutline}
+                    activeIndex={activeOutlineIndex}
+                    isPlaceholder={isPlaceholderOutline}
+                    untitledHeadingLabel={t.app.outlineUntitledHeading}
+                    navigationRef={outlinePanelRef}
+                    closeButtonRef={outlineCloseButtonRef}
+                    listRef={outlineListRef}
+                    activeItemRef={activeOutlineItemRef}
+                    onClose={() => closeOutlineDrawer({ returnFocus: true })}
+                    onJump={jumpToOutlineHeading}
+                  />
                 ) : null}
                 <div className="panel-stack full-panel">
                   <div className={activePanel === 'write' ? 'panel editor-panel panel-stack-item panel-stack-item-active' : 'panel editor-panel panel-stack-item panel-stack-item-inactive'}>

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Contract state: `active_contract`
+- Implementation status: `implemented` ([evidence](milestones/update-outline-implementation.md))
 - Backlog item: `MD-BL-026`
 - Accepted date: 2026-07-22
 

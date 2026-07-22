@@ -56,6 +56,29 @@ async function replaceMarkdownDocument(page: Page, markdown: string, expectedEdi
   }
 }
 
+async function installHeadingOutlineStub(page: Page) {
+  await page.evaluate(() => {
+    if (!window.mdvDesktop) {
+      return
+    }
+
+    window.mdvDesktop.extractMdastHeadingOutline = async (markdown: string) => markdown
+      .split('\n')
+      .map((line, index) => {
+        const match = line.match(/^(#{1,6})\s+(.+)$/)
+        return match
+          ? {
+              path: [index],
+              depth: match[1].length,
+              text: match[2],
+              position: { line: index + 1, column: 1 },
+            }
+          : null
+      })
+      .filter((item): item is MdvMdastHeadingOutlineItem => item !== null)
+  })
+}
+
 async function selectEditorLinesFromStart(page: Page, lineCount: number) {
   const editor = page.locator('.toastui-editor-md-container .toastui-editor').first()
 
@@ -1234,6 +1257,154 @@ test('editor mode uses denser outline and editor typography', async ({ page }) =
   await expect(computedStyle(page, '.outline-panel .outline-item-label', 'lineHeight')).resolves.toBe('14.3px')
   await expect(computedStyle(page, '.compact-preview', 'fontSize')).resolves.toBe('13px')
   await expect(computedStyle(page, '.compact-preview', 'lineHeight')).resolves.toBe('21.84px')
+})
+
+test('outline layout follows the main-column 900px boundary', async ({ page }) => {
+  await page.setViewportSize({ width: 901, height: 900 })
+  await openWritePanel(page)
+
+  const mainColumn = page.locator('.workspace-main-column')
+  const trigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'wide')
+  await expect(page.locator('.outline-panel-persistent')).toBeVisible()
+  await expect(trigger).toHaveCount(0)
+  expect((await rect(page, '.editor-panel')).width).toBeGreaterThanOrEqual(620)
+
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'compact')
+  await expect(page.locator('.outline-panel-persistent')).toHaveCount(0)
+  await expect(page.locator('.outline-drawer')).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+
+  await page.setViewportSize({ width: 899, height: 900 })
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'compact')
+
+  await page.setViewportSize({ width: 901, height: 900 })
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'wide')
+  await expect(page.locator('.outline-panel-persistent')).toBeVisible()
+})
+
+test('compact outline drawer preserves editor layout and accessible close paths', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await openWritePanel(page)
+  await installHeadingOutlineStub(page)
+
+  const trigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+  const drawer = page.locator('.outline-drawer')
+  const closeButton = drawer.getByRole('button', { name: /(見出しアウトラインを閉じる|Close heading outline)/ })
+
+  await trigger.click()
+  await expect(drawer).toBeVisible()
+  await expect(closeButton).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(drawer).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  await replaceMarkdownDocument(page, '# Intro\n\nalpha\n\n## Focus Target\n\nomega\n')
+  await expect(drawer.locator('.outline-item')).toHaveCount(2)
+
+  const editorRectBeforeOpen = await rect(page, '.editor-panel')
+  await trigger.click()
+  await expect(drawer).toBeVisible()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  await expect(drawer).toHaveRole('navigation')
+  await expect(drawer.locator('.outline-item[aria-current="location"]')).toBeFocused()
+
+  const editorRectAfterOpen = await rect(page, '.editor-panel')
+  expect(editorRectAfterOpen).toEqual(editorRectBeforeOpen)
+
+  const drawerBounds = await page.evaluate(() => {
+    const main = document.querySelector('.workspace-main-column')?.getBoundingClientRect()
+    const outline = document.querySelector('.outline-drawer')?.getBoundingClientRect()
+    if (!main || !outline) {
+      return null
+    }
+    return {
+      width: outline.width,
+      rightGap: main.right - outline.right,
+    }
+  })
+  expect(drawerBounds).not.toBeNull()
+  expect(drawerBounds?.width).toBeLessThanOrEqual(320)
+  expect(drawerBounds?.rightGap).toBeGreaterThanOrEqual(24)
+  await expect(closeButton).toBeVisible()
+
+  await closeButton.click()
+  await expect(drawer).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  await trigger.click()
+  await page.locator('.toastui-editor-md-container .toastui-editor').first().click()
+  await expect(drawer).toBeHidden()
+  await expect(trigger).not.toBeFocused()
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('.toastui-editor-md-container')))).toBe(true)
+
+  await trigger.click()
+  await drawer.getByRole('button', { name: 'Focus Target' }).click()
+  await expect(drawer).toBeHidden()
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('.toastui-editor-md-container')))).toBe(true)
+})
+
+test('outline focus remains valid while crossing compact and wide modes', async ({ page }) => {
+  await page.setViewportSize({ width: 901, height: 900 })
+  await openWritePanel(page)
+  await installHeadingOutlineStub(page)
+  await replaceMarkdownDocument(page, '# Alpha\n\nalpha\n\n## Beta\n\nbeta\n')
+
+  const mainColumn = page.locator('.workspace-main-column')
+  const persistentItems = page.locator('.outline-panel-persistent .outline-item')
+  await expect(persistentItems).toHaveCount(2)
+  await persistentItems.nth(1).focus()
+
+  await page.setViewportSize({ width: 900, height: 900 })
+  const trigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'compact')
+  await expect(trigger).toBeFocused()
+
+  await trigger.click()
+  const drawer = page.locator('.outline-drawer')
+  await drawer.locator('.outline-item').nth(0).focus()
+  await page.setViewportSize({ width: 901, height: 900 })
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'wide')
+  await expect(page.locator('.outline-panel-persistent .outline-item').nth(0)).toBeFocused()
+
+  await page.setViewportSize({ width: 900, height: 900 })
+  await expect(trigger).toBeFocused()
+  await trigger.click()
+  await drawer.getByRole('button', { name: /(見出しアウトラインを閉じる|Close heading outline)/ }).focus()
+  await page.setViewportSize({ width: 901, height: 900 })
+  await expect(mainColumn).toHaveAttribute('data-outline-layout', 'wide')
+  await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('outline-item') ?? false)).toBe(true)
+})
+
+test('preview, modal, and AI dock transitions normalize the outline drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 900 })
+  await openWritePanel(page)
+
+  let trigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+  await trigger.click()
+  await expect(page.locator('.outline-drawer')).toBeVisible()
+
+  await page.locator('.view-switch button').nth(1).click()
+  await expect(page.locator('.outline-panel')).toHaveCount(0)
+  await expect(trigger).toHaveCount(0)
+
+  await openWritePanel(page)
+  trigger = page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)
+  await expect(page.locator('.outline-drawer')).toBeHidden()
+  await trigger.click()
+  await page.getByRole('button', { name: /(エディタ内を検索|Search in editor)/ }).click()
+  await expect(page.getByRole('dialog', { name: /(エディタ内を検索|Search in editor)/ })).toBeVisible()
+  await expect(page.locator('.outline-drawer')).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await closeEditorSearchDialog(page)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(page.locator('.workspace-main-column')).toHaveAttribute('data-outline-layout', 'wide')
+  await openAiDock(page)
+  await expect(page.locator('.workspace-main-column')).toHaveAttribute('data-outline-layout', 'compact')
+  await expect(page.locator(`button[aria-controls="mdv-heading-outline-navigation"]`)).toBeVisible()
 })
 
 test('editor mode groups topbar commands and hides the Toast UI toolbar', async ({ page }) => {
