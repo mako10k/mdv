@@ -161,7 +161,7 @@ type MdvDocumentLinkResult = {
   status: 'opened' | 'focused' | 'cancelled' | 'blocked'
   target: 'external' | 'local'
   displayName?: string
-  reason?: 'invalid-target' | 'missing-source-path' | 'missing-file' | 'not-file' | 'unsupported-scheme' | 'managed-client'
+  reason?: 'invalid-source' | 'invalid-target' | 'missing-source-path' | 'missing-file' | 'not-file' | 'unsupported-scheme' | 'managed-client'
 }
 
 type MdvJsonValue = string | number | boolean | null | MdvJsonValue[] | { [key: string]: MdvJsonValue }

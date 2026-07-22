@@ -337,6 +337,8 @@ const {
 } = fileController
 const documentLinkController = createDocumentLinkController({
   fsPromises,
+  isEligibleSourceWindow: (sourceWindow) => isEditorWindow(sourceWindow)
+    && isExpectedRendererDocument(sourceWindow, sourceWindow.webContents.getURL()),
   ensureEditorRuntimeState,
   openExternalLink,
   findEditorWindowByTrackedFilePath,

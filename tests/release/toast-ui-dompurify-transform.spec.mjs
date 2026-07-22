@@ -5,9 +5,11 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { rebindToastUiBundledDomPurify } from '../../scripts/toast-ui-dompurify-transform.ts'
+import { assertRendererSecurityEntry, findPackagedRendererEntryPath } from '../../scripts/renderer-security-check.mjs'
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const toastUiEditorEsmPath = path.join(rootDir, 'node_modules/@toast-ui/editor/dist/esm/index.js')
+const toastUiViewerEsmPath = path.join(rootDir, 'node_modules/@toast-ui/editor/dist/esm/indexViewer.js')
 
 test('Toast UI ESM uses the workspace DOMPurify instance after the build transform', async () => {
   const source = await fs.readFile(toastUiEditorEsmPath, 'utf8')
@@ -31,4 +33,31 @@ test('Toast UI DOMPurify transform ignores unrelated modules', () => {
     rebindToastUiBundledDomPurify('var purify = createDOMPurify();', path.join(rootDir, 'src/App.tsx')),
     null,
   )
+})
+
+test('Toast UI DOMPurify transform handles viewer and Windows module identifiers', async () => {
+  const source = await fs.readFile(toastUiViewerEsmPath, 'utf8')
+  const windowsId = toastUiViewerEsmPath.replaceAll('/', '\\')
+  const transformed = rebindToastUiBundledDomPurify(source, windowsId)
+
+  assert.ok(transformed)
+  assert.match(transformed, /var purify = mdvDOMPurify;/)
+  assert.doesNotMatch(transformed, /var purify = createDOMPurify\(\);/)
+})
+
+test('renderer security check rejects multiple current sanitizer markers', () => {
+  const packageJson = { dependencies: { dompurify: '3.4.12' } }
+  const indexHtml = '<script type="module" src="./assets/main-fixture.js"></script>'
+
+  assert.throws(
+    () => assertRendererSecurityEntry(packageJson, indexHtml, 'a.version="3.4.12";b.version="3.4.12";'),
+    /exactly one DOMPurify 3\.4\.12 implementation marker; found 2/,
+  )
+})
+
+test('packaged renderer entry uses the host archive path separator', () => {
+  const indexHtml = '<script type="module" src="./assets/main-fixture.js"></script>'
+
+  assert.equal(findPackagedRendererEntryPath(indexHtml, path.posix), 'dist/assets/main-fixture.js')
+  assert.equal(findPackagedRendererEntryPath(indexHtml, path.win32), 'dist\\assets\\main-fixture.js')
 })

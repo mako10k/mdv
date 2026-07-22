@@ -18,6 +18,8 @@
 ## Rendered Link Activation
 
 - Renderer は raw `href` を保持したまま既定 navigation を止め、`open-document-link` preload IPC へ渡す。DOM が app entry 基準で展開した `anchor.href` を local path の正本にしない。
+- Renderer は trusted primary-button click だけを link activation として IPC へ渡す。scripted click や auxiliary-button click は既定 navigation を止めるが desktop capability を呼び出さない。
+- Main process は IPC sender が normal editor window であり、その window が expected app entry document を保持している場合だけ request を受け付ける。Settings、Fetch Permissions、About、navigation drift 後の document からの request は target 解決前に block する。
 - Main process は送信元 BrowserWindow の tracked current-file state を基準に target を分類する。Renderer から基準 path を自己申告させない。
 - `http:` / `https:` は既存 external-link permission policy と確認 dialog を通し、許可された場合だけ default browser で開く。
 - Relative local path は保存済み source document の親 directory を基準に解決する。保存先を持たない document では relative local path を block する。

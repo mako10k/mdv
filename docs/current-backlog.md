@@ -76,7 +76,7 @@ user 要望メモ、個別 backlog 詳細、設計文書はこの文書を補助
 - `inventory_status: inventory_confirmed`
 - `allowed_scope`: preview / WYSIWYG の HTTP(S) external open、relative / absolute / `file:` local regular-file open、existing editor focus、main-owned navigation / new-window deny、expected app-entry identity check、packaged application assets 外への `file:` subresource deny、invalid target の fail-closed status
 - `blocked_scope`: custom protocol、directory browser、cross-document fragment jump、managed-client topology 変更、link target の write / repair / Markdown rewrite
-- `result`: renderer は raw `href` を dedicated preload IPC へ渡し、main process は source window の tracked path から local target を解決する。HTTP(S) は既存 permission flow、local regular file は MDV の new-window / existing-window focus へ分離した。全 app window は expected renderer entry 外への top-level navigation と new-window request を deny し、drift 後の load completion へ open-file request を再配送しない。さらに Electron request boundary で packaged application assets 外への `file:` subresource を拒否し、Markdown image、WYSIWYG image、raw HTML から user-controlled local file を自動 load しない
+- `result`: renderer は trusted primary-button click の raw `href` だけを dedicated preload IPC へ渡し、main process は sender が expected app entry を保持する normal editor window であることを確認してから、その window の tracked path で local target を解決する。HTTP(S) は既存 permission flow、local regular file は MDV の new-window / existing-window focus へ分離した。全 app window は expected renderer entry 外への top-level navigation と new-window request を deny し、drift 後の load completion へ open-file request を再配送しない。さらに Electron request boundary で packaged application assets 外への `file:` subresource を拒否し、Markdown image、WYSIWYG image、raw HTML から user-controlled local file を自動 load しない
 - `evidence`: 受理根拠は 2026-07-21 Windows packaged runtime の `ERR_FILE_NOT_FOUND` navigation と続く `get-close-state` timeout。完了根拠は `src/electron/main/document-link-controller.cts`、`src/electron/main/window-controller.cts`、`tests/node/electron-main-document-link-controller.spec.mjs`、`tests/node/electron-main-window-controller.spec.mjs`、`tests/e2e/app-layout.spec.ts`、`tests/e2e-electron/document-links.spec.ts`
 
 MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled placeholder を Toast UI の内部 placeholder widget から app 側 overlay へ退避し、WYSIWYG 編集開始時の renderer crash を解消した。
@@ -215,11 +215,21 @@ v0.1.14 で閉じた最小範囲:
 - 根拠 anchor は `src/electron/main/change-proposal-controller.cts` の bounded proposal registry / stable envelope composition / revision CAS、`src/electron/main.cts` の dry-run tool-loop termination / revise-hunk / atomic apply orchestration、`src/electron/main/main-ipc.cts` と `electron/preload.cjs` の dedicated typed IPC、`src/shims.d.ts` の proposal contract、`src/change-preview/ChangePreviewDialog.tsx` と `src/App.tsx` の hunk selection / manual edit / apply / cancel UI、`src/ai-chat/ChatApp.tsx` の proposal-pending / resolution handling である。自動テストの証拠は、controller の ownership / canonical LF / CRLF / EOF / stale revision / size / literal / partial-apply tests、candidate ordering / public-display sanitization / IPC delegation の Node tests、desktop bridge を mock した loading modal / natural textarea line-boundary canonicalization / hunk edit rejection・retry / acknowledgement-loss detail recovery / focus / stale / cancel の browser tests、`tests/e2e-electron/ai-change-proposal.spec.ts` の proposal 専用 Electron integration regression に分かれている。Electron regression は外部 Responses API だけを loopback SSE に置き換え、実 OpenAI SDK から main candidate-first ordering、renderer capture、dedicated preload open / detail / revise-hunk IPC、selected-hunk Apply acknowledgement、terminal resolution までを一続きに通す。先行 non-dry sibling の非実行、provisional / raw proposal / manual edit body の transcript・generic event・request・resolution・log 非漏洩、Apply 後も model request が 1 回のままであること、manual edit 後の実 bridge write による baseline drift が `stale` / `baseline-changed` で fail-closed になることも固定する
 - current accepted scope は完了した。MD-BL-020 の downstream consumer 拡張や envelope 外編集を暗黙に追加せず、次の P2 候補 MD-BL-021 は design / inventory / user acceptance を別に確認する
 
+### Completed Engineering Work
+
+- ENG-BL-003:
+  - `contract_state: active_contract`
+  - `backlog_state: completed`
+  - `inventory_status: inventory_confirmed`
+  - `problem`: v0.2.1 準備では full regression と Windows candidate 生成後の exact-diff review で、package override が Toast UI Editor の内包 sanitizer 実行経路を更新していない false green を発見した。最終 review 自体は必要だが、runtime contract の確認が遅く、重い検証と packaging の再実行を招いた
+  - `accepted_scope`: dependency / cross-boundary / packaging 変更では、full regression と candidate 生成より前に、実行経路、生成 bundle、package audit の証明範囲、fail-closed 回帰を対象とする early contract review を置く。candidate 後の exact-diff consistency / plain-eye / packaging review は最終 gate として維持し、early review の代替にはしない
+  - `result`: release workflow を early contract review と final exact-diff review の 2 checkpoint に分離した。`npm run codex:validate` は dependency / generated-runtime wiring、cross-process contract、packaging / distribution の diff で early review の対象 area、review agent、actual runtime / generated artifact evidence focus を表示し、committed WIP は explicit base / head range で対象を固定できる。early blocker、final defer、最大 review 回数、pass 無効化条件、記録先を明文化した。WIP closeout は release gate 完了から分離し、重い処理停止、未完 gate と再開点の記録、mandatory review、WIP commit / push だけで閉じる
+  - `evidence`: `docs/release-workflow.md`、`AGENTS.md`、`DEVELOPMENT.md`、ADR 0014、`scripts/codex-workspace.mjs`、`tests/release/codex-workspace-early-review.spec.mjs`
+
 ### Supporting Backlog
 
 1. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
 2. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
-3. ENG-BL-003 release review checkpoint の前倒しと実行経路 evidence gate
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -229,13 +239,6 @@ v0.1.14 で閉じた最小範囲:
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
 - first slice は updater 導入そのものより先に、version metadata の単一取得口と consumer surface の統一を優先する
 - model registry の release 前整合チェックに必要な main-owned metadata surface は AI-CFG-003 first slice で完了した。updater、version metadata の他 consumer、candidate binary との release 統合は REL-BL-001 の後続として残す
-- ENG-BL-003:
-  - `contract_state: design_pending`
-  - `backlog_state: accepted_active`
-  - `inventory_status: inventory_confirmed`
-  - `problem`: v0.2.1 準備では full regression と Windows candidate 生成後の exact-diff review で、package override が Toast UI Editor の内包 sanitizer 実行経路を更新していない false green を発見した。最終 review 自体は必要だが、runtime contract の確認が遅く、重い検証と packaging の再実行を招いた
-  - `accepted_scope`: dependency / cross-boundary / packaging 変更では、version bump と full regression より前に、実行経路、生成 bundle、package audit の証明範囲、fail-closed 回帰を対象とする early contract review を置く。candidate 後の exact-diff consistency / plain-eye / packaging review は最終 gate として維持し、early review の代替にはしない
-  - `next_slice`: release workflow と workspace validation routing に early review checkpoint を追加し、v0.2.1 WIP の sanitizer binding をその checkpoint で再確認してから Windows candidate 生成を再開する
 - ENG-BL-001 の 2026-06-06 時点の進捗:
   - 完了: `electron/main.cjs` を薄い wrapper へ縮退し、実体を `src/electron/main.cts` と `src/electron/main/*.cts` へ移した
   - 完了: runtime / dialogs / i18n / autosave recovery / lifecycle / main IPC / updater / settings / window / close / file / draft workspace / managed client の責務分解
@@ -439,7 +442,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 ## Recommended Execution Order
 
 1. P2 Editor Expansion の棚卸: MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011
-2. Supporting Backlog: user 指示により ENG-BL-003 の early review checkpoint を先に実装し、その後 ENG-BL-001、REL-BL-001 を棚卸する
+2. Supporting Backlog: ENG-BL-001、REL-BL-001 を棚卸する
 3. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
 4. AI-P3 context management の棚卸
 5. AI-CM context lifecycle の棚卸

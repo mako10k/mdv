@@ -393,8 +393,13 @@ function Write-ArtifactMetadata {
   param(
     [string]$ArtifactRoot,
     [ValidateSet('release', 'candidate')]
-    [string]$ArtifactSource
+    [string]$ArtifactSource,
+    [string]$SourceFingerprintSha256
   )
+
+  if (-not $SourceFingerprintSha256) {
+    $SourceFingerprintSha256 = Get-ReleaseSourceFingerprint -Root $SourceRoot
+  }
 
   $version = Read-PackageVersion
   $versionedExeName = "MarkDownViewer-$version-win.exe"
@@ -405,6 +410,8 @@ function Write-ArtifactMetadata {
     releaseTag = "v$version"
     artifactSource = $ArtifactSource
     generatedAt = [DateTimeOffset]::UtcNow.ToString('o')
+    generationId = [Guid]::NewGuid().ToString()
+    sourceFingerprintSha256 = $SourceFingerprintSha256
     artifacts = [ordered]@{
       portableExe = "portable/$versionedExeName"
       installerExe = "installer/$versionedExeName"
@@ -419,6 +426,38 @@ function Write-ArtifactMetadata {
   $metadataJson = ($metadata | ConvertTo-Json -Depth 4) + "`n"
   $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
   [System.IO.File]::WriteAllText($metadataPath, $metadataJson, $utf8NoBom)
+}
+
+function Get-ReleaseSourceFingerprint {
+  param(
+    [string]$Root
+  )
+
+  $nodeExe = Join-Path $nodeRoot 'node.exe'
+  if (-not (Test-Path $nodeExe)) {
+    throw "Windows Node runtime is unavailable at $nodeExe. Generate a candidate before validation or promotion."
+  }
+
+  $fingerprintScript = Join-Path $Root 'scripts\release-source-fingerprint.mjs'
+  $fingerprint = (& $nodeExe $fingerprintScript --root $Root | Select-Object -Last 1).Trim()
+  if ((Test-ExternalCommandFailed) -or $fingerprint -notmatch '^[0-9a-f]{64}$') {
+    throw "Failed to compute release source fingerprint for $Root"
+  }
+
+  return $fingerprint
+}
+
+function Assert-ValidatedCandidateArtifacts {
+  $nodeExe = Join-Path $nodeRoot 'node.exe'
+  if (-not (Test-Path $nodeExe)) {
+    throw "Windows Node runtime is unavailable at $nodeExe. Generate a candidate before promotion."
+  }
+
+  $checkScript = Join-Path $SourceRoot 'scripts\check-release-candidate.mjs'
+  & $nodeExe $checkScript --root $SourceRoot --artifact-source candidate --skip-git
+  if (Test-ExternalCommandFailed) {
+    throw 'Candidate validation failed; promotion is blocked.'
+  }
 }
 
 function Write-UpdateManifest {
@@ -495,7 +534,13 @@ function Promote-CandidateArtifacts {
     throw "Candidate artifacts do not exist at $candidateArtifactDest"
   }
 
+  Assert-ValidatedCandidateArtifacts
   Assert-PromotableCandidateArtifacts
+  $candidateMetadata = Get-Content (Join-Path $candidateArtifactDest 'artifact-metadata.json') -Raw | ConvertFrom-Json
+  $validatedSourceFingerprint = [string]$candidateMetadata.sourceFingerprintSha256
+  if ($validatedSourceFingerprint -notmatch '^[0-9a-f]{64}$') {
+    throw 'Candidate source fingerprint is missing after validation.'
+  }
 
   Ensure-Directory -TargetPath (Split-Path $artifactStageDest -Parent)
   if (Test-Path $artifactStageDest) {
@@ -504,7 +549,10 @@ function Promote-CandidateArtifacts {
 
   Sync-Directory -SourcePath $candidateArtifactDest -DestinationPath $artifactStageDest -ErrorLabel 'artifact staging'
   Copy-UpdaterConfigFile -SourceArtifactRoot $candidateArtifactDest -DestinationArtifactRoot $artifactStageDest -ErrorLabel 'release updater config copy'
-  Write-ArtifactMetadata -ArtifactRoot $artifactStageDest -ArtifactSource 'release'
+  # Preserve the fingerprint that was validated against the candidate. If the
+  # source changes after validation, the later canonical check must fail rather
+  # than relabeling the old binary as current.
+  Write-ArtifactMetadata -ArtifactRoot $artifactStageDest -ArtifactSource 'release' -SourceFingerprintSha256 $validatedSourceFingerprint
 
   $artifactSwap = $null
   try {
@@ -611,6 +659,13 @@ if ($Action -eq 'promote') {
   exit 0
 }
 
+# A previous same-version candidate must never survive a failed or interrupted
+# generation and remain eligible for deploy or promotion.
+if (Test-Path $candidateArtifactDest) {
+  Remove-DirectoryWithRetry -TargetPath $candidateArtifactDest
+  Write-Host "Invalidated previous candidate artifacts at $candidateArtifactDest"
+}
+
 if ($Clean -and (Test-Path $workRoot)) {
   Remove-Item $workRoot -Recurse -Force
 }
@@ -640,6 +695,8 @@ if (-not (Test-Path $nodeRoot)) {
 }
 
 $env:Path = "$nodeRoot;$nodeRoot\node_modules\npm\bin;" + $env:Path
+$buildSourceFingerprint = Get-ReleaseSourceFingerprint -Root $workRoot
+Write-Host "Captured release source fingerprint $buildSourceFingerprint"
 
 Set-Location $workRoot
 Clear-PackageOutputDirectories -Root $workRoot
@@ -764,7 +821,7 @@ Copy-UpdaterConfigFile -SourceArtifactRoot (Join-Path $workRoot 'release') -Dest
 
 if ($PackageTargets -eq 'all') {
   Write-UpdateManifest -ArtifactSource 'candidate'
-  Write-ArtifactMetadata -ArtifactRoot $candidateOutputPath -ArtifactSource 'candidate'
+  Write-ArtifactMetadata -ArtifactRoot $candidateOutputPath -ArtifactSource 'candidate' -SourceFingerprintSha256 $buildSourceFingerprint
 }
 
 Write-Host "Candidate artifacts copied to $candidateOutputPath"

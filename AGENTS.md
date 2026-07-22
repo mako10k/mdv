@@ -15,6 +15,8 @@
 
 - Run `npm run codex:map` when you need a quick project map, current worktree routing, or validation suggestions.
 - Run `npm run codex:validate` after making changes to print the recommended validation and pre-commit review gates for the current diff. If you are preparing a partial commit, stage that subset first so the command reads the staged diff instead of the full worktree.
+- For dependency resolution, generated runtime, cross-process contract, or packaging changes, use the early contract review routed by `npm run codex:validate` after the smallest buildable change and before broad regression or Windows packaging. Follow [docs/release-workflow.md](docs/release-workflow.md); this checkpoint does not replace final exact-diff review.
+- In early contract review mode, use an explicit base / head range for committed WIP, treat only contract/evidence/fail-closed gaps as blockers, and stop after one pass plus at most one blocker-confirmation pass. Do not require candidate or final release evidence before those artifacts are expected.
 - Primary validation is `npm run build`.
 - Run `npm run lint` when touching TypeScript, React, Electron, or build scripts.
 - Automated checks exist for build, Playwright E2E, and release validation. Do not overstate coverage beyond the commands you actually ran.
@@ -55,6 +57,7 @@
 - If the diff touches Windows packaging, Electron distribution, release artifacts, or `scripts/build-win-host.*`, also run the `packaging-review` custom agent before commit.
 - The review must check consistency, symmetry, and coverage first, then report bugs, regressions, and missing validation.
 - If a higher-priority session policy forbids automatic commits, stop after the review and present the proposed commit message instead of committing silently.
+- When the user explicitly requests WIP closeout, stop heavy work, record incomplete gates and the restart point, run only the mandatory commit review, then WIP commit and push. Do not continue release validation or remediate non-blocking findings in that closeout path.
 
 ## GitHub Access
 

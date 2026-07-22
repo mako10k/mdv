@@ -2311,6 +2311,10 @@ test.describe('markdown insert commands', () => {
 
     await expect(page.locator('.preview-panel img[src^="file:"]')).toHaveCount(0)
     await expect(page.locator('.preview-panel')).toContainText('![Local image](file:///tmp/local-image.png)')
+    await page.locator('.preview-panel a').evaluate((anchor) => {
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    })
+    await expect.poll(() => page.evaluate(() => (window as Window & { __openedDocumentHrefs?: string[] }).__openedDocumentHrefs)).toEqual([])
     await page.locator('.preview-panel a').click()
 
     await expect.poll(() => page.evaluate(() => (window as Window & { __openedDocumentHrefs?: string[] }).__openedDocumentHrefs)).toEqual([

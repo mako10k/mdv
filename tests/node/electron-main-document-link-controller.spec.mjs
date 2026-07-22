@@ -17,6 +17,7 @@ function createHarness(overrides = {}) {
       },
     },
     pathImpl: path.posix,
+    isEligibleSourceWindow: () => true,
     ensureEditorRuntimeState: () => ({ trackedFilePath: '/workspace/docs/source.md' }),
     openExternalLink: async (_window, href) => {
       calls.push(['external', href])
@@ -35,6 +36,18 @@ function createHarness(overrides = {}) {
 
   return { controller, sourceWindow, calls }
 }
+
+test('openDocumentLink rejects auxiliary or drifted source windows before resolving a target', async () => {
+  const { controller, sourceWindow, calls } = createHarness({
+    isEligibleSourceWindow: () => false,
+  })
+
+  const result = await controller.openDocumentLink(sourceWindow, '/workspace/docs/target.md')
+
+  assert.deepEqual(result, { status: 'blocked', target: 'local', reason: 'invalid-source' })
+  assert.equal(calls.some((call) => call[0] === 'stat'), false)
+  assert.equal(calls.some((call) => call[0] === 'create'), false)
+})
 
 test('openDocumentLink resolves a relative path from the tracked source file and opens MDV', async () => {
   const { controller, sourceWindow, calls } = createHarness()

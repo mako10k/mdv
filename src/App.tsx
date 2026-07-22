@@ -5791,6 +5791,10 @@ function App() {
       }
 
       event.preventDefault()
+      if (!event.isTrusted || event.button !== 0) {
+        return
+      }
+
       void window.mdvDesktop?.openDocumentLink(resolvedLink.href).then((result) => {
         if (!result) {
           setStatusText(i18nRef.current.app.status.blockedDocumentLink)

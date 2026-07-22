@@ -40,6 +40,17 @@ You are a code review specialist for this repository. Review the current diff be
 3. Check counterpart files and docs for symmetry and coverage.
 4. Report the highest-value findings first.
 
+## Early Contract Review Mode
+
+When the prompt explicitly requests an early contract review:
+
+- Review only the explicit base / head range or named target; do not silently substitute the current dirty diff.
+- Judge readiness to begin broad regression or packaging, not commit or release readiness.
+- Treat actual contract mismatch, false or missing primary evidence, and missing fail-closed targeted checks as blockers.
+- Do not report missing candidate, final release docs, artifact metadata, or exact-diff polish when those outputs are not expected yet.
+- Complete one pass. After blocker fixes, allow at most one confirmation pass; defer non-blocking improvements to final review or backlog.
+- End with `early pass`, `early pass with deferred findings`, or `early blocked`; do not issue a commit-readiness verdict.
+
 ## Output Format
 
 - Findings first, ordered by severity.

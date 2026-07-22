@@ -63,6 +63,14 @@ npm run build
 
 `codex:map` は Codex / agent が作業開始時に読む入口、変更中の area、関連 docs、検証候補、review gate を 1 回で表示します。`codex:validate` は staged diff があればその subset、無ければ full worktree を基準に、最小の検証候補と commit 前 review gate を表示します。partial commit を切るときは、意図した subset を stage してから `npm run codex:validate` を実行してください。
 
+dependency resolution、生成 bundle、cross-process contract、Windows packaging / distribution を変更する場合、`codex:validate` は broad regression や Windows candidate 生成より前に実施する early contract review も表示します。ここでは actual runtime / generated artifact の実行経路と evidence の限界を先に確認し、最終 exact-diff review は別 gate として維持します。詳細は [docs/release-workflow.md](docs/release-workflow.md) を参照してください。
+
+commit 済み WIP の範囲を early review する場合は比較対象を明示します。
+
+```bash
+npm run codex:validate -- --phase early --base <base-ref> --head <reviewed-ref>
+```
+
 GitHub へアクセスする `git` / `gh` は `secdat` 経由で token を注入します。Codex sandbox で unlock session が見えない場合は `ptyterm` 経由で実行します。詳細と `secdat` / `ptyterm` の導入方法は [docs/codex-secure-github-access.md](docs/codex-secure-github-access.md) を参照してください。
 
 ## E2E 回帰テスト
@@ -138,7 +146,9 @@ Windows host workflow は後方互換なしで次の 3 段階に分離してい�
 - `deploy`: 指定した artifact source の `win-unpacked` を `%LOCALAPPDATA%\MarkDownViewer\latest` へ配置する。既存 canonical artifact をそのまま配る用途を含む。
 - `promote`: candidate artifact を `release/windows-host` へ昇格する。canonical release artifact を更新できるのはこの操作だけ。
 
-canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持し、`npm run release:check:candidate` と `npm run release:check` が file 名、version metadata、updater manifest、updater config、`win-unpacked/resources/app.asar` の存在と整合を確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
+canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持します。`artifact-metadata.json` は generation ID と release build input の SHA-256 fingerprint を含み、`npm run release:check:candidate` と `npm run release:check` は current source fingerprint、file 名、version metadata、updater manifest / config に加えて、`app.asar` の `dist/index.html` が選ぶ exact renderer entry の sanitizer contract まで確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
+
+`generate` は開始時に既存 candidate を無効化します。失敗または中断後に同じ version の古い candidate を再利用せず、full generate をやり直してください。`promote` は内部で full candidate check を実行するため、stale source fingerprint や packaged renderer check failure がある candidate は canonical cache へ昇格できません。
 
 `\\wsl.localhost\...` の UNC パスから直接 exe を起動しないでください。
 
@@ -284,7 +294,7 @@ npm run dist:win:dir
 4. Markdown insert command surface を変更した release では、`npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "markdown insert commands"` を通し、Markdown insert command の renderer 側 gate を確認する。
 5. 画像 continuity や fallback を変更した release では、手順 2 の build 後に `npm start` などで起動した Electron 実行面で、first save / HTML export / broken image fallback / unresolved image visibility を手動 smoke する。必要な確認結果は `docs/release-work-memos/vX.Y.Z.md` に残す。release notes にはその user-facing 要約だけを反映する。
 6. `npm run win:host:generate:clean:noadmin` で candidate を生成する。
-7. `npm run release:check:candidate` で candidate の file 名、metadata、latest.yml、app-update.yml、app.asar の存在と整合を確認する。
+7. `npm run release:check:candidate` で candidate の source fingerprint / generation ID、file 名、metadata、latest.yml、app-update.yml、app.asar の exact renderer entry を確認する。
 8. model registry ベースの model picker を含む release line では、`npm run win:host:deploy:candidate:noadmin` で配置した candidate を対象に、[docs/release-workflow.md](docs/release-workflow.md) の model registry preflight を実施する。
 9. 画像 continuity や fallback を変更した release では、`npm run win:host:deploy:candidate:noadmin` で candidate を Windows ローカルへ配置し、手順 5 の画像 smoke を packaged candidate でも再確認する。これは packaging や配置経路でだけ起きる画像切れを拾うためである。
 10. 上記以外でも必要なら `npm run win:host:deploy:candidate:noadmin` で Windows ローカルへ配置して確認する。

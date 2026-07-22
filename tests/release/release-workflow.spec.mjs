@@ -6,7 +6,10 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
+import { createPackage } from '@electron/asar'
 import YAML from 'yaml'
+
+import { computeReleaseSourceFingerprint } from '../../scripts/release-source-fingerprint.mjs'
 
 function sha512Base64(text) {
   return createHash('sha512').update(text).digest('base64')
@@ -31,6 +34,8 @@ async function makeTempRepo(version, options = {}) {
   await fs.mkdir(path.join(artifactRoot, 'installer'), { recursive: true })
   await fs.mkdir(path.join(artifactRoot, 'win-unpacked', 'resources'), { recursive: true })
   await fs.mkdir(path.join(rootDir, 'docs', 'release-notes'), { recursive: true })
+  await fs.mkdir(path.join(rootDir, 'src'), { recursive: true })
+  await fs.writeFile(path.join(rootDir, 'src', 'App.tsx'), 'export const fixture = true\n')
 
   await fs.writeFile(path.join(rootDir, 'package.json'), JSON.stringify({
     name: 'fixture',
@@ -81,7 +86,24 @@ async function makeTempRepo(version, options = {}) {
   }
 
   if (options.includeAppArchive !== false) {
-    await fs.writeFile(path.join(artifactRoot, 'win-unpacked', 'resources', 'app.asar'), 'asar')
+    const asarInput = await fs.mkdtemp(path.join(os.tmpdir(), 'mdv-release-asar-'))
+    await fs.mkdir(path.join(asarInput, 'dist', 'assets'), { recursive: true })
+    await fs.writeFile(path.join(asarInput, 'package.json'), JSON.stringify({
+      version: options.packagedVersion ?? version,
+      dependencies: { dompurify: '3.4.12' },
+    }))
+    await fs.writeFile(
+      path.join(asarInput, 'dist', 'index.html'),
+      '<script type="module" src="./assets/main-fixture.js"></script>\n',
+    )
+    await fs.writeFile(
+      path.join(asarInput, 'dist', 'assets', 'main-fixture.js'),
+      options.legacyPackagedSanitizer
+        ? 'sanitizer.version="3.4.12";legacy.version="2.3.3";\n'
+        : 'sanitizer.version="3.4.12";\n',
+    )
+    await createPackage(asarInput, path.join(artifactRoot, 'win-unpacked', 'resources', 'app.asar'))
+    await fs.rm(asarInput, { recursive: true, force: true })
   }
 
   if (options.includeUpdaterConfig !== false) {
@@ -100,11 +122,16 @@ async function makeTempRepo(version, options = {}) {
     const metadataVersion = options.metadataVersion ?? version
     const metadataArtifactSource = options.metadataArtifactSource ?? artifactSource
     const versionedExeName = `MarkDownViewer-${metadataVersion}-win.exe`
+    const sourceFingerprintSha256 = options.metadataSourceFingerprint
+      ?? await computeReleaseSourceFingerprint(rootDir)
     await fs.writeFile(path.join(artifactRoot, 'artifact-metadata.json'), JSON.stringify({
       productName: 'MarkDownViewer',
       version: metadataVersion,
       releaseTag: `v${metadataVersion}`,
       artifactSource: metadataArtifactSource,
+      generatedAt: '2026-07-22T00:00:00.000Z',
+      generationId: '12345678-1234-4123-8123-123456789abc',
+      sourceFingerprintSha256,
       artifacts: {
         portableExe: path.posix.join('portable', versionedExeName),
         installerExe: path.posix.join('installer', versionedExeName),
@@ -234,6 +261,28 @@ test('release check fails when artifact metadata version drifts from package ver
   assert.match(result.stderr, /Artifact metadata version mismatch/)
 })
 
+test('release check fails when candidate source inputs drift after generation', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { artifactSource: 'candidate' })
+  await fs.writeFile(path.join(rootDir, 'src', 'App.tsx'), 'export const fixture = false\n')
+
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate', '--skip-git'])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Artifact metadata source fingerprint mismatch/)
+})
+
+test('release check fails when packaged renderer still contains legacy DOMPurify', async () => {
+  const rootDir = await makeTempRepo('1.2.3', {
+    artifactSource: 'candidate',
+    legacyPackagedSanitizer: true,
+  })
+
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate', '--skip-git'])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Packaged renderer security check failed.*legacy DOMPurify 2\.3\.3/)
+})
+
 test('release check fails when the expected tag does not match package version', async () => {
   const rootDir = await makeTempRepo('1.2.3')
   const result = await runReleaseCheckCli(['--root', rootDir, '--expect-tag', 'v1.2.4'])
@@ -312,4 +361,18 @@ test('workspace resolves the patched Markdown security dependency set', async ()
   assert.equal(packageLock.packages['node_modules/linkify-it'].version, '5.0.2')
   assert.equal(packageLock.packages['node_modules/js-yaml'].version, '4.3.0')
   assert.equal(packageLock.packages['node_modules/dompurify'].version, '3.4.12')
+})
+
+test('Windows host generation invalidates stale candidates and promotion requires full validation', async () => {
+  const script = await fs.readFile(path.join(process.cwd(), 'scripts', 'build-win-host.ps1'), 'utf8')
+  const invalidateIndex = script.indexOf('Invalidated previous candidate artifacts')
+  const buildIndex = script.indexOf("Write-Host 'Building Windows unpacked app'")
+  const validationIndex = script.indexOf('Assert-ValidatedCandidateArtifacts', script.indexOf('function Promote-CandidateArtifacts'))
+  const promotionCopyIndex = script.indexOf('Sync-Directory -SourcePath $candidateArtifactDest', validationIndex)
+
+  assert.ok(invalidateIndex >= 0 && invalidateIndex < buildIndex)
+  assert.ok(validationIndex >= 0 && validationIndex < promotionCopyIndex)
+  assert.match(script, /sourceFingerprintSha256 = \$SourceFingerprintSha256/)
+  assert.match(script, /generationId = \[Guid\]::NewGuid\(\)\.ToString\(\)/)
+  assert.match(script, /Write-ArtifactMetadata -ArtifactRoot \$artifactStageDest -ArtifactSource 'release' -SourceFingerprintSha256 \$validatedSourceFingerprint/)
 })

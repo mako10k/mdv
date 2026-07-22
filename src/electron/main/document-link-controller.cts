@@ -18,13 +18,14 @@ type DocumentLinkResult = {
   status: 'opened' | 'focused' | 'cancelled' | 'blocked'
   target: 'external' | 'local'
   displayName?: string
-  reason?: 'invalid-target' | 'missing-source-path' | 'missing-file' | 'not-file' | 'unsupported-scheme' | 'managed-client'
+  reason?: 'invalid-source' | 'invalid-target' | 'missing-source-path' | 'missing-file' | 'not-file' | 'unsupported-scheme' | 'managed-client'
 }
 
 type DocumentLinkControllerDependencies = {
   fsPromises: Pick<typeof import('node:fs/promises'), 'stat'>
   pathImpl?: typeof import('node:path')
   fileURLToPathImpl?: typeof import('node:url')['fileURLToPath']
+  isEligibleSourceWindow: (window: WindowLike) => boolean
   ensureEditorRuntimeState: (window: WindowLike) => EditorRuntimeState
   openExternalLink: (window: WindowLike, href: string) => Promise<ExternalLinkResult>
   findEditorWindowByTrackedFilePath: (filePath: string) => WindowLike | null
@@ -63,6 +64,7 @@ function createDocumentLinkController({
   fsPromises,
   pathImpl = path,
   fileURLToPathImpl = fileURLToPath,
+  isEligibleSourceWindow,
   ensureEditorRuntimeState,
   openExternalLink,
   findEditorWindowByTrackedFilePath,
@@ -105,7 +107,12 @@ function createDocumentLinkController({
 
   async function openDocumentLink(sourceWindow: WindowLike | null, href: string): Promise<DocumentLinkResult> {
     const rawHref = typeof href === 'string' ? href.trim() : ''
-    if (!sourceWindow || sourceWindow.isDestroyed() || rawHref.length === 0 || rawHref.startsWith('#')) {
+    if (!sourceWindow || sourceWindow.isDestroyed() || !isEligibleSourceWindow(sourceWindow)) {
+      writeLog('WARN', 'document-link', 'Blocked document link from an ineligible source window', sourceWindow?.id)
+      return { status: 'blocked', target: 'local', reason: 'invalid-source' }
+    }
+
+    if (rawHref.length === 0 || rawHref.startsWith('#')) {
       writeLog('WARN', 'document-link', 'Blocked invalid document link target', rawHref)
       return { status: 'blocked', target: 'local', reason: 'invalid-target' }
     }

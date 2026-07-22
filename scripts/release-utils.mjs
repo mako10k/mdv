@@ -3,7 +3,11 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
+import { extractFile } from '@electron/asar'
 import YAML from 'yaml'
+
+import { assertRendererSecurityEntry, findPackagedRendererEntryPath } from './renderer-security-check.mjs'
+import { computeReleaseSourceFingerprint } from './release-source-fingerprint.mjs'
 
 const PRODUCT_NAME = 'MarkDownViewer'
 
@@ -144,6 +148,38 @@ async function pathExists(targetPath) {
 async function hashFileSha512Base64(filePath) {
   const buffer = await fs.readFile(filePath)
   return createHash('sha512').update(buffer).digest('base64')
+}
+
+function validateArtifactGenerationMetadata(metadata, metadataPath, expectedSourceFingerprint, errors) {
+  if (typeof metadata.generatedAt !== 'string' || !Number.isFinite(Date.parse(metadata.generatedAt))) {
+    errors.push(`Artifact metadata generatedAt is missing or invalid in ${metadataPath}`)
+  }
+
+  if (typeof metadata.generationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(metadata.generationId)) {
+    errors.push(`Artifact metadata generationId is missing or invalid in ${metadataPath}`)
+  }
+
+  if (metadata.sourceFingerprintSha256 !== expectedSourceFingerprint) {
+    errors.push(
+      `Artifact metadata source fingerprint mismatch in ${metadataPath}: expected ${expectedSourceFingerprint}, got ${metadata.sourceFingerprintSha256 ?? 'undefined'}`,
+    )
+  }
+}
+
+function validatePackagedRendererSecurity(appArchivePath, expectedVersion, errors) {
+  try {
+    const packagedPackageJson = JSON.parse(extractFile(appArchivePath, 'package.json').toString('utf8'))
+    if (packagedPackageJson.version !== expectedVersion) {
+      errors.push(`Packaged app version mismatch in ${appArchivePath}: expected ${expectedVersion}, got ${packagedPackageJson.version ?? 'undefined'}`)
+    }
+
+    const indexHtml = extractFile(appArchivePath, 'dist/index.html').toString('utf8')
+    const entryPath = findPackagedRendererEntryPath(indexHtml)
+    const entrySource = extractFile(appArchivePath, entryPath).toString('utf8')
+    assertRendererSecurityEntry(packagedPackageJson, indexHtml, entrySource)
+  } catch (error) {
+    errors.push(`Packaged renderer security check failed for ${appArchivePath}: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 async function validateLatestYml(rootDir, artifactSource, version, expectedTag, errors) {
@@ -287,6 +323,7 @@ export async function validateReleaseWorkspace(options = {}) {
   const expectedTag = options.expectedTag ?? getExpectedReleaseTag(version)
   const artifacts = getReleaseArtifactManifest(rootDir, version, artifactSource)
   const errors = []
+  const sourceFingerprintSha256 = await computeReleaseSourceFingerprint(rootDir)
 
   if (expectedTag !== getExpectedReleaseTag(version)) {
     errors.push(`Expected tag ${expectedTag} does not match package.json version ${version}`)
@@ -327,6 +364,8 @@ export async function validateReleaseWorkspace(options = {}) {
         errors.push(`Artifact metadata ${key} mismatch in ${metadataRecord.metadataPath}: expected ${expectedValue}, got ${actualValue}`)
       }
     }
+
+    validateArtifactGenerationMetadata(artifactMetadata, metadataRecord.metadataPath, sourceFingerprintSha256, errors)
   } catch (error) {
     errors.push(`Missing or invalid artifact metadata: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -341,6 +380,11 @@ export async function validateReleaseWorkspace(options = {}) {
     await validateAppUpdateYml(rootDir, artifactSource, errors)
   } catch (error) {
     errors.push(`Missing or invalid app updater config: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const appArchive = artifacts.find((artifact) => artifact.label === 'win-unpacked app archive')
+  if (appArchive && await pathExists(appArchive.path)) {
+    validatePackagedRendererSecurity(appArchive.path, version, errors)
   }
 
   let gitStatus = []
@@ -361,6 +405,7 @@ export async function validateReleaseWorkspace(options = {}) {
     expectedTag,
     artifacts,
     artifactMetadata,
+    sourceFingerprintSha256,
     gitStatus,
     errors,
   }
