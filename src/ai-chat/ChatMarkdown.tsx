@@ -7,6 +7,7 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import mermaid from 'mermaid'
 import { type ResolvedTheme } from '../shared/useDesktopTheme'
+import { useI18n } from '../shared/i18n'
 
 type CodeBlockProps = {
   code: string
@@ -78,6 +79,7 @@ function DefaultCodeBlock({ code, language }: CodeBlockProps) {
 }
 
 function MermaidBlock({ code, theme }: CodeBlockProps) {
+  const { t } = useI18n()
   const [svg, setSvg] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -115,7 +117,29 @@ function MermaidBlock({ code, theme }: CodeBlockProps) {
     return <DefaultCodeBlock code={code} language="mermaid error" theme={theme} />
   }
 
-  return <div className="mermaid-block" dangerouslySetInnerHTML={{ __html: svg }} />
+  const openViewer = () => {
+    if (svg) {
+      void window.mdvDesktop?.openMermaidViewer({ code, theme })
+    }
+  }
+
+  return (
+    <div
+      className="mermaid-block"
+      role="button"
+      tabIndex={svg ? 0 : -1}
+      aria-label={t.mermaidViewer.open}
+      title={t.mermaidViewer.open}
+      onClick={openViewer}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          openViewer()
+        }
+      }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
 }
 
 function createRendererRegistry(): Map<string, CodeBlockRenderer> {

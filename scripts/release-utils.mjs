@@ -173,10 +173,12 @@ function validatePackagedRendererSecurity(appArchivePath, expectedVersion, error
       errors.push(`Packaged app version mismatch in ${appArchivePath}: expected ${expectedVersion}, got ${packagedPackageJson.version ?? 'undefined'}`)
     }
 
-    const indexHtml = extractFile(appArchivePath, 'dist/index.html').toString('utf8')
-    const entryPath = findPackagedRendererEntryPath(indexHtml)
-    const entrySource = extractFile(appArchivePath, entryPath).toString('utf8')
-    assertRendererSecurityEntry(packagedPackageJson, indexHtml, entrySource)
+    for (const htmlFileName of ['index.html', 'mermaid-viewer.html']) {
+      const rendererHtml = extractFile(appArchivePath, `dist/${htmlFileName}`).toString('utf8')
+      const entryPath = findPackagedRendererEntryPath(rendererHtml)
+      const entrySource = extractFile(appArchivePath, entryPath).toString('utf8')
+      assertRendererSecurityEntry(packagedPackageJson, rendererHtml, entrySource)
+    }
   } catch (error) {
     errors.push(`Packaged renderer security check failed for ${appArchivePath}: ${error instanceof Error ? error.message : String(error)}`)
   }

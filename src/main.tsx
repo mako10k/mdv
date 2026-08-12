@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import MermaidViewerApp from './mermaid-viewer/MermaidViewerApp'
+import './mermaid-viewer/mermaid-viewer.css'
 import { applyBootstrapTypography } from './shared/desktopTypography'
 import { applyBootstrapTheme } from './shared/useDesktopTheme'
 
@@ -29,7 +31,7 @@ applyBootstrapTypography()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {window.location.pathname.endsWith('/mermaid-viewer.html') ? <MermaidViewerApp /> : <App />}
   </StrictMode>,
 )
 

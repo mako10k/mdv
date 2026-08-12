@@ -33,10 +33,11 @@ function createBrowserWindowHarness() {
       this.loadFileCalls = []
       this.currentUrl = 'app://index.html'
       this.windowOpenHandler = null
+      this.sent = []
       this.listeners = new Map()
       this.webContents = {
         isLoading: () => false,
-        send: () => {},
+        send: (channel, payload) => this.sent.push({ channel, payload }),
         on: (event, handler) => this.onWebContents(event, handler),
         getURL: () => this.currentUrl,
         openDevTools: () => {},
@@ -197,6 +198,59 @@ test('openSettingsWindow reuses a single auxiliary window', () => {
   assert.deepEqual(second, { status: 'focused' })
   assert.equal(allWindows.length, 2)
   assert.equal(controller.getSettingsWindow().loadFileCalls[0], '/tmp/dist/settings.html')
+})
+
+test('Mermaid viewer is reused per editor, receives the latest diagram, and closes with its owner', () => {
+  const { BrowserWindow, allWindows } = createBrowserWindowHarness()
+  const approvedWindowIds = []
+  const controller = createWindowController({
+    BrowserWindow,
+    Menu: { setApplicationMenu: () => {}, buildFromTemplate: (template) => template },
+    isDev: false,
+    windowIcon: '/tmp/icon.png',
+    preloadPath: '/tmp/preload.cjs',
+    rendererDistPath: '/tmp/dist',
+    writeLog: () => {},
+    getMainI18n: () => ({ menu: {} }),
+    focusWindow: (window) => window.focus(),
+    approveWindowClose: (window) => approvedWindowIds.push(window.id),
+    approvedWindowCloseIds: new Set(),
+    pendingWindowCloseIds: new Set(),
+    resolveInitialPanelForLaunch: () => 'write',
+    findEditorWindowByTrackedFilePath: () => null,
+    getPendingLaunchRequest: () => null,
+    setPendingLaunchRequest: () => {},
+    launchStateByWindowId: new Map(),
+    hiddenLaunchRevealTimerByWindowId: new Map(),
+    emitDebugChannelEvent: () => {},
+    confirmEditorWindowClose: async () => {},
+    clearEditorRuntimeState: () => {},
+    isManagedClient: () => false,
+    registerManagedClient: async () => {},
+    setManagedMainWindow: () => {},
+  })
+  const editorWindow = new BrowserWindow()
+  const firstPayload = { code: 'flowchart TD\nA-->B', theme: 'light' }
+  const secondPayload = { code: 'flowchart TD\nB-->C', theme: 'dark' }
+
+  assert.deepEqual(controller.openMermaidViewer(editorWindow, firstPayload), { status: 'opened' })
+  const viewerWindow = allWindows[1]
+  assert.equal(viewerWindow.loadFileCalls[0], '/tmp/dist/mermaid-viewer.html')
+  const navigationEvent = { prevented: false, preventDefault() { this.prevented = true } }
+  viewerWindow.emitWebContents('will-navigate', navigationEvent, 'https://example.com')
+  assert.equal(navigationEvent.prevented, true)
+  assert.deepEqual(viewerWindow.windowOpenHandler({ url: 'https://example.com' }), { action: 'deny' })
+  viewerWindow.emitWebContents('did-finish-load')
+  assert.deepEqual(viewerWindow.sent, [{ channel: 'mdv:mermaid-viewer-diagram', payload: firstPayload }])
+
+  assert.deepEqual(controller.openMermaidViewer(editorWindow, secondPayload), { status: 'focused' })
+  assert.equal(allWindows.length, 2)
+  assert.deepEqual(viewerWindow.sent.at(-1), { channel: 'mdv:mermaid-viewer-diagram', payload: secondPayload })
+  assert.equal(controller.isEditorWindow(viewerWindow), false)
+
+  controller.closeAuxiliaryWindowsForEditor(editorWindow)
+  assert.equal(viewerWindow.isDestroyed(), true)
+  assert.deepEqual(approvedWindowIds, [viewerWindow.id])
 })
 
 test('application menu blocks native and auxiliary actions while a change proposal is active', () => {

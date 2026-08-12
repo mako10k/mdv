@@ -184,6 +184,8 @@ type MainIpcContext = {
   openSettingsWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
   openFetchPermissionsWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
   openAboutWindow: (window: BrowserWindowLike | null) => Promise<unknown> | unknown
+  openMermaidViewer: (window: BrowserWindowLike | null, payload: { code: string; theme: 'light' | 'dark' }) => Promise<unknown> | unknown
+  isEditorWindow: (window: BrowserWindowLike | null | undefined) => boolean
   launchStateByWindowId: Map<number, LaunchState>
   getSettingsState: () => SettingsState
   getHasPersistedSettings: () => boolean
@@ -275,6 +277,8 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     openSettingsWindow,
     openFetchPermissionsWindow,
     openAboutWindow,
+    openMermaidViewer,
+    isEditorWindow,
     launchStateByWindowId,
     getSettingsState,
     getHasPersistedSettings,
@@ -482,6 +486,18 @@ function registerMainIpcHandlers(context: MainIpcContext) {
   ipcMain.handle('mdv:open-settings-window', async (event: unknown) => openSettingsWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
   ipcMain.handle('mdv:open-fetch-permissions-window', async (event: unknown) => openFetchPermissionsWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
   ipcMain.handle('mdv:open-about-window', async (event: unknown) => openAboutWindow(BrowserWindow.fromWebContents((event as IpcEventLike).sender)))
+  ipcMain.handle('mdv:open-mermaid-viewer', async (event: unknown, payload: unknown) => {
+    const sourceWindow = BrowserWindow.fromWebContents((event as IpcEventLike).sender)
+    if (!isEditorWindow(sourceWindow)) {
+      writeLog('WARN', 'ipc', 'open-mermaid-viewer rejected non-editor sender')
+      return { status: 'invalid' }
+    }
+    if (!isObjectRecord(payload) || typeof payload.code !== 'string' || payload.code.length === 0 || payload.code.length > 100_000 || (payload.theme !== 'light' && payload.theme !== 'dark')) {
+      writeLog('WARN', 'ipc', 'open-mermaid-viewer received invalid payload')
+      return { status: 'invalid' }
+    }
+    return openMermaidViewer(sourceWindow, { code: payload.code, theme: payload.theme })
+  })
 
   ipcMain.on('mdv:settings-bootstrap', (event: unknown) => {
     const ipcEvent = event as IpcEventLike

@@ -83,7 +83,19 @@ MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled p
 
 ### P1 Editor Comfort
 
-P1 Editor Comfort の current accepted scope は完了済み。MD-BL-006 表編集補助は table template / source format / add-after row / add-after column / column alignment selector まで閉じた。
+2026-08-12 MD-BL-029 dedicated Mermaid viewer window:
+
+- `design_contract`: [docs/mermaid-viewer-design.md](mermaid-viewer-design.md)
+- `decision_record`: [ADR 0029](adr/0029-main-owned-mermaid-viewer-window.md)
+- `contract_state: active_contract`
+- `backlog_state: completed`
+- `inventory_status: inventory_confirmed`
+- `user_outcome`: preview / AI chat の Mermaid 図をクリックして専用 window で開き、本文 layout を変えずに拡大縮小、reset、scroll、drag pan できる
+- `allowed_scope`: 本文レイアウトを変えずに図を別画面で調べられることを中心に、editor ごとに再利用する main-owned auxiliary window、危険な任意HTMLを渡さない bounded Mermaid source + explicit theme の typed IPC、viewer-side Mermaid render、transient zoom / pointer pan / native scroll、owner close lifecycle、navigation / subresource hardening、図を開く操作とzoom buttonのkeyboard accessibility、browser / Node regression
+- `blocked_scope`: generic image / table / math viewer、倍率やwindow位置の永続化、Mermaid編集、SVG export、Markdown rewrite、renderer生成HTML/SVGのIPC通過、Plugin / Codeblock Driver / LLM Tool Driver / Text Rendering Engine基盤
+- `evidence`: `src/mermaid-viewer/`、`src/electron/main/window-controller.cts`、`src/electron/main/main-ipc.cts`、初回payloadをrenderer購読まで保持する`electron/preload.cjs`、`tests/e2e/app-layout.spec.ts`、`tests/node/electron-main-ipc.spec.mjs`、`tests/node/electron-main-window-controller.spec.mjs`、multi-entry release fingerprint / packaged security checks。`npm run lint`、`npm run build`、`npm run test:node`、`npm run test:release`、`npm test`（79 pass + locale-sensitive assertion 1 failを修正後、focused rerun 1 pass）で検証した。assistant activation、実Electron E2E、Windows packaged smokeはこのturnでは未実行であり、実施済みとは扱わない
+
+P1 Editor Comfort の current accepted scope は MD-BL-029 を含めて完了済みである。MD-BL-006 表編集補助は table template / source format / add-after row / add-after column / column alignment selector まで閉じた。
 
 P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。次は P2 Editor Expansion の棚卸へ進む。
 

@@ -75,6 +75,8 @@ function createContext(overrides = {}) {
     openSettingsWindow: () => ({ status: 'opened' }),
     openFetchPermissionsWindow: () => ({ status: 'opened' }),
     openAboutWindow: () => ({ status: 'opened' }),
+    openMermaidViewer: () => ({ status: 'opened' }),
+    isEditorWindow: () => true,
     launchStateByWindowId: new Map(),
     getSettingsState: () => ({
       general: { themeMode: 'system' },
@@ -169,6 +171,27 @@ function createContext(overrides = {}) {
   registerMainIpcHandlers(context)
   return { handles, listeners, logs, focusedWindow }
 }
+
+test('Mermaid viewer IPC accepts only bounded source and an explicit theme', async () => {
+  const calls = []
+  const { handles, focusedWindow } = createContext({
+    openMermaidViewer: (window, payload) => {
+      calls.push({ windowId: window.id, payload })
+      return { status: 'opened' }
+    },
+  })
+  const event = { sender: { __window: focusedWindow } }
+  const handler = handles.get('mdv:open-mermaid-viewer')
+
+  assert.deepEqual(await handler(event, { code: 'flowchart TD\nA-->B', theme: 'dark' }), { status: 'opened' })
+  assert.deepEqual(await handler(event, { code: '', theme: 'dark' }), { status: 'invalid' })
+  assert.deepEqual(await handler(event, { code: 'A'.repeat(100_001), theme: 'light' }), { status: 'invalid' })
+  assert.deepEqual(await handler(event, { code: 'flowchart TD', theme: 'system' }), { status: 'invalid' })
+  const rejectedSender = { id: 8, isDestroyed: () => false, isVisible: () => true }
+  const rejected = createContext({ isEditorWindow: (window) => window.id !== rejectedSender.id })
+  assert.deepEqual(await rejected.handles.get('mdv:open-mermaid-viewer')({ sender: { __window: rejectedSender } }, { code: 'flowchart TD', theme: 'light' }), { status: 'invalid' })
+  assert.deepEqual(calls, [{ windowId: focusedWindow.id, payload: { code: 'flowchart TD\nA-->B', theme: 'dark' } }])
+})
 
 test('settings bootstrap returns persisted/readable flags and launch panel', () => {
   const sender = { id: 10, __window: { id: 3, isDestroyed: () => false, isVisible: () => true } }

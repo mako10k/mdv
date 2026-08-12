@@ -436,6 +436,11 @@ type MdvProviderStatus = {
 
 type MdvInitialPanel = 'write' | 'preview'
 
+type MdvMermaidViewerPayload = {
+  code: string
+  theme: 'light' | 'dark'
+}
+
 type MdvLaunchRequest = {
   filePath: string | null
   initialPanel: MdvInitialPanel
@@ -788,6 +793,8 @@ interface Window {
     openSettingsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openFetchPermissionsWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
     openAboutWindow: () => Promise<{ status: 'opened' | 'focused' } | null>
+    openMermaidViewer: (payload: MdvMermaidViewerPayload) => Promise<{ status: 'opened' | 'focused' | 'invalid' } | null>
+    onMermaidViewerDiagram: (callback: (payload: MdvMermaidViewerPayload) => void) => () => void
     getAiChatContext: () => Promise<MdvAiContextPayload | null>
     readAiActiveDocument: () => Promise<MdvAiReadPayload | null>
     readAiActiveSelection: () => Promise<MdvAiReadPayload | null>

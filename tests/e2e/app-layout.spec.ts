@@ -1699,6 +1699,17 @@ test('preview and WYSIWYG body inline code stay scoped to editor typography', as
 })
 
 test('preview code fence and Mermaid blocks keep rendered content height', async ({ page }) => {
+  await page.evaluate(() => {
+    const desktop = window.mdvDesktop
+    if (!desktop) {
+      return
+    }
+    ;(window as Window & { __mermaidViewerPayloads?: MdvMermaidViewerPayload[] }).__mermaidViewerPayloads = []
+    desktop.openMermaidViewer = async (payload) => {
+      ;(window as Window & { __mermaidViewerPayloads?: MdvMermaidViewerPayload[] }).__mermaidViewerPayloads?.push(payload)
+      return { status: 'opened' }
+    }
+  })
   await openWritePanel(page)
   await replaceMarkdownDocument(
     page,
@@ -1725,6 +1736,11 @@ test('preview code fence and Mermaid blocks keep rendered content height', async
   await expect(page.locator('.view-switch button').nth(1)).toHaveClass(/active/)
   await expect(page.locator('.preview-panel .code-block-shell pre code')).toBeVisible()
   await expect(page.locator('.preview-panel .mermaid-block')).toHaveAttribute('data-render-state', 'ready')
+  await page.locator('.preview-panel .mermaid-block').click()
+  await expect.poll(() => page.evaluate(() => (window as Window & { __mermaidViewerPayloads?: MdvMermaidViewerPayload[] }).__mermaidViewerPayloads)).toEqual([{
+    code: 'flowchart TD\n  A[Start] --> B{Choice}\n  B --> C[One]\n  B --> D[Two]',
+    theme: 'light',
+  }])
 
   const renderedBlockMetrics = await page.evaluate(() => {
     const codeBlock = document.querySelector<HTMLElement>('.preview-panel .code-block-shell pre code')
@@ -1763,6 +1779,28 @@ test('preview code fence and Mermaid blocks keep rendered content height', async
   expect(renderedBlockMetrics?.mermaidSvgDisplay).toBe('block')
   expect(renderedBlockMetrics?.mermaidSvgHeight).toBeGreaterThan(200)
   expect(renderedBlockMetrics?.mermaidBlockHeight).toBeGreaterThan(renderedBlockMetrics?.mermaidSvgHeight ?? 0)
+})
+
+test('Mermaid viewer renders a diagram and provides bounded zoom controls', async ({ page }) => {
+  await page.addInitScript(() => {
+    const desktop = window.mdvDesktop
+    if (!desktop) {
+      return
+    }
+    desktop.onMermaidViewerDiagram = (callback) => {
+      queueMicrotask(() => callback({ code: 'flowchart LR\nA-->B', theme: 'light' }))
+      return () => {}
+    }
+  })
+  await page.goto('/mermaid-viewer.html')
+
+  await expect(page.locator('.mermaid-viewer-canvas svg')).toBeVisible()
+  const resetZoom = page.getByRole('button', { name: /Reset zoom|倍率をリセット/ })
+  await expect(resetZoom).toHaveText('100%')
+  await page.getByRole('button', { name: /Zoom in|拡大/ }).click()
+  await expect(resetZoom).toHaveText('125%')
+  await resetZoom.click()
+  await expect(resetZoom).toHaveText('100%')
 })
 
 test('preview fallback code blocks keep rendered content height', async ({ page }) => {

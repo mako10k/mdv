@@ -113,7 +113,7 @@ candidate artifact check (promote 対象の full candidate 用):
 npm run release:check:candidate
 ```
 
-この check は current source fingerprint と candidate metadata を照合し、packaged `dist/index.html` が参照する renderer entry に exact DOMPurify implementation が1つだけ存在し、legacy implementation が無いことも fail-closed で確認する。`promote` も同じ check を内部で実行する。
+この check は current source fingerprint と candidate metadata を照合し、packaged `dist/index.html` と `dist/mermaid-viewer.html` が参照する各 renderer entry に exact DOMPurify implementation が1つだけ存在し、legacy implementation が無いことも fail-closed で確認する。`promote` も同じ check を内部で実行する。
 
 candidate artifact generate:
 

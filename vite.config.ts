@@ -20,6 +20,7 @@ export default defineConfig({
         about: fileURLToPath(new URL('./about.html', import.meta.url)),
         settings: fileURLToPath(new URL('./settings.html', import.meta.url)),
         fetchPermissions: fileURLToPath(new URL('./fetch-permissions.html', import.meta.url)),
+        mermaidViewer: fileURLToPath(new URL('./mermaid-viewer.html', import.meta.url)),
       },
     },
   },

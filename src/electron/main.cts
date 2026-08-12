@@ -321,6 +321,7 @@ const {
   openAboutWindow,
   openAiChatWindow,
   openFetchPermissionsWindow,
+  openMermaidViewer,
   openSettingsWindow,
   queueOrDispatchOpenFile,
 } = windowController
@@ -6025,6 +6026,8 @@ registerMainIpcHandlers({
   saveHtmlExportToPath,
   openSettingsWindow,
   openFetchPermissionsWindow,
+  openMermaidViewer,
+  isEditorWindow,
   openAboutWindow,
   launchStateByWindowId,
   getSettingsState: () => settingsState,

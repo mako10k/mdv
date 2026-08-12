@@ -1059,6 +1059,7 @@ function EditorSurface({
 }
 
 function MermaidBlock({ code, theme }: CodeBlockProps) {
+  const { t } = useI18n()
   const [svg, setSvg] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -1096,10 +1097,27 @@ function MermaidBlock({ code, theme }: CodeBlockProps) {
     return <DefaultCodeBlock code={code} language="mermaid error" theme={theme} />
   }
 
+  const openViewer = () => {
+    if (svg) {
+      void window.mdvDesktop?.openMermaidViewer({ code, theme })
+    }
+  }
+
   return (
     <div
       className="mermaid-block"
       data-render-state={svg ? 'ready' : 'loading'}
+      role="button"
+      tabIndex={svg ? 0 : -1}
+      aria-label={t.mermaidViewer.open}
+      title={t.mermaidViewer.open}
+      onClick={openViewer}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          openViewer()
+        }
+      }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
@@ -1387,6 +1405,10 @@ function resolveDocumentAnchor(target: EventTarget | null): { anchor: HTMLAnchor
   const anchor = target.closest('a[href]')
 
   if (!(anchor instanceof HTMLAnchorElement)) {
+    return null
+  }
+
+  if (anchor.closest('.mermaid-block')) {
     return null
   }
 

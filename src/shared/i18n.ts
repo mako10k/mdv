@@ -562,6 +562,15 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       aclPreview: 'ACL プレビュー',
       none: '(なし)',
     },
+    mermaidViewer: {
+      title: 'Mermaid ビューア',
+      open: 'Mermaid 図をビューアで開く',
+      zoom: '図の拡大縮小',
+      zoomOut: '縮小',
+      resetZoom: '倍率をリセット',
+      zoomIn: '拡大',
+      waiting: '図を待機しています…',
+    },
   },
   en: {
     common: {
@@ -1085,6 +1094,15 @@ registerCodeBlockRenderer('mermaid', MermaidBlock)
       aclRuleLines: 'ACL rule lines',
       aclPreview: 'ACL preview',
       none: '(none)',
+    },
+    mermaidViewer: {
+      title: 'Mermaid Viewer',
+      open: 'Open Mermaid diagram in viewer',
+      zoom: 'Diagram zoom',
+      zoomOut: 'Zoom out',
+      resetZoom: 'Reset zoom',
+      zoomIn: 'Zoom in',
+      waiting: 'Waiting for a diagram…',
     },
   },
 } as const

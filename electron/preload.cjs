@@ -12,7 +12,16 @@ const windowCloseApprovedListeners = new Set()
 const currentFileChangedListeners = new Set()
 const settingsChangedListeners = new Set()
 const updaterStateChangedListeners = new Set()
+const mermaidViewerDiagramListeners = new Set()
+let latestMermaidViewerDiagram = null
 const settingsBootstrap = ipcRenderer.sendSync('mdv:settings-bootstrap')
+
+ipcRenderer.on('mdv:mermaid-viewer-diagram', (_event, payload) => {
+  latestMermaidViewerDiagram = payload
+  for (const listener of mermaidViewerDiagramListeners) {
+    listener(payload)
+  }
+})
 
 ipcRenderer.on('mdv:open-file-requested', (_event, filePath) => {
   if (openFileRequestListeners.size === 0) {
@@ -128,6 +137,14 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
   openSettingsWindow: () => ipcRenderer.invoke('mdv:open-settings-window'),
   openFetchPermissionsWindow: () => ipcRenderer.invoke('mdv:open-fetch-permissions-window'),
   openAboutWindow: () => ipcRenderer.invoke('mdv:open-about-window'),
+  openMermaidViewer: (payload) => ipcRenderer.invoke('mdv:open-mermaid-viewer', payload),
+  onMermaidViewerDiagram: (callback) => {
+    mermaidViewerDiagramListeners.add(callback)
+    if (latestMermaidViewerDiagram) {
+      callback(latestMermaidViewerDiagram)
+    }
+    return () => mermaidViewerDiagramListeners.delete(callback)
+  },
   getAiChatContext: () => ipcRenderer.invoke('mdv:ai-chat-get-context'),
   readAiActiveDocument: () => ipcRenderer.invoke('mdv:ai-chat-read-active-document'),
   readAiActiveSelection: () => ipcRenderer.invoke('mdv:ai-chat-read-active-selection'),

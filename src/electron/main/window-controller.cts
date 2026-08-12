@@ -109,6 +109,11 @@ type WindowOpenResult = {
   status: 'focused' | 'opened'
 }
 
+type MermaidViewerPayload = {
+  code: string
+  theme: 'light' | 'dark'
+}
+
 type WindowController = {
   attachWindowLogging: (mainWindow: BrowserWindowLike, initialLaunchRequest?: LaunchRequest | null) => void
   createApplicationMenu: () => void
@@ -126,6 +131,7 @@ type WindowController = {
   openAboutWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
   openAiChatWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
   openFetchPermissionsWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
+  openMermaidViewer: (targetWindow: BrowserWindowLike | null | undefined, payload: MermaidViewerPayload) => WindowOpenResult
   openSettingsWindow: (targetWindow: BrowserWindowLike | null | undefined) => WindowOpenResult
   queueOrDispatchOpenFile: (launchRequest: LaunchRequest | null | undefined) => void
 }
@@ -164,6 +170,9 @@ function createWindowController({
   let fetchPermissionsWindowOwnerEditorId: number | null = null
   let aboutWindow: BrowserWindowLike | null = null
   let aboutWindowOwnerEditorId: number | null = null
+  const mermaidViewerByOwnerEditorId = new Map<number, BrowserWindowLike>()
+  const mermaidViewerPayloadByWindowId = new Map<number, MermaidViewerPayload>()
+  const mermaidViewerOwnerEditorIdByWindowId = new Map<number, number>()
   const expectedRendererUrlByWindowId = new Map<number, string>()
   const navigationGuardedWindowIds = new Set<number>()
   const fileRequestGuardedSessions = new WeakSet<object>()
@@ -311,8 +320,12 @@ function createWindowController({
     return Boolean(aboutWindow?.id) && Boolean(targetWindow?.id) && aboutWindow?.id === targetWindow?.id
   }
 
+  function isMermaidViewerWindow(targetWindow: BrowserWindowLike | null | undefined) {
+    return Boolean(targetWindow?.id) && mermaidViewerOwnerEditorIdByWindowId.has(targetWindow!.id)
+  }
+
   function isEditorWindow(targetWindow: BrowserWindowLike | null | undefined) {
-    return Boolean(targetWindow) && !isSettingsWindow(targetWindow) && !isFetchPermissionsWindow(targetWindow) && !isAboutWindow(targetWindow)
+    return Boolean(targetWindow) && !isSettingsWindow(targetWindow) && !isFetchPermissionsWindow(targetWindow) && !isAboutWindow(targetWindow) && !isMermaidViewerWindow(targetWindow)
   }
 
   function isUsableEditorWindow(targetWindow: BrowserWindowLike | null | undefined): targetWindow is BrowserWindowLike {
@@ -365,6 +378,12 @@ function createWindowController({
       }
 
       return getDefaultEditorWindow()
+    }
+
+    if (isMermaidViewerWindow(candidateWindow)) {
+      const ownerEditorId = mermaidViewerOwnerEditorIdByWindowId.get(candidateWindow.id)
+      const ownerWindow = ownerEditorId ? BrowserWindow.fromId(ownerEditorId) : null
+      return isUsableEditorWindow(ownerWindow) ? ownerWindow : getDefaultEditorWindow()
     }
 
     return isUsableEditorWindow(candidateWindow) ? candidateWindow : getDefaultEditorWindow()
@@ -551,6 +570,49 @@ function createWindowController({
     return { status: 'opened' }
   }
 
+  function openMermaidViewer(targetWindow: BrowserWindowLike | null | undefined, payload: MermaidViewerPayload): WindowOpenResult {
+    const ownerEditorWindow = getEditorWindowForAiAction(targetWindow)
+    if (!ownerEditorWindow || ownerEditorWindow.isDestroyed()) {
+      writeLog('WARN', 'mermaid-viewer', 'No editor window available for Mermaid viewer owner')
+      return { status: 'focused' }
+    }
+
+    const existingViewer = mermaidViewerByOwnerEditorId.get(ownerEditorWindow.id)
+    if (existingViewer && !existingViewer.isDestroyed()) {
+      mermaidViewerPayloadByWindowId.set(existingViewer.id, payload)
+      existingViewer.webContents.send('mdv:mermaid-viewer-diagram', payload)
+      focusWindow(existingViewer)
+      return { status: 'focused' }
+    }
+
+    const viewerWindow = createAuxiliaryWindow({
+      width: 1100,
+      height: 800,
+      minWidth: 640,
+      minHeight: 480,
+    })
+    mermaidViewerByOwnerEditorId.set(ownerEditorWindow.id, viewerWindow)
+    mermaidViewerOwnerEditorIdByWindowId.set(viewerWindow.id, ownerEditorWindow.id)
+    mermaidViewerPayloadByWindowId.set(viewerWindow.id, payload)
+
+    viewerWindow.webContents.on('did-finish-load', () => {
+      const currentPayload = mermaidViewerPayloadByWindowId.get(viewerWindow.id)
+      if (currentPayload && isExpectedRendererDocument(viewerWindow, viewerWindow.webContents.getURL())) {
+        viewerWindow.webContents.send('mdv:mermaid-viewer-diagram', currentPayload)
+      }
+    })
+    viewerWindow.on('closed', () => {
+      mermaidViewerByOwnerEditorId.delete(ownerEditorWindow.id)
+      mermaidViewerOwnerEditorIdByWindowId.delete(viewerWindow.id)
+      mermaidViewerPayloadByWindowId.delete(viewerWindow.id)
+    })
+
+    loadRendererWindow(viewerWindow, 'mermaid-viewer.html')
+    focusWindow(viewerWindow)
+    writeLog('INFO', 'mermaid-viewer', 'Mermaid viewer opened', { editorWindowId: ownerEditorWindow.id })
+    return { status: 'opened' }
+  }
+
   function closeAuxiliaryWindowsForEditor(editorWindow: BrowserWindowLike) {
     if (settingsWindowOwnerEditorId === editorWindow.id && settingsWindow && !settingsWindow.isDestroyed()) {
       approveWindowClose(settingsWindow)
@@ -565,6 +627,13 @@ function createWindowController({
     if (aboutWindowOwnerEditorId === editorWindow.id && aboutWindow && !aboutWindow.isDestroyed()) {
       approveWindowClose(aboutWindow)
       aboutWindow.close()
+    }
+
+
+    const mermaidViewer = mermaidViewerByOwnerEditorId.get(editorWindow.id)
+    if (mermaidViewer && !mermaidViewer.isDestroyed()) {
+      approveWindowClose(mermaidViewer)
+      mermaidViewer.close()
     }
   }
 
@@ -581,11 +650,18 @@ function createWindowController({
       aboutWindowOwnerEditorId = null
     }
 
+
+    const mermaidViewer = mermaidViewerByOwnerEditorId.get(editorWindowId)
+    if (mermaidViewer && !mermaidViewer.isDestroyed()) {
+      approveWindowClose(mermaidViewer)
+      mermaidViewer.close()
+    }
+
     if (getDefaultEditorWindow()) {
       return
     }
 
-    for (const auxiliaryWindow of [settingsWindow, fetchPermissionsWindow, aboutWindow]) {
+    for (const auxiliaryWindow of [settingsWindow, fetchPermissionsWindow, aboutWindow, ...mermaidViewerByOwnerEditorId.values()]) {
       if (!auxiliaryWindow || auxiliaryWindow.isDestroyed()) {
         continue
       }
@@ -944,6 +1020,7 @@ function createWindowController({
     openAboutWindow,
     openAiChatWindow,
     openFetchPermissionsWindow,
+    openMermaidViewer,
     openSettingsWindow,
     queueOrDispatchOpenFile,
   }

@@ -8,6 +8,7 @@ const ROOT_INPUTS = [
   'eslint.config.js',
   'fetch-permissions.html',
   'index.html',
+  'mermaid-viewer.html',
   'package-lock.json',
   'package.json',
   'settings.html',

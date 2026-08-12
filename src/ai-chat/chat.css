@@ -428,6 +428,13 @@ body,
 .chat-bubble .mermaid-block,
 .chat-tool-content .mermaid-block {
   overflow: auto;
+  cursor: zoom-in;
+}
+
+.chat-bubble .mermaid-block:focus-visible,
+.chat-tool-content .mermaid-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .chat-bubble.assistant {

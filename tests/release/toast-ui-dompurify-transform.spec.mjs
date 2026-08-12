@@ -61,3 +61,8 @@ test('packaged renderer entry uses the host archive path separator', () => {
   assert.equal(findPackagedRendererEntryPath(indexHtml, path.posix), 'dist/assets/main-fixture.js')
   assert.equal(findPackagedRendererEntryPath(indexHtml, path.win32), 'dist\\assets\\main-fixture.js')
 })
+
+test('release fingerprint includes the Mermaid viewer root entry', async () => {
+  const fingerprintSource = await fs.readFile(path.join(rootDir, 'scripts/release-source-fingerprint.mjs'), 'utf8')
+  assert.match(fingerprintSource, /'mermaid-viewer\.html'/)
+})

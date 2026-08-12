@@ -146,7 +146,7 @@ Windows host workflow は後方互換なしで次の 3 段階に分離してい�
 - `deploy`: 指定した artifact source の `win-unpacked` を `%LOCALAPPDATA%\MarkDownViewer\latest` へ配置する。既存 canonical artifact をそのまま配る用途を含む。
 - `promote`: candidate artifact を `release/windows-host` へ昇格する。canonical release artifact を更新できるのはこの操作だけ。
 
-canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持します。`artifact-metadata.json` は generation ID と release build input の SHA-256 fingerprint を含み、`npm run release:check:candidate` と `npm run release:check` は current source fingerprint、file 名、version metadata、updater manifest / config に加えて、`app.asar` の `dist/index.html` が選ぶ exact renderer entry の sanitizer contract まで確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
+canonical release artifact と、promote 対象になる full candidate には `artifact-metadata.json`、`installer/latest.yml`、`win-unpacked/resources/app-update.yml` を保持します。`artifact-metadata.json` は generation ID と release build input の SHA-256 fingerprint を含み、`npm run release:check:candidate` と `npm run release:check` は current source fingerprint、file 名、version metadata、updater manifest / config に加えて、`app.asar` の `dist/index.html` と `dist/mermaid-viewer.html` が選ぶ各 renderer entry の sanitizer contract まで確認します。unpacked-only candidate は local validation 用なので、この metadata 契約の対象外です。
 
 `generate` は開始時に既存 candidate を無効化します。失敗または中断後に同じ version の古い candidate を再利用せず、full generate をやり直してください。`promote` は内部で full candidate check を実行するため、stale source fingerprint や packaged renderer check failure がある candidate は canonical cache へ昇格できません。
 

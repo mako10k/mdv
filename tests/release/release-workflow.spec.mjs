@@ -97,6 +97,10 @@ async function makeTempRepo(version, options = {}) {
       '<script type="module" src="./assets/main-fixture.js"></script>\n',
     )
     await fs.writeFile(
+      path.join(asarInput, 'dist', 'mermaid-viewer.html'),
+      '<script type="module" src="./assets/main-fixture.js"></script>\n',
+    )
+    await fs.writeFile(
       path.join(asarInput, 'dist', 'assets', 'main-fixture.js'),
       options.legacyPackagedSanitizer
         ? 'sanitizer.version="3.4.12";legacy.version="2.3.3";\n'
