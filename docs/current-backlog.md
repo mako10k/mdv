@@ -97,7 +97,7 @@ MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled p
 
 P1 Editor Comfort の current accepted scope は MD-BL-029 を含めて完了済みである。MD-BL-006 表編集補助は table template / source format / add-after row / add-after column / column alignment selector まで閉じた。
 
-P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。次は P2 Editor Expansion の棚卸へ進む。
+P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。2026-08-12 の user 指示による計画変更で、次は ENG-BL-004 Plugin Architecture inventory を優先し、その後 P2 Editor Expansion の MD-BL-021 棚卸へ戻る。
 
 ここでいう inline image 表現は、Markdown 本文内の `![](data:image...)` を保存後も画像の正本として扱う方式である。editor-only widget や隠し app-managed blob を正本にする意味ではない。
 
@@ -282,13 +282,25 @@ v0.1.14 で閉じた最小範囲:
 
 ### Supporting Backlog
 
-1. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
-2. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
-3. [新規受理 / 棚卸待ち] REL-BL-002 更新適用前の Release Note 確認
+1. [新規受理 / 最優先棚卸待ち] ENG-BL-004 Plugin Architecture と capability-separated driver contracts
+2. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+3. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
+4. [新規受理 / 棚卸待ち] REL-BL-002 更新適用前の Release Note 確認
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
 注記:
+
+- ENG-BL-004:
+  - `design_contract`: [Plugin Architecture Design](plugin-architecture-design.md)
+  - `decision_record`: [ADR 0030](adr/0030-capability-separated-plugin-architecture.md)
+  - `contract_state: active_contract`
+  - `backlog_state: accepted_active`
+  - `inventory_status: inventory_pending`
+  - `priority_override`: 2026-08-12 の user 指示により、P2 Editor Expansion の次候補 MD-BL-021 より先に architecture inventory を実施する。inventory 後の first implementation slice は、結果と acceptance を current-backlog へ反映するまで開始しない
+  - `user_outcome`: Codeblock Driver、LLM Tool Driver、Text Rendering Engine を、安全性、診断可能性、packaged compatibility を保った plugin capability として段階的に追加できる設計基盤を得る
+  - `allowed_scope`: 既存 extension point / trust boundary / packaging の棚卸、manifest / discovery / lifecycle / compatibility 候補、三 driver family の分離 contract、permission / failure isolation / diagnostics、bundled・user-installed・workspace-local 配置候補比較、Mermaid viewer の将来 consumer 化評価、first implementation slice と acceptance tests の提案
+  - `blocked_scope`: inventory confirmation と、inventory 後に提案する first implementation slice の user 明示受理 / current-backlog 記録が揃う前の実装、dynamic load、user plugin code execution、renderer Node access、任意HTML/SVG injection、Mermaid viewer の先行移行、marketplace / remote install / auto-update、三 driver contract を一つの permissive schema に統合すること
 
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
@@ -507,19 +519,20 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 ## Recommended Execution Order
 
-1. P2 Editor Expansion の棚卸: MD-BL-020、MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011、MD-BL-025、MD-BL-026
-2. Supporting Backlog: ENG-BL-001、REL-BL-001、REL-BL-002 を棚卸する
-3. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
-4. AI-P3 context management の棚卸
-5. AI-CM context lifecycle の棚卸
-6. AI-P4 subagent orchestration の棚卸
-7. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定し、かつ [docs/decision-governance.md](decision-governance.md) の contract gate / backlog gate を満たす項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
+1. ENG-BL-004 Plugin Architecture inventory: Codeblock Driver、LLM Tool Driver、Text Rendering Engine の capability contract と共通 lifecycle 境界を確定する
+2. P2 Editor Expansion の棚卸へ戻る: MD-BL-021、MD-BL-014、MD-BL-008、MD-BL-009、MD-BL-010、MD-BL-011、MD-BL-025、MD-BL-026
+3. Supporting Backlog の残件: ENG-BL-001、REL-BL-001、REL-BL-002 を棚卸する
+4. AI-P2 の棚卸: tool surface、UX、customization、snapshot restore 系の完了記録と残 scope を確認する
+5. AI-P3 context management の棚卸
+6. AI-CM context lifecycle の棚卸
+7. AI-P4 subagent orchestration の棚卸
+8. 各 priority group の棚卸が終わった時点で、その group 内の `未実装` または `一部完了・後続あり` と確定し、かつ [docs/decision-governance.md](decision-governance.md) の contract gate / backlog gate を満たす項目から実装に入る。下位 group の棚卸は、上位 group に実装可能な残 scope がない場合、または user が明示的に切り替えた場合に進める
 
 注記:
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
 - MD-BL-024 と ENG-BL-002 は 2026-07-21 に完了済み。rendered link activation は main-owned document navigation contract へ移し、UNC watcher failure は bounded backoff と log suppression で fail-soft にした
-- MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate、MD-BL-019 は完了済み。recommended order で次に扱う group は P2 Editor Expansion であり、画像管理 UI は現時点の active P1 に含めない
+- MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate、MD-BL-019 は完了済み。通常順では P2 Editor Expansion が次だが、2026-08-12 の計画変更により ENG-BL-004 inventory を先行する。画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
 - AI-P4 は AI-CM を含む context lifecycle 基盤の後に置く
@@ -528,7 +541,8 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- P2 Editor Expansion の次 slice を棚卸結果に沿って扱う
+- ENG-BL-004 Plugin Architecture inventory を行い、first implementation slice の contract と acceptance を確定する
+- その後 P2 Editor Expansion の次 slice を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善
