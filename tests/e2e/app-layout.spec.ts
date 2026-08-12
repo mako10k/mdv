@@ -1803,6 +1803,66 @@ test('Mermaid viewer renders a diagram and provides bounded zoom controls', asyn
   await expect(resetZoom).toHaveText('100%')
 })
 
+test('Mermaid viewer exposes scrollable width and height beyond the viewport when zoomed', async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 360 })
+  await page.addInitScript(() => {
+    const desktop = window.mdvDesktop
+    if (!desktop) {
+      return
+    }
+    desktop.onMermaidViewerDiagram = (callback) => {
+      queueMicrotask(() => callback({
+        code: [
+          'flowchart TD',
+          'A[Long starting node] --> B[Second long node]',
+          'B --> C[Third long node]',
+          'C --> D[Fourth long node]',
+          'D --> E[Fifth long node]',
+          'E --> F[Long finishing node]',
+        ].join('\n'),
+        theme: 'light',
+      }))
+      return () => {}
+    }
+  })
+  await page.goto('/mermaid-viewer.html')
+
+  const zoomIn = page.getByRole('button', { name: /Zoom in|拡大/ })
+  const resetZoom = page.getByRole('button', { name: /Reset zoom|倍率をリセット/ })
+  await expect(page.locator('.mermaid-viewer-canvas svg')).toBeVisible()
+  const initial = await page.locator('.mermaid-viewer-viewport').evaluate((viewport) => ({
+    scrollWidth: viewport.scrollWidth,
+    scrollHeight: viewport.scrollHeight,
+  }))
+  for (let index = 0; index < 12; index += 1) {
+    await zoomIn.click()
+  }
+  await expect(resetZoom).toHaveText('400%')
+
+  const overflow = await page.locator('.mermaid-viewer-viewport').evaluate((viewport) => {
+    const clientWidth = viewport.clientWidth
+    const clientHeight = viewport.clientHeight
+    const scrollWidth = viewport.scrollWidth
+    const scrollHeight = viewport.scrollHeight
+    viewport.scrollLeft = scrollWidth
+    viewport.scrollTop = scrollHeight
+    return {
+      clientWidth,
+      clientHeight,
+      scrollWidth,
+      scrollHeight,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    }
+  })
+  expect(overflow.scrollWidth).toBeGreaterThan(initial.scrollWidth * 1.5)
+  expect(overflow.scrollHeight).toBeGreaterThan(initial.scrollHeight * 1.5)
+  expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth)
+  expect(overflow.scrollHeight).toBeGreaterThan(overflow.clientHeight)
+  expect(overflow.scrollLeft).toBe(overflow.scrollWidth - overflow.clientWidth)
+  expect(overflow.scrollTop).toBe(overflow.scrollHeight - overflow.clientHeight)
+})
+
 test('preview fallback code blocks keep rendered content height', async ({ page }) => {
   await openWritePanel(page)
   await replaceMarkdownDocument(

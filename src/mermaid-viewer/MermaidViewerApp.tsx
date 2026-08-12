@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import mermaid from 'mermaid'
 import { useI18n } from '../shared/i18n'
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4
 const SCALE_STEP = 0.25
+
+type DiagramSize = {
+  width: number
+  height: number
+}
 
 function clampScale(value: number) {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(value * 100) / 100))
@@ -16,12 +21,15 @@ export default function MermaidViewerApp() {
   const [svg, setSvg] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [scale, setScale] = useState(1)
+  const [diagramSize, setDiagramSize] = useState<DiagramSize | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const diagramRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null)
 
   useEffect(() => window.mdvDesktop?.onMermaidViewerDiagram((payload) => {
     setDiagram(payload)
     setScale(1)
+    setDiagramSize(null)
     const viewport = viewportRef.current
     if (viewport) {
       viewport.scrollLeft = 0
@@ -54,6 +62,23 @@ export default function MermaidViewerApp() {
       active = false
     }
   }, [diagram])
+
+  useLayoutEffect(() => {
+    const renderedSvg = diagramRef.current?.querySelector('svg')
+    if (!renderedSvg) {
+      setDiagramSize(null)
+      return
+    }
+
+    const viewBox = renderedSvg.viewBox.baseVal
+    const bounds = renderedSvg.getBoundingClientRect()
+    const width = viewBox.width > 0 ? viewBox.width : bounds.width
+    const height = viewBox.height > 0 ? viewBox.height : bounds.height
+    setDiagramSize({
+      width: Math.max(1, width),
+      height: Math.max(1, height),
+    })
+  }, [svg])
 
   function adjustScale(delta: number) {
     setScale((current) => clampScale(current + delta))
@@ -131,9 +156,22 @@ export default function MermaidViewerApp() {
         {svg ? (
           <div
             className="mermaid-viewer-canvas"
-            style={{ zoom: scale }}
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+            style={diagramSize ? {
+              width: `${diagramSize.width * scale}px`,
+              height: `${diagramSize.height * scale}px`,
+            } : undefined}
+          >
+            <div
+              ref={diagramRef}
+              className="mermaid-viewer-diagram"
+              style={diagramSize ? {
+                width: `${diagramSize.width}px`,
+                height: `${diagramSize.height}px`,
+                transform: `scale(${scale})`,
+              } : undefined}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </div>
         ) : null}
       </div>
     </main>

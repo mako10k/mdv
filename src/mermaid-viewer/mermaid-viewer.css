@@ -48,15 +48,20 @@ body {
 }
 
 .mermaid-viewer-canvas {
-  width: max-content;
+  position: relative;
   min-width: 100%;
   min-height: 100%;
 }
 
-.mermaid-viewer-canvas svg {
+.mermaid-viewer-diagram {
+  transform-origin: top left;
+}
+
+.mermaid-viewer-diagram svg {
   display: block;
-  max-width: none;
-  height: auto;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
 }
 
 .mermaid-viewer-empty,

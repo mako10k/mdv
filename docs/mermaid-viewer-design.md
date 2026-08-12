@@ -16,7 +16,7 @@ Rendered Mermaid diagrams in the document preview and assistant transcript can b
 - A primary click or keyboard activation on a successfully rendered Mermaid diagram requests a dedicated viewer owned by the source editor window.
 - Each editor owns at most one Mermaid viewer. A later request updates and focuses that viewer instead of creating an unbounded set of windows.
 - Renderer-to-main IPC carries only bounded Mermaid source text and the explicit `light` or `dark` theme. Generated SVG or arbitrary HTML does not cross the bridge.
-- The viewer renders Mermaid independently and provides zoom in, zoom out, reset, modified-wheel zoom, native scrollbars, and pointer drag panning. Keyboard support covers opening a focused source diagram and operating native zoom buttons; it does not add dedicated keyboard panning beyond native scrolling behavior.
+- The viewer renders Mermaid independently and provides zoom in, zoom out, reset, modified-wheel zoom, native scrollbars, and pointer drag panning. Zoomed canvas dimensions grow beyond the viewer viewport in both axes instead of fitting the SVG back to the window, so the entire enlarged diagram remains reachable by scrolling or panning. Keyboard support covers opening a focused source diagram and operating native zoom buttons; it does not add dedicated keyboard panning beyond native scrolling behavior.
 - Viewer zoom and pan are transient presentation state. They do not mutate Markdown, settings, exported HTML, or the inline preview.
 - Closing an editor closes its owned viewer. The normal expected-entry, navigation-deny, new-window-deny, context-isolated preload, and local-subresource protections apply.
 
@@ -29,6 +29,6 @@ Rendered Mermaid diagrams in the document preview and assistant transcript can b
 
 ## Validation
 
-- Browser regression covers preview-surface activation and the viewer's core render/reset/button-zoom semantics. Node regression covers the main-side IPC/window boundary. Preview and assistant use the same typed `openMermaidViewer` bridge caller, but assistant activation and the real Electron route are not separately exercised in this slice.
+- Browser regression covers preview-surface activation, viewer render/reset/button zoom, zoom-driven scroll extent growth, and both-axis scroll-end reachability. Node regression covers the main-side IPC/window boundary. Preview and assistant use the same typed `openMermaidViewer` bridge caller, but assistant activation and the real Electron route are not separately exercised in this slice.
 - Node regression covers bounded IPC validation, per-editor viewer reuse, payload delivery, navigation protection, and owner-close lifecycle.
 - A future Electron integration regression should cover the real preload/main/viewer route, including preload buffering when main sends the initial payload before React subscribes.
