@@ -3,47 +3,221 @@
 ## State
 
 - `contract_state: active_contract`
-- `backlog_state: accepted_active`
-- `inventory_status: inventory_pending`
-- Governing backlog: `ENG-BL-004`
+- Governing inventory backlog: `ENG-BL-004`
+- `backlog_state: completed`
+- `inventory_status: inventory_confirmed`
+- Proposed runtime slice: `PROPOSED-PLUGIN-SLICE-001`
+- Proposed runtime state: `future_requires_acceptance`
+- Inventory evidence: [ENG-BL-004 Plugin Architecture Inventory](milestones/plugin-architecture-inventory.md)
+- Governed plan: [Plugin Architecture PERT](milestones/plugin-architecture.pert)
 
 ## Objective
 
-MDV に Codeblock Driver、LLM Tool Driver、Text Rendering Engine を追加できる plugin architecture を設計する。最初の作業は既存 extension points、trust boundary、packaging 制約の棚卸と、互いに責務を混ぜない driver contract の確定である。
+MDV に Codeblock Driver、LLM Tool Driver、Text Rendering Engine を段階的に追加できる plugin architecture を定義する。共有するのは package identity、compatibility、lifecycle state、diagnostics、provenance であり、入力、出力、permission、execution、rendering safety は capability family ごとに分離する。
 
-次タスクは inventory と contract 設計だけである。plugin loading や Mermaid migration はまだ実装せず、inventory 結果から提案する first implementation slice を user が受理し、current-backlog に記録した後にだけ実装へ進む。
+Skill は fourth driver ではない。受理済みなのは Skill を独立 customization layer とする方針である。`AI-CFG-002` product runtime は `accepted_active + inventory_pending` で未実装・未許可、Plugin-origin Skill の実際の配布・読込は将来候補である。この inventory は、将来接続する場合の ownership boundary だけを確定する。Skill は LLM Tool Driver を利用する手順を提供できるが、Tool の認証、権限、approval、runtime validation を継承または上書きしない。
 
-## Planning Contract
+例えば Skill が「内容を確認して保存 Tool を使う」と LLM に指示しても、保存 Tool 側の対象確認、runtime validation、permission、approval は別に通る。Plugin package が unavailable なら、その Skill は候補にもならない。
 
-- Plugin manifest / discovery、identity、version compatibility、enable / disable、diagnostics を一つの lifecycle contract として棚卸する。
-- Codeblock Driver は、ユーザーが明示的に書いた fenced code block を language / metadata に応じて図や専用表示へ変換する。document の他の text や privileged action は扱わない。
-- Text Rendering Engine は、通常の Markdown から得た text を安全な表示表現へ変換する。code block 選択や file/network action を暗黙に実行しない。
-- LLM Tool Driver は、model が呼び出せる action を提供し、必要なら main process に file/network などの privileged work を要求する。content renderer として任意表示を返す contract にはしない。
-- 三者を分けるのは、表示 content や renderer failure に file/network action の permission と validation rule を継承させず、通常 text rendering を executable plugin behavior に変えないためである。
-- main process は plugin discovery、permission、lifecycle、privileged operation を所有し、renderer は preload の typed capability boundary を越えて Node.js や任意 filesystem/network access を得ない。
-- plugin-origin content は任意 HTML/SVG を trusted renderer へ直接注入しない。sanitization、navigation、subresource、CSP、resource ownership を surface ごとに fail-closed で定義する。
-- built-in Mermaid viewer は既存 contract のまま維持する。inventory では将来の Codeblock Driver consumer 候補として比較するが、互換性と security evidence が揃う前に一般化・移行しない。
-- development install、packaged discovery、update compatibility、failure isolation、disable/recovery、test fixture を同じ inventory に含める。
+## Inventory Result
 
-## First Inventory Deliverables
+現行 MDV には固定 extension point はあるが、共通 plugin runtime はない。
 
-1. 現行 code block render、Mermaid viewer、AI tool schema/dispatch、Markdown rendering/sanitizer、preload IPC、settings、packaging entry の責務 map。
-2. 三つの driver family の入力・出力・ownership・permission・failure semantics と、共有してよい lifecycle metadata の分離案。
-3. bundled / user-installed / workspace-local plugin の候補比較。検索 path、署名・trust、update、portable/installer 差分を含む。
-4. 最小 first implementation slice と acceptance tests の提案。
+- editor preview と AI chat は別々の fenced-code splitter と Mermaid-only renderer registry を持つ。
+- Mermaid viewer は bounded `code + theme` を main-owned auxiliary window へ渡す built-in contract であり、汎用 viewer ではない。
+- AI tools は main process の静的 function schema と tool-name dispatcher で登録され、既存 permission / proposal / fetch safety rule を個別に適用する。
+- runtime preview、AI chat、export は HTML safety policy が一致しておらず、plugin-origin raw HTML/SVG を受け入れられない。
+- preload、BrowserWindow、navigation、packaging は明示 entry の allowlist で成立し、directory discovery や plugin resource root はない。
+- product Skill runtime は未実装であり、`AI-CFG-002` は棚卸待ちである。
 
-## Blocked Until Inventory Confirmation And First-Slice Acceptance
+詳細な責務 map、配置候補、countermeasure 比較、Evidence Chain は [inventory](milestones/plugin-architecture-inventory.md) を正とする。
 
-以下は inventory を完了するだけでは許可されない。inventory 結果から first implementation slice を提示し、user の明示受理と current-backlog への scope / acceptance 記録を完了するまで blocked とする。
+## Architecture Model
 
-- plugin directory scan、dynamic module load、user-installed executable/code の実行。
-- renderer への Node integration、raw Electron access、任意 HTML/SVG injection。
-- LLM help/introspection、action schema、runtime argument validation を一つの permissive schema に統合すること。
-- built-in Mermaid implementation の先行移行、既存 Markdown/export behavior の変更。
-- marketplace、remote install、自動更新、第三者 plugin 公開互換性の保証。
+```text
+Plugin package
+├─ immutable manifest facts
+├─ located/package facts (main-owned)
+├─ derived lifecycle state (main-owned)
+├─ capabilities
+│  ├─ Codeblock Driver
+│  ├─ Text Rendering Engine
+│  └─ LLM Tool Driver
+└─ optional contributions
+   └─ Skill metadata/resources -> AI-CFG-002 runtime
+```
 
-## Validation Direction
+Plugin package lifecycle and Skill invocation lifecycle are related but not identical.
 
-- contract tests は driver family ごとに valid/invalid payload、permission denial、timeout/crash isolation、disable/recovery を固定する。
-- Electron integration は preload/main boundary と owner window lifecycle を通し、packaged checks は plugin metadata と実際の load target の一致を fail-closed で確認する。
-- security-sensitive renderer entry や generated runtime が増える場合は release workflow の early contract review を適用する。
+- package disabled / invalid / incompatible / quarantined: all capabilities and Skill contributions are unavailable
+- package ready + Skill disabled: other capabilities may remain available, but that Skill is not eligible
+- Skill enabled: eligibility only; it grants no Tool permission and cannot override package or Tool state
+
+## Manifest And Lifecycle Contract
+
+### Immutable manifest facts
+
+A manifest declares:
+
+- manifest schema version
+- stable package ID, display name, and package version
+- MDV/plugin API compatibility
+- capability declarations with family-specific payloads
+- optional Skill contribution metadata and bundle-relative resource location
+- permissions requested per capability
+
+Manifest data does not contain mutable enabled state, resolved absolute paths, approval decisions, secrets, or runtime health.
+
+### Located facts
+
+Main process resolves and records:
+
+- origin: bundled; future user-installed or workspace-local
+- package root and path-containment result
+- referenced resource existence
+- package/resource digest
+- packaged metadata and actual load-target agreement
+- future signature or trust evidence
+
+Absolute package paths and executable entry references are not exposed to renderer diagnostics.
+
+### Derived lifecycle state
+
+The main process derives one explicit status such as:
+
+- `ready`
+- `disabled`
+- `invalid`
+- `incompatible`
+- `blocked-permission`
+- `quarantined`
+- `failed`
+
+Package ID or capability ID collision fails closed. The runtime does not use last-wins, search-path precedence, or origin precedence to shadow one package with another.
+
+### Enable / disable
+
+- package enable state controls availability of the package as a whole
+- Skill enable state remains owned by `AI-CFG-002`
+- capability-specific enable state may be added only by a capability slice that defines persistence and recovery semantics
+- a state change applies to later invocations and must not rewrite or resume an in-flight render/tool/Skill invocation
+
+## Capability Contracts
+
+### Codeblock Driver
+
+- accepts only an explicit fenced code block with normalized language, parsed metadata, theme, and target surface
+- returns an MDV-owned typed render result or structured failure, never raw HTML/SVG
+- has no file/network authority by default
+- falls back to the original fenced code on rejection, timeout, crash, or incompatible output
+- isolates one block failure from other blocks and document editing
+
+The exact safe render-result union and execution isolation mechanism are not accepted by the inventory alone. Until a later slice defines them, Codeblock Driver declarations remain non-executable metadata.
+
+### Text Rendering Engine
+
+- accepts ordinary Markdown-derived text with explicit surface, locale, and theme context
+- returns an MDV-owned allowlisted text/render tree
+- cannot select code blocks or trigger file/network actions implicitly
+- cannot convert ordinary text into executable plugin behavior
+- preserves original text or built-in rendering on failure; plugin-origin raw markup is never a fallback
+
+### LLM Tool Driver
+
+- follows the active Tool schema, target, approval, and execution contracts in [AI Chat Design](ai-chat-design.md)
+- exposes one target/action-specific OpenAI schema and one runtime validator per tool
+- returns structured JSON or structured error
+- keeps discovery, registration, permission, privileged execution, timeout, redacted logging, and side-effect classification in main process
+- does not act as a content renderer
+- keeps help/introspection, OpenAI-facing schema, and runtime argument validation as separate protocol responsibilities
+- does not broaden a helper to accept mixed payload representations
+
+Existing editor proposal, target-kind, fetch ACL, secret, and mutation contracts continue to govern equivalent actions.
+
+### Skill Contribution
+
+- contains metadata, instructions, and declared resources selected for a user request
+- is consumed by `AI-CFG-002`, not dispatched as a Plugin Driver
+- may describe how to combine LLM Tool Drivers, but cannot add a Tool or bypass its validation/permission gate
+- records package ID/version/digest, Skill ID/version, match or explicit-invocation reason, load result, and non-load reason in diagnostics
+- fails by remaining unloaded; it does not silently fall back to an unrelated Skill
+
+Skill scripts are resources only under this contract. Local or hosted script execution requires a separate accepted trust, sandbox, permission, timeout, network, and failure-isolation design.
+
+## Renderer And Privilege Boundary
+
+- main process owns package discovery, manifest validation, compatibility, lifecycle, permission, diagnostics, and all privileged operations
+- renderer uses typed preload capabilities only; Node integration and raw Electron/IPC access remain unavailable
+- plugin-origin content cannot inject arbitrary HTML/SVG into trusted editor, AI chat, viewer, or export surfaces
+- an isolated plugin renderer, if later accepted, must have a known packaged entry, owner window lifecycle, navigation/subresource guards, CSP/resource ownership, bounded typed input, and no ambient desktop bridge
+- permission declarations are requests, not grants; runtime checks remain authoritative
+
+## Placement Contract
+
+### Bundled
+
+Bundled is the only origin eligible for `PROPOSED-PLUGIN-SLICE-001`. Resources become part of the MDV release/update boundary only when every manifest/resource input is inside an existing release-fingerprinted package root or is explicitly added to both `computeReleaseSourceFingerprint()` and electron-builder's `files` allowlist. Packaged verification uses the Windows-host shared `win-unpacked/resources/app.asar` input for portable and NSIS; Linux/WSL direct Windows packaging is not acceptance evidence.
+
+### User-installed
+
+Future only. Search path, install transaction, signature/trust, update/rollback, Windows ACL, conflict resolution, and executable isolation are unresolved. No directory scan or execution is accepted.
+
+### Workspace-local
+
+Future only. Repository/document trust, automatic discovery, identity collision, relative path ownership, and portable/installer behavior are unresolved. Opening a Markdown file must not execute or load workspace code/instructions implicitly.
+
+## Mermaid Compatibility Boundary
+
+The built-in Mermaid implementation remains unchanged.
+
+- current editor/AI chat Mermaid rendering stays built-in
+- current viewer continues accepting bounded Mermaid source plus theme, not generated HTML/SVG
+- inventory may describe Mermaid as a future Codeblock Driver consumer candidate
+- catalog metadata must not reroute execution or claim that Mermaid has migrated
+- migration requires a later accepted slice with safe render-result, registry unification, viewer compatibility, fallback, and Electron regression evidence
+
+## Proposed First Implementation Slice
+
+`PROPOSED-PLUGIN-SLICE-001` is a bundled-only Plugin Manifest Catalog and read-only diagnostics surface.
+
+It would:
+
+- strictly parse explicitly imported bundled manifests without scanning directories
+- keep declared, located, and derived state in separate typed models
+- validate identity, compatibility, capability-specific declarations, Skill contribution metadata, path containment, digests, collisions, and packaged resource agreement
+- expose bounded typed diagnostics through main/preload/renderer
+- show package/capability/Skill contribution status and failure reasons in a small diagnostics UI
+- add source-fingerprint freshness, electron-builder allowlist, Windows-host shared `app.asar`, and same-`--prepackaged` portable/NSIS release tests while preserving existing Windows packaging workarounds
+
+It would not execute a driver, inject a Skill, run a script, migrate Mermaid, discover user/workspace packages, or grant a new permission.
+
+It also does not add mutable package enable/disable persistence or a quarantine authority. The catalog may define the broader lifecycle vocabulary for forward compatibility, but first-slice acceptance exercises only statuses derivable from immutable/located facts and validation outcomes, such as `ready`, `invalid`, `incompatible`, and `failed`.
+
+The exact allowed/blocked scope and acceptance tests are recorded in the [inventory proposal](milestones/plugin-architecture-inventory.md#proposed-first-implementation-slice). This slice is not authorized until the user explicitly accepts that scope and current-backlog records a formal item.
+
+## Blocked Scope
+
+- plugin directory scan or dynamic module loading
+- user-installed/workspace-local code or instruction loading
+- driver dispatch before a family-specific execution contract is accepted
+- renderer Node integration, raw Electron/IPC access, or arbitrary HTML/SVG injection
+- Skill request injection or script execution through Plugin Architecture alone
+- merging LLM help/introspection, action schema, and runtime validation into one permissive schema
+- built-in Mermaid migration or Markdown/export behavior changes
+- marketplace, remote install, automatic third-party update, or public compatibility guarantees
+
+## Validation Contract
+
+- first-slice manifest/catalog tests cover valid and invalid schemas, unknown versions, incompatible versions, path traversal, missing resources, ID collisions, derivable catalog failures, and structured diagnostics
+- later lifecycle slices must define a main-owned configuration/trust source and persistence/recovery semantics before testing `disabled`, `blocked-permission`, or `quarantined` transitions
+- family contract tests keep Codeblock, Text, LLM Tool, and Skill contribution payloads mutually invalid instead of accepting a common permissive object
+- Electron tests keep typed preload/main ownership, known renderer entry, navigation denial, and owner-window lifecycle
+- packaged checks compare declared metadata, resource existence, digest, and actual load target in the Windows-host shared `win-unpacked/resources/app.asar`
+- release checks prove all manifest/resource inputs affect the release-source fingerprint, stale candidates fail `release:check:candidate`, the electron-builder `files` allowlist contains the packaged root, and portable/NSIS use the same `--prepackaged` input
+- final packaging validation runs on the Windows host and preserves `signAndEditExecutable=false`, post-package `rcedit`, and UNC-launch containment; a Linux build is not Windows packaging evidence
+- future driver tests cover valid/invalid payload, permission denial, timeout/crash isolation, fallback, disable/recovery, and ambiguous side-effect handling per family
+- security-sensitive renderer or generated runtime changes use release workflow early contract review
+
+## Next Gate
+
+The inventory is complete. Runtime implementation remains blocked at `WAIT_FIRST_SLICE_ACCEPTANCE` in the [governed PERT](milestones/plugin-architecture.pert). If the proposed slice is not explicitly accepted, product work returns to the next item in [Current Backlog](current-backlog.md).

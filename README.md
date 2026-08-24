@@ -37,6 +37,8 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 - [docs/ai-chat-design.md](docs/ai-chat-design.md): assistant dock、tool bridge、OpenAI 連携の設計
 - [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md): どの customization をどこに置くかを説明する explainer
 - [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md): customization layer 境界の決定記録
+- [docs/plugin-architecture-design.md](docs/plugin-architecture-design.md): capability-separated Plugin lifecycle と Skill contribution 接続の設計
+- [docs/milestones/plugin-architecture-inventory.md](docs/milestones/plugin-architecture-inventory.md): 現行 extension point、trust、packaging の棚卸結果と proposed first slice
 - [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計

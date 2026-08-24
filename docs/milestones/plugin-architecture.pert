@@ -1,0 +1,94 @@
+project MDV_PLUGIN_ARCHITECTURE:
+  version 1
+  title "Plugin Architecture inventory と first implementation gate"
+  description |
+    ENG-BL-004 の現行 extension point、trust boundary、packaging、Skill 接続を
+    inventory し、capability-separated contract と first implementation slice を
+    提案する。inventory と提案は完了済みだが、runtime implementation は
+    PROPOSED-PLUGIN-SLICE-001 の user 明示受理と current-backlog 登録を待つ。
+    duration は比較用の三点見積りであり納期の約束ではない。blocked task の
+    user decision 待ち時間は所要日数に含めない。product priority は
+    docs/current-backlog.md を正本とし、この PERT は未受理 slice を優先しない。
+  as_of 2026-08-24
+  duration_unit point
+  velocity 1p/1d
+  finish FIRST_SLICE_RELEASE_READY
+
+milestone NOW:
+  title "ENG-BL-004 inventory 開始"
+  state reached
+
+milestone INVENTORY_CONFIRMED:
+  title "現行 extension point・trust・packaging・Skill 接続の inventory 完了"
+  state reached
+
+milestone FIRST_SLICE_PROPOSED:
+  title "first implementation slice と acceptance tests の提案完了"
+  state reached
+
+milestone FIRST_SLICE_ACCEPTED:
+  title "user 明示受理と current-backlog 登録完了"
+
+milestone FIRST_SLICE_CONTRACT_READY:
+  title "bundled manifest catalog の exact contract 確定"
+
+milestone FIRST_SLICE_IMPLEMENTED:
+  title "bundled manifest catalog と read-only diagnostics 実装完了"
+
+milestone FIRST_SLICE_VALIDATED:
+  title "contract・renderer・Electron・packaging validation 完了"
+
+milestone FIRST_SLICE_RELEASE_READY:
+  title "first slice が独立 release 候補"
+
+task INVENTORY_PLUGIN_ARCHITECTURE NOW -> INVENTORY_CONFIRMED:
+  title "固定 extension point と trust / packaging / Skill 境界を棚卸する"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+  status done
+  source "docs/milestones/plugin-architecture-inventory.md"
+
+task PROPOSE_PLUGIN_FIRST_SLICE INVENTORY_CONFIRMED -> FIRST_SLICE_PROPOSED:
+  title "配置候補を比較し、最小 runtime slice と acceptance tests を提案する"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
+  status done
+  source "docs/plugin-architecture-design.md#proposed-first-implementation-slice"
+
+task WAIT_FIRST_SLICE_ACCEPTANCE FIRST_SLICE_PROPOSED -> FIRST_SLICE_ACCEPTED:
+  title "PROPOSED-PLUGIN-SLICE-001 の allowed / blocked scope を user が明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.1p
+  status blocked
+  blocked_reason "Inventory 後に定義した runtime slice の明示受理と formal backlog ID が未記録"
+  source "docs/milestones/plugin-architecture-inventory.md#proposed-first-implementation-slice"
+
+task DESIGN_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_ACCEPTED -> FIRST_SLICE_CONTRACT_READY:
+  title "manifest schema、state model、typed diagnostics、package resource contract を exact design にする"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+
+task IMPLEMENT_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_CONTRACT_READY -> FIRST_SLICE_IMPLEMENTED:
+  title "main-owned bundled catalog、typed diagnostics、最小 UI、package wiring を実装する"
+  estimate:
+    optimistic 2p
+    most_likely 4p
+    pessimistic 7p
+
+task VALIDATE_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_IMPLEMENTED -> FIRST_SLICE_VALIDATED:
+  title "schema、collision、path/digest、IPC、source fingerprint、Windows-host shared package input を検証する"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+
+gate FIRST_SLICE_RELEASE_REVIEW FIRST_SLICE_VALIDATED -> FIRST_SLICE_RELEASE_READY:
+  reason "exact-diff review と必要 validation が合格し、既存 Mermaid / Markdown / AI tool behavior が不変であること"

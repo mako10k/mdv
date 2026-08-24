@@ -116,6 +116,8 @@ first slice では app-global な enabled 状態と、turn 単位の注入診断
 - remote skill marketplace
 - third-party unsigned skill installation
 - 複雑な優先度式言語
+- Skill 同梱 script の local / hosted execution
+- Plugin Driver の登録、permission grant、または capability dispatch
 
 ### Acceptance Criteria
 
@@ -125,6 +127,8 @@ first slice では app-global な enabled 状態と、turn 単位の注入診断
 - 注入されなかった場合は、条件不一致、disabled、load failure など理由を区別して示せる
 - SKILL の実体参照と UI 上の表示名が一貫し、設定だけ残って壊れた参照にならない
 - AI-UX-003 で整理した ownership boundary に従い、SKILL は instruction / prompt / agent / hook と責務衝突しない形で適用結果と理由を示せる
+- Plugin package 由来の SKILL を将来扱う場合は package ID、version、digest、availability を provenance として表示し、package disabled / invalid / incompatible / quarantined を Skill disabled や条件不一致と区別できる
+- SKILL を load しても、参照する LLM Tool Driver の authentication、permission、approval、runtime validation は変化しない
 
 ### Done Signal
 

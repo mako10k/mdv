@@ -8,6 +8,8 @@ Accepted
 
 MDV の AI backlog では prompt file、skill、model registry、将来の custom agent と hook support が並行して増えつつある。
 
+Plugin Architecture inventory では、将来の Plugin package が Skill metadata/resources を同梱する可能性も確認した。package lifecycle と Skill invocation lifecycle を一つの enabled flag や permission model にすると、package availability、workflow eligibility、Tool authority が混線する。
+
 このままだと、repo-wide rule、task entrypoint、role mode、portable capability、deterministic automation が同じ customization surface として混線し、次の問題が起きる。
 
 - 同じ rule を複数 layer に重複配置して drift する
@@ -41,6 +43,10 @@ MDV は AI customization を次の 6 layer に分ける。
 - custom agent support は role/tool/model boundary を主対象にし、repo rule store と混ぜない
 - hook support は deterministic automation / enforcement だけを扱う
 - conflict は runtime precedence に依存せず ownership 修正で解消する
+- Plugin package が Skill contribution を宣言する場合も、package identity、compatibility、digest、availability は Plugin lifecycle が所有し、matching、明示 invocation、Skill enabled state、instruction/resource loading、turn diagnostics は AI-CFG-002 が所有する
+- package が disabled / invalid / incompatible / quarantined なら、その Skill contribution は unavailable とする。Skill enabled state は package state を上書きしない
+- Skill は LLM Tool Driver の利用手順を提供できるが、Tool の authentication、permission、approval、runtime validation、side-effect safety を付与または変更しない
+- Skill 同梱 script は resource inventory と実行権限を分け、別の trust / sandbox / permission contract が受理されるまで実行しない
 
 ## Consequences
 
@@ -49,3 +55,5 @@ MDV は AI customization を次の 6 layer に分ける。
 - diagnostics requirement が明確になり、「何が効いたか」を UI で説明しやすくなる
 - repo-wide guidance と task-specific workflow の責務が分離される
 - release / settings / help / metadata surface もこの layer model を前提に用語を揃えられる
+- Plugin diagnostics と Skill diagnostics は package provenance を共有できる一方、package availability と Skill invocation result を別状態として説明する必要がある
+- Plugin Manifest Catalog の first slice が受理されても Skill injection は自動的に受理されず、AI-CFG-002 の backlog gate が残る

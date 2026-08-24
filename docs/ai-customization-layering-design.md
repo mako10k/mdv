@@ -162,6 +162,7 @@ MDV rule:
 
 - `SKILL.md` と付随 resources
 - Codex repo skill の `.agents/skills/*/SKILL.md`
+- 将来の Plugin package が宣言する Skill metadata / resources
 
 責務:
 
@@ -181,6 +182,10 @@ MDV rule:
 - skill は capability package であり、persona ではない
 - 大きい調査や intermediate reasoning を main chat に残したくない skill は fork-compatible に設計する
 - skill を background knowledge 化するときも、その ownership は repo-wide rules ではなく task capability に限る
+- Plugin lifecycle は package identity、compatibility、digest、availability を所有し、AI-CFG-002 は matching、明示 invocation、Skill enabled state、instruction/resource loading、diagnostics を所有する
+- package が disabled / invalid / incompatible / quarantined なら Skill は unavailable であり、Skill enabled state から package state を上書きしない
+- Skill は LLM Tool Driver の利用手順を提供できるが、Tool の authentication、permission、approval、runtime validation、side-effect safety を変更しない
+- Skill に同梱された script は resource であることと実行権限を分け、別の trust / sandbox / permission contract が受理されるまで実行しない
 
 ### 6. Hooks
 
@@ -250,6 +255,7 @@ conflict policy:
 - prompt file editor は prompt file を編集対象にし、always-on instructions は直接の first-slice 編集対象にしない
 - Codex 共有 workflow は `.agents/skills`、Codex role mode は `.codex/agents`、Copilot 互換 workflow は `.github` 配下に残す
 - skill manager は SKILL metadata と invocation policy を扱い、repo-wide rule editor にはしない
+- Plugin-origin Skill を扱う場合、skill manager は package ID / version / digest / availability を provenance として参照するが、Plugin の installation や capability permission を所有しない
 - future custom agent support は role mode と tool/model envelope を主対象にし、repo-wide rule store と混ぜない
 - hook support は deterministic enforcement / automation として扱い、prompt file や skill と同じ編集面に雑に混ぜない
 
@@ -257,6 +263,7 @@ conflict policy:
 
 - AI-CFG-001 は prompt file editing surface として扱う
 - AI-CFG-002 は skill runtime / diagnostics surface として扱う
+- bundled Plugin manifest が Skill contribution metadata を列挙しても、`accepted_active + inventory_pending` の AI-CFG-002 が棚卸を終え、contract / implementation gate を満たして runtime 実装されるまでは request へ注入しない
 - AI-UX-003 完了前は prompt file、agent、skill、hook を 1 つの generic customization editor にまとめない
 - AI-TL-001 や AI-CFG-003 のような他 backlog は、この layering policy を前提に help、metadata、settings を分離する
 
