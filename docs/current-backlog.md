@@ -300,10 +300,13 @@ v0.1.14 で閉じた最小範囲:
   - `backlog_state: completed`
   - `inventory_status: inventory_confirmed`
   - `result`: 現行 code block / Mermaid viewer / Markdown safety / AI tool / preload / settings / packaging を棚卸しし、manifest facts、located facts、derived lifecycle state の分離、Codeblock Driver / Text Rendering Engine / LLM Tool Driver の独立 contract、Skill を fourth driver ではなく AI-CFG-002 所有の workflow contribution とする接続境界を確定した
-  - `user_outcome`: Codeblock Driver、LLM Tool Driver、Text Rendering Engine を、安全性、診断可能性、packaged compatibility を保った plugin capability として段階的に追加できる設計基盤を得る
-  - `proposed_next_slice`: `PROPOSED-PLUGIN-SLICE-001` bundled-only Plugin Manifest Catalog と read-only diagnostics。`backlog_state: future_requires_acceptance` であり正式 backlog ID は未付与
-  - `proposed_allowed_scope`: 明示 import された bundled manifest の strict parser、identity / compatibility / family-specific declaration / Skill contribution metadata / path containment / digest / collision / packaged resource agreement の検証、typed diagnostics IPC/UI、全 Plugin 入力を release-source fingerprint と electron-builder `files` allowlist に接続する検査、Windows-host shared `win-unpacked/resources/app.asar` と同一 `--prepackaged` input 由来の portable / NSIS package tests。driver dispatch、Skill injection、script execution、Mermaid migration は含まない
-  - `blocked_scope`: proposed slice の user 明示受理と current-backlog 登録前の runtime 実装、directory scan、dynamic load、user/workspace plugin code/instruction execution、renderer Node access、任意HTML/SVG injection、Mermaid viewer の先行移行、marketplace / remote install / auto-update、Skill による permission grant、三 driver contract を一つの permissive schema に統合すること
+  - `developer_experience_contract`: [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md)
+  - `developer_guide`: [Plugin Developer Guide](plugin-developer-guide.md)
+  - `proposal_revision_state`: 2026-08-25 の user 指示は Developer Kit / Public SDK staging design と proposal revision の作成だけを許可した。catalog、diagnostics、Kit、runtime、Public SDK の実装受理ではない
+  - `user_outcome`: Codeblock Driver、LLM Tool Driver、Text Rendering Engine を、安全性、診断可能性、packaged compatibility を保った plugin capability として段階的に追加でき、MDV/bundled developer が実行前に metadata/package 適合性を検証できる設計基盤を得る
+  - `proposed_next_slice`: `PROPOSED-PLUGIN-SLICE-001` bundled-only Plugin Manifest Catalog、read-only diagnostics、Internal Developer Contract/Conformance Kit。`backlog_state: future_requires_acceptance` であり正式 backlog ID は未付与
+  - `proposed_allowed_scope`: 明示 import された bundled manifest の strict parser、identity / compatibility / family-specific declaration / Skill contribution metadata / path containment / digest / collision / packaged resource agreement の検証、typed diagnostics IPC/UI、canonical manifest contract と TypeScript symmetry、catalog parser/diagnostics を共有する validator API/CLI、valid/invalid fixtures、metadata-only bundled sample、diagnostic reference、明示指定された1つの manifest/package root または packaged `app.asar` view と宣言済み contained resource だけを検査する conformance helper、developer guide、全 Plugin 入力を release-source fingerprint と electron-builder `files` allowlist に接続する検査、Windows-host shared `win-unpacked/resources/app.asar` と同一 `--prepackaged` input 由来の portable / NSIS package tests。driver dispatch、Skill injection、script execution、Mermaid migration は含まない
+  - `blocked_scope`: proposed slice の user 明示受理と current-backlog 登録前の runtime/Kit 実装、Public SDK/package publication、stable third-party compatibility/support promise、自動 Plugin directory discovery/enumeration、dynamic load、user/workspace plugin code/instruction execution、renderer Node access、任意HTML/SVG injection、Mermaid viewer の先行移行、marketplace / remote install / auto-update、Skill による permission grant、三 driver contract を一つの permissive schema に統合すること
 
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
@@ -545,7 +548,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- ENG-BL-004 Plugin Architecture inventory と capability / Skill contribution contract は確定済み。bundled manifest catalog の proposed slice は user acceptance 待ちで、現在の実装順には入れない
+- ENG-BL-004 Plugin Architecture inventory と capability / Skill contribution / Developer Kit-Public SDK staging contract は確定済み。bundled catalog/diagnostics/internal Kit の proposed slice は user acceptance 待ちで、現在の実装順には入れない
 - 現在は P2 Editor Expansion へ戻り、次 slice を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善

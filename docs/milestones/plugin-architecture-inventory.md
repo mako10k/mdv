@@ -1,6 +1,7 @@
 # ENG-BL-004 Plugin Architecture Inventory
 
 - Date: 2026-08-24
+- Proposal revision: 2026-08-25, internal Developer Kit / Public SDK staging added
 - PERT task: `INVENTORY_PLUGIN_ARCHITECTURE`
 - Result: complete
 - Backlog result: `ENG-BL-004` inventory complete
@@ -15,6 +16,8 @@ MDV has several fixed extension points, but no common plugin runtime. Code block
 The accepted AI customization decision treats Skill as an independent workflow layer. The `AI-CFG-002` product runtime is an accepted-active backlog item, but it remains `inventory_pending`, unimplemented, and unauthorized for implementation until its own gate is satisfied. A Skill is not a fourth executable driver. It may refer to tools provided by LLM Tool Drivers, but it does not inherit or grant their authority. This inventory accepts the ownership boundary for a possible Plugin-origin Skill contribution; actual Plugin distribution, discovery, loading, and request injection remain unaccepted.
 
 In practical terms, a Skill gives the LLM instructions, references, and templates for how to perform a task. If it tells the LLM to use a save Tool, that Tool still performs its own target validation, permission check, and approval flow. If the future source package is unavailable, the Skill is not eligible to load.
+
+Developer experience uses the same separation principle. The first proposal supports MDV/bundled developers with a manifest contract, validator, fixtures, metadata-only sample, diagnostics, conformance checks, and guide. It does not present those artifacts as a Public SDK. External compatibility and executable authoring remain behind later trust, distribution, versioning, and family-contract gates.
 
 ## Current Responsibility Map
 
@@ -156,22 +159,39 @@ Portable and installer packages must consume the same Windows-host `win-unpacked
 
 Candidate A is the strongest candidate for proving the missing common Plugin lifecycle; it is not asserted to be the next product priority. It is stronger than a documentation-only mitigation because it can create an enforceable runtime/package contract while keeping executable behavior behind a later acceptance gate. The normal product priority remains `MD-BL-021` unless this proposed slice is explicitly accepted.
 
+### Developer experience staging
+
+The catalog proposal should include an internal/experimental Developer Contract and Conformance Kit because its schema, parser, diagnostics, fixtures, and package checks are the same contract surfaces contributors must author against. Calling this a Public SDK would be premature: user/workspace discovery, third-party trust/load, install/update/rollback, compatibility/deprecation/migration, family execution, and public support obligations are still blocked.
+
+| Developer-support option | Drift prevention | Scope/risk | Result |
+| --- | --- | --- | --- |
+| Guide/schema only | Low: prose and schema cannot prove catalog/author-tool agreement | Smallest slice, but no mechanical parity check | Reject as insufficient |
+| Catalog first, Kit in a later slice | Medium: catalog can be tested internally, but author tooling may derive a second parser/diagnostic model later | Smaller first release, higher contract-drift risk and another acceptance boundary | Not selected |
+| Catalog plus shared Internal Kit | High: one parser/diagnostic corpus mechanically checks catalog and author-facing validation | Larger slice; controlled by designing and implementing the Kit after the catalog contract within the same acceptance unit | Selected proposal |
+| Public SDK immediately | Premature: executable and compatibility behavior is not defined | Crosses unresolved third-party trust, distribution, support, and family-execution boundaries | Blocked |
+
+The early Kit targets MDV maintainers and bundled-package developers only. Public SDK readiness is governed by [Plugin Developer Kit And Public SDK Design](../plugin-developer-kit-design.md).
+
 ## Proposed First Implementation Slice
 
 `PROPOSED-PLUGIN-SLICE-001` is `future_requires_acceptance`. It has not been assigned a formal backlog ID and is not authorized for implementation.
 
 ### Scope statement
 
-Add a main-owned, bundled-only Plugin Manifest Catalog and read-only diagnostics surface. It validates package identity, compatibility, capability-specific declarations, optional Skill contribution metadata, bundle-relative paths, content digests, and packaged resource agreement. It does not dispatch a driver or inject a Skill.
+Add a main-owned, bundled-only Plugin Manifest Catalog, read-only diagnostics surface, and Internal Developer Contract/Conformance Kit. It validates package identity, compatibility, capability-specific declarations, optional Skill contribution metadata, bundle-relative paths, content digests, and packaged resource agreement. It lets MDV/bundled developers author and test metadata against the same parser/diagnostics without dispatching a Driver or injecting a Skill.
 
 ### Allowed scope after explicit acceptance
 
 - versioned manifest types and strict parser
-- explicitly imported bundled catalog; no directory scan
+- explicitly imported bundled catalog; no automatic directory discovery/enumeration
 - immutable manifest facts, located facts, and derived runtime status kept as separate types
 - ID/capability collision rejection, compatibility evaluation, path containment, and digest verification
 - typed read-only main/preload/renderer diagnostics contract
 - a small Settings/About diagnostics surface showing ID, version, origin, status, capabilities, Skill contributions, and failure reason
+- one canonical machine-readable manifest contract with checked/generated TypeScript symmetry
+- validator API/CLI using the main catalog parser and diagnostic registry
+- shared valid/invalid fixtures, non-executable bundled sample metadata, diagnostic reference, conformance helper, and developer guide
+- conformance helper input is one explicit manifest/package root or packaged `app.asar` view; it reads only the manifest and declared contained resources without automatic discovery/enumeration
 - package configuration and release checks that either keep every bundled Plugin input under an existing release-fingerprinted root or add all manifest/resource inputs to `computeReleaseSourceFingerprint()` and electron-builder's `files` allowlist
 - Windows-host candidate checks that inspect the shared `win-unpacked/resources/app.asar`, reject a stale candidate after a Plugin input changes, and prove portable/NSIS are built from the same `--prepackaged` input
 - node, renderer, Electron, and packaging contract tests appropriate to the touched boundaries
@@ -183,6 +203,7 @@ Add a main-owned, bundled-only Plugin Manifest Catalog and read-only diagnostics
 - Skill selection, request injection, or script execution
 - user-installed/workspace-local discovery
 - install, uninstall, marketplace, remote update, or signature UX
+- Public SDK/package publication, third-party compatibility/support promise, or external executable sample
 - new file/network/editor permissions
 - arbitrary HTML/SVG or renderer Node access
 
@@ -196,6 +217,10 @@ Add a main-owned, bundled-only Plugin Manifest Catalog and read-only diagnostics
 6. The Windows-host shared `win-unpacked/resources/app.asar` contains the declared resources and matching digests, and portable/NSIS are derived from that same `--prepackaged` input without bypassing the existing Windows packaging workarounds.
 7. Changing any manifest/resource input changes the release-source fingerprint; `release:check:candidate` rejects the older candidate, and the electron-builder `files` allowlist includes the actual packaged root.
 8. Existing Markdown preview, Mermaid rendering/viewer, AI tool schemas/dispatch, settings, and exports remain behaviorally unchanged.
+9. Developer validator and main catalog produce equivalent typed outcomes and diagnostics for the shared fixture corpus.
+10. The bundled sample is metadata-only; it cannot dispatch a Driver or load/inject/run a Skill.
+11. Schema/types/docs/fixtures are generated from or checked against one canonical contract, and the guide labels unavailable commands/APIs honestly.
+12. No Public SDK package, stable compatibility claim, or third-party loading surface is introduced.
 
 ## Evidence Chain
 
@@ -229,14 +254,25 @@ Claim: A bundled-only manifest catalog is the strongest first implementation sli
 
 Reasoning basis:
 
-- E-PLUGIN-007: The governing Plugin Architecture contract blocks directory scan, dynamic loading, user code execution, Mermaid migration, and marketplace behavior until a first slice is explicitly accepted.
+- E-PLUGIN-007: The governing Plugin Architecture contract blocks automatic Plugin directory discovery/enumeration, dynamic loading, user code execution, Mermaid migration, and marketplace behavior until a later slice is explicitly accepted. The proposed internal validator is limited to one explicitly supplied manifest/root and its declared contained resources.
 - E-PLUGIN-008: Bundled resources can be brought under the application release and `asar` boundary with explicit package/fingerprint wiring, while user/workspace trust and update contracts do not exist.
 - E-PLUGIN-009: The proposed acceptance tests can verify manifest parsing, collisions, compatibility, path containment, diagnostics, fingerprint freshness, and packaged resource agreement independently of driver execution. This remains an inference until the slice is accepted and tested.
+
+### C-PLUGIN-004 📜✅ — Accepted design boundary
+
+Claim: Developer support must begin as an internal/bundled conformance Kit, while Public SDK publication requires later third-party trust, distribution, versioning, and family-execution decisions.
+
+Basis:
+
+- E-PLUGIN-010: The current [first-slice proposal](../plugin-architecture-design.md#proposed-first-implementation-slice) specifies one canonical manifest contract, strict catalog parser, typed diagnostics, shared fixtures, and package conformance as planned single-source requirements; none is claimed as implemented.
+- E-PLUGIN-011: [Plugin Architecture Design](../plugin-architecture-design.md#blocked-scope) blocks user/workspace loading, dynamic execution, and public compatibility guarantees.
+- E-PLUGIN-012: Codeblock, Text Rendering, and LLM Tool capability contracts have different input/output, permission, and failure semantics; Skill is owned by `AI-CFG-002` rather than a Driver dispatcher.
 
 Actions:
 
 - A-PLUGIN-001 🚀 [実行済み]: Record the completed inventory, lifecycle/capability boundaries, Skill connection, placement comparison, and proposed slice in design, ADR, backlog, and PERT documents. References: C-PLUGIN-001, C-PLUGIN-002, C-PLUGIN-003.
-- A-PLUGIN-002 ⛔ [保留]: Implement `PROPOSED-PLUGIN-SLICE-001`. Reference: C-PLUGIN-003. Blocked until the user explicitly accepts the stated allowed/blocked scope and current-backlog records a formal item.
+- A-PLUGIN-002 ⛔ [保留]: Implement `PROPOSED-PLUGIN-SLICE-001`. References: C-PLUGIN-003, C-PLUGIN-004. Blocked until the user explicitly accepts the stated allowed/blocked scope and current-backlog records a formal item.
+- A-PLUGIN-003 🚀 [実行済み]: Add the internal Developer Kit/Public SDK staging contract, developer guide, proposal acceptance tests, ADR rationale, backlog scope, and PERT work. Reference: C-PLUGIN-004.
 
 ## Next Gate
 
@@ -246,5 +282,5 @@ The governed PERT is [plugin-architecture.pert](plugin-architecture.pert). The o
 
 - Direct code/doc readback covered the responsibility-map paths and the current packaging/release inputs.
 - `perttool document check`, `perttool dag analyze --schedule both`, and `perttool dag next --format json` passed; the last command reported no runnable Plugin task and only `WAIT_FIRST_SLICE_ACCEPTANCE` as blocked.
-- `npm run lint`, `npm run build`, and `git diff --check` passed on 2026-08-24.
+- For the 2026-08-25 proposal revision, `npm run lint`, `npm run build`, `npm run test:release`, `git diff --check`, local Markdown target checks, and required early contract review passed.
 - No runtime source, packaged resource, or existing Mermaid/Markdown/AI Tool behavior changed in this inventory action.

@@ -10,6 +10,10 @@
 - Proposed runtime state: `future_requires_acceptance`
 - Inventory evidence: [ENG-BL-004 Plugin Architecture Inventory](milestones/plugin-architecture-inventory.md)
 - Governed plan: [Plugin Architecture PERT](milestones/plugin-architecture.pert)
+- Developer experience contract: [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md)
+- Developer entrypoint: [Plugin Developer Guide](plugin-developer-guide.md)
+
+The 2026-08-25 request accepted only the Developer Kit/Public SDK staging design and proposal revision. It did not accept the proposed slice's allowed/blocked scope for implementation; catalog, diagnostics, Kit, runtime, and SDK implementation remain unauthorized.
 
 ## Objective
 
@@ -176,9 +180,20 @@ The built-in Mermaid implementation remains unchanged.
 - catalog metadata must not reroute execution or claim that Mermaid has migrated
 - migration requires a later accepted slice with safe render-result, registry unification, viewer compatibility, fallback, and Electron regression evidence
 
+## Developer Experience Boundary
+
+Developer support is staged by audience and compatibility promise.
+
+- Internal Developer Kit: for MDV maintainers and bundled-package developers; includes the canonical manifest contract, strict validator API/CLI, TypeScript type symmetry, fixtures, non-executable sample metadata, diagnostic reference, conformance helper, packaging checks, and developer guide
+- Public SDK: for external Plugin developers; requires separate trust/load, install/update/rollback, versioning/deprecation/migration, family execution/isolation, packaged E2E, and distribution decisions
+
+The early Kit validates metadata/package conformance only. It does not expose Driver execution, load third-party packages, publish a stable API, or guarantee semantic-version compatibility. Shared Kit support is limited to identity, versioning, compatibility, lifecycle vocabulary, provenance, parsing, and diagnostics. Codeblock, Text Rendering, and LLM Tool execution SDK/testkit surfaces remain family-specific. Skill is handled as an `AI-CFG-002` contribution, not as a fourth Driver SDK.
+
+The exact contract is [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md). Moving from the internal Kit to a Public SDK is a future decision change and cannot occur automatically after one bundled reference implementation.
+
 ## Proposed First Implementation Slice
 
-`PROPOSED-PLUGIN-SLICE-001` is a bundled-only Plugin Manifest Catalog and read-only diagnostics surface.
+`PROPOSED-PLUGIN-SLICE-001` is a bundled-only Plugin Manifest Catalog, read-only diagnostics surface, and Internal Developer Contract/Conformance Kit.
 
 It would:
 
@@ -187,9 +202,10 @@ It would:
 - validate identity, compatibility, capability-specific declarations, Skill contribution metadata, path containment, digests, collisions, and packaged resource agreement
 - expose bounded typed diagnostics through main/preload/renderer
 - show package/capability/Skill contribution status and failure reasons in a small diagnostics UI
+- provide one canonical manifest contract with checked TypeScript symmetry, a validator API/CLI using the catalog parser, shared fixtures, a non-executable bundled sample, a diagnostic reference, a conformance helper, and the developer guide
 - add source-fingerprint freshness, electron-builder allowlist, Windows-host shared `app.asar`, and same-`--prepackaged` portable/NSIS release tests while preserving existing Windows packaging workarounds
 
-It would not execute a driver, inject a Skill, run a script, migrate Mermaid, discover user/workspace packages, or grant a new permission.
+It would not execute a driver, inject a Skill, run a script, migrate Mermaid, discover user/workspace packages, grant a new permission, publish a Public SDK, or promise third-party compatibility.
 
 It also does not add mutable package enable/disable persistence or a quarantine authority. The catalog may define the broader lifecycle vocabulary for forward compatibility, but first-slice acceptance exercises only statuses derivable from immutable/located facts and validation outcomes, such as `ready`, `invalid`, `incompatible`, and `failed`.
 
@@ -197,7 +213,7 @@ The exact allowed/blocked scope and acceptance tests are recorded in the [invent
 
 ## Blocked Scope
 
-- plugin directory scan or dynamic module loading
+- automatic Plugin directory discovery/enumeration or dynamic module loading; an accepted internal validator may inspect only one explicitly supplied manifest/root and its declared contained resources
 - user-installed/workspace-local code or instruction loading
 - driver dispatch before a family-specific execution contract is accepted
 - renderer Node integration, raw Electron/IPC access, or arbitrary HTML/SVG injection
@@ -205,10 +221,13 @@ The exact allowed/blocked scope and acceptance tests are recorded in the [invent
 - merging LLM help/introspection, action schema, and runtime validation into one permissive schema
 - built-in Mermaid migration or Markdown/export behavior changes
 - marketplace, remote install, automatic third-party update, or public compatibility guarantees
+- Public SDK/package publication, external support window, or stable semantic-version compatibility claims
 
 ## Validation Contract
 
 - first-slice manifest/catalog tests cover valid and invalid schemas, unknown versions, incompatible versions, path traversal, missing resources, ID collisions, derivable catalog failures, and structured diagnostics
+- developer validator and main catalog return equivalent typed outcomes/diagnostics for one shared fixture corpus
+- the bundled sample remains metadata-only, and generated/derived types and documentation are checked against the canonical contract
 - later lifecycle slices must define a main-owned configuration/trust source and persistence/recovery semantics before testing `disabled`, `blocked-permission`, or `quarantined` transitions
 - family contract tests keep Codeblock, Text, LLM Tool, and Skill contribution payloads mutually invalid instead of accepting a common permissive object
 - Electron tests keep typed preload/main ownership, known renderer entry, navigation denial, and owner-window lifecycle

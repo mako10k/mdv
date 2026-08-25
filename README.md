@@ -38,6 +38,8 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 - [docs/ai-customization-layering-design.md](docs/ai-customization-layering-design.md): どの customization をどこに置くかを説明する explainer
 - [docs/adr/0017-ai-customization-layer-boundaries.md](docs/adr/0017-ai-customization-layer-boundaries.md): customization layer 境界の決定記録
 - [docs/plugin-architecture-design.md](docs/plugin-architecture-design.md): capability-separated Plugin lifecycle と Skill contribution 接続の設計
+- [docs/plugin-developer-guide.md](docs/plugin-developer-guide.md): 現在の可用性、将来の bundled authoring flow、安全境界を示す Plugin 開発者向け入口
+- [docs/plugin-developer-kit-design.md](docs/plugin-developer-kit-design.md): internal Developer Kit と第三者向け Public SDK の段階契約
 - [docs/milestones/plugin-architecture-inventory.md](docs/milestones/plugin-architecture-inventory.md): 現行 extension point、trust、packaging の棚卸結果と proposed first slice
 - [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料

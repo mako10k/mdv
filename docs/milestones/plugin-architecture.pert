@@ -4,12 +4,13 @@ project MDV_PLUGIN_ARCHITECTURE:
   description |
     ENG-BL-004 の現行 extension point、trust boundary、packaging、Skill 接続を
     inventory し、capability-separated contract と first implementation slice を
-    提案する。inventory と提案は完了済みだが、runtime implementation は
-    PROPOSED-PLUGIN-SLICE-001 の user 明示受理と current-backlog 登録を待つ。
+    提案する。inventory と proposal revision は完了済みだが、implementation は
+    user 明示受理と current-backlog 登録を待つ。PROPOSED-PLUGIN-SLICE-001 は
+    internal Developer Contract/Conformance Kit と developer guide を含む。
     duration は比較用の三点見積りであり納期の約束ではない。blocked task の
     user decision 待ち時間は所要日数に含めない。product priority は
     docs/current-backlog.md を正本とし、この PERT は未受理 slice を優先しない。
-  as_of 2026-08-24
+  as_of 2026-08-25
   duration_unit point
   velocity 1p/1d
   finish FIRST_SLICE_RELEASE_READY
@@ -26,14 +27,24 @@ milestone FIRST_SLICE_PROPOSED:
   title "first implementation slice と acceptance tests の提案完了"
   state reached
 
+milestone DEVELOPER_EXPERIENCE_PROPOSAL_CONFIRMED:
+  title "internal Developer Kit / Public SDK staging を first slice 提案へ反映完了"
+  state reached
+
 milestone FIRST_SLICE_ACCEPTED:
   title "user 明示受理と current-backlog 登録完了"
 
-milestone FIRST_SLICE_CONTRACT_READY:
+milestone CATALOG_CONTRACT_READY:
   title "bundled manifest catalog の exact contract 確定"
 
-milestone FIRST_SLICE_IMPLEMENTED:
+milestone FIRST_SLICE_CONTRACT_READY:
+  title "bundled manifest catalog と internal Developer Kit の exact contract 確定"
+
+milestone CATALOG_IMPLEMENTED:
   title "bundled manifest catalog と read-only diagnostics 実装完了"
+
+milestone FIRST_SLICE_IMPLEMENTED:
+  title "bundled manifest catalog、read-only diagnostics、internal Developer Kit 実装完了"
 
 milestone FIRST_SLICE_VALIDATED:
   title "contract・renderer・Electron・packaging validation 完了"
@@ -59,32 +70,56 @@ task PROPOSE_PLUGIN_FIRST_SLICE INVENTORY_CONFIRMED -> FIRST_SLICE_PROPOSED:
   status done
   source "docs/plugin-architecture-design.md#proposed-first-implementation-slice"
 
-task WAIT_FIRST_SLICE_ACCEPTANCE FIRST_SLICE_PROPOSED -> FIRST_SLICE_ACCEPTED:
+task ADD_DEVELOPER_EXPERIENCE_STAGING FIRST_SLICE_PROPOSED -> DEVELOPER_EXPERIENCE_PROPOSAL_CONFIRMED:
+  title "internal Developer Kit と Public SDK の段階契約、guide、acceptance tests を提案へ反映する"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
+  status done
+  source "docs/plugin-developer-kit-design.md"
+
+task WAIT_FIRST_SLICE_ACCEPTANCE DEVELOPER_EXPERIENCE_PROPOSAL_CONFIRMED -> FIRST_SLICE_ACCEPTED:
   title "PROPOSED-PLUGIN-SLICE-001 の allowed / blocked scope を user が明示受理する"
   estimate:
     optimistic 0p
     most_likely 0p
     pessimistic 0.1p
   status blocked
-  blocked_reason "Inventory 後に定義した runtime slice の明示受理と formal backlog ID が未記録"
+  blocked_reason "Catalog、diagnostics、internal Kit の allowed/blocked scope 明示受理と formal backlog ID が未記録"
   source "docs/milestones/plugin-architecture-inventory.md#proposed-first-implementation-slice"
 
-task DESIGN_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_ACCEPTED -> FIRST_SLICE_CONTRACT_READY:
+task DESIGN_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_ACCEPTED -> CATALOG_CONTRACT_READY:
   title "manifest schema、state model、typed diagnostics、package resource contract を exact design にする"
   estimate:
     optimistic 1p
     most_likely 2p
     pessimistic 4p
 
-task IMPLEMENT_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_CONTRACT_READY -> FIRST_SLICE_IMPLEMENTED:
+task DESIGN_INTERNAL_DEVELOPER_KIT CATALOG_CONTRACT_READY -> FIRST_SLICE_CONTRACT_READY:
+  title "canonical contract、validator、fixture、sample、diagnostic reference、guide を exact design にする"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+  source "docs/plugin-developer-kit-design.md"
+
+task IMPLEMENT_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_CONTRACT_READY -> CATALOG_IMPLEMENTED:
   title "main-owned bundled catalog、typed diagnostics、最小 UI、package wiring を実装する"
   estimate:
     optimistic 2p
     most_likely 4p
     pessimistic 7p
 
+task IMPLEMENT_INTERNAL_DEVELOPER_KIT CATALOG_IMPLEMENTED -> FIRST_SLICE_IMPLEMENTED:
+  title "catalog と同じ parser/diagnostics を使う internal validator、fixture、sample、guide を実装する"
+  estimate:
+    optimistic 1p
+    most_likely 3p
+    pessimistic 5p
+
 task VALIDATE_BUNDLED_MANIFEST_CATALOG FIRST_SLICE_IMPLEMENTED -> FIRST_SLICE_VALIDATED:
-  title "schema、collision、path/digest、IPC、source fingerprint、Windows-host shared package input を検証する"
+  title "catalog/Kit symmetry、schema、path/digest、IPC、fingerprint、Windows-host package input を検証する"
   estimate:
     optimistic 1p
     most_likely 2p

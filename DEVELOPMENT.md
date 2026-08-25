@@ -6,6 +6,8 @@
 
 現時点で MDV 本体トップレベルにある主な入口は 5 つです。repo-wide rule は [AGENTS.md](AGENTS.md)、Codex custom agent は [.codex/agents](.codex/agents)、Codex skill は [.agents/skills](.agents/skills)、Copilot 互換の prompt file は [.github/prompts](.github/prompts)、Copilot 互換の custom agent は [.github/agents](.github/agents) です。MDV 本体トップレベルの file-scoped instructions と hooks はまだ未配置です。
 
+Plugin 開発はまだ runtime/SDK 未実装です。MDV maintainer と将来の bundled-package developer 向け contract preview は [docs/plugin-developer-guide.md](docs/plugin-developer-guide.md)、internal Developer Kit と Public SDK の段階契約は [docs/plugin-developer-kit-design.md](docs/plugin-developer-kit-design.md) を参照してください。現時点では Plugin の install、validate、run command は提供していません。
+
 ## 前提
 
 - Node.js 22 系
