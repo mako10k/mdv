@@ -20,6 +20,8 @@ The repository also has commit review requirements and a secure GitHub access co
 - Keep early contract review and final exact-diff pre-commit review as separate checkpoints; neither substitutes for the other.
 - Keep the review-agent routing advisory and file-pattern-based. `AGENTS.md` remains authoritative when a high-judgment diff needs extra review beyond the auto-detected area.
 - Route test validation by suite instead of treating all `tests/` changes alike: release tests use release validation, renderer E2E tests use the browser-installing renderer E2E entrypoint, Electron E2E tests use Electron validation, and shared test support fans out to both E2E suites.
+- On Linux, run the standard Electron E2E entrypoint inside an automatically allocated Xvfb display so Electron windows cannot take focus from the physical desktop. Fail closed when `xvfb-run` is unavailable instead of silently falling back to the host display.
+- Keep host-display Electron E2E as an explicit `npm run test:e2e:electron:visible` entrypoint for focus, visibility, and window-manager checks. Windows and macOS continue to use the host display because this Xvfb isolation is Linux-specific.
 - Keep the scripts local and deterministic: they inspect tracked workspace files, package scripts, git status, and submodule status without requiring network access.
 - Keep `AGENTS.md` as the rule surface for agents and link these commands from `DEVELOPMENT.md` for human discoverability.
 - Require GitHub-facing `git` and `gh` usage to go through `secdat exec` so token injection stays outside prompts and shell history.
@@ -34,6 +36,8 @@ The repository also has commit review requirements and a secure GitHub access co
 - Version-only release metadata changes need not trigger the early checkpoint, but file-pattern routing may conservatively recommend it when package metadata is mixed with dependency changes.
 - Partial-commit workflows become clearer because the command can tell the agent whether it reasoned from the staged subset or the full worktree.
 - Release-only test changes no longer suggest the full default E2E test entrypoint.
+- Routine Electron E2E on Linux / WSL no longer interrupts work on the physical desktop, but Linux development and CI environments now require Xvfb for the standard entrypoint.
+- Tests that intentionally depend on host focus, visibility, or native window-manager behavior must use the visible entrypoint or an appropriate Windows / macOS test session.
 - The command output is advisory; `AGENTS.md`, architecture docs, and release docs remain authoritative when there is a conflict.
 - GitHub access remains token-safe in Codex environments where `secdat` session-agent visibility depends on XDG runtime socket access.
 - Future workflow changes should update the script, `AGENTS.md`, and this ADR together when the entrypoint contract changes.

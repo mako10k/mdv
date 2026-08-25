@@ -84,8 +84,11 @@ npm test
 npm run test:e2e:install
 npm run test:e2e
 
-# Electron 統合面を直接見る
+# Electron 統合面を確認する（Linux / WSL では Xvfb 上で画面を隔離）
 npm run test:e2e:electron
+
+# OS window を実際に表示して確認する
+npm run test:e2e:electron:visible
 
 # release workflow の node test
 npm run test:release
@@ -98,6 +101,8 @@ npm run build && npx playwright test tests/e2e/app-layout.spec.ts -g "WYSIWYG re
 ```
 
 `npm test` は必要な Chromium を確認してから、この suite を実行します。suite 自体は毎回 production build を作ってから preview server を起動し、その renderer に対して回帰確認を行います。
+
+`npm run test:e2e:electron` は Linux / WSL では `xvfb-run -a` を使い、Electron window を物理画面から分離します。`xvfb-run` が無い場合は可視実行へ黙って fallback せず失敗します。OS window の focus / visibility を目視確認する場合だけ `npm run test:e2e:electron:visible` を使ってください。Windows / macOS では Xvfb を使えないため、どちらの command も host display 上で実行します。
 
 MD-BL-004 の first slice は完了済みです。Markdown insert command surface を変更する release line では、上の `markdown insert commands` targeted browser 回帰を renderer 側の release gate の最低線として扱います。特に WYSIWYG で保持できない Markdown 専用構文は source mode へ戻して正規 Markdown として挿入されることを確認してください。MD-BL-005 / MD-BL-023 の画像体験 bundle は v0.1.14 で first release slice 完了済みです。画像 continuity や fallback を変更した場合は、画像体験 bundle の targeted browser 回帰と Electron 実行面の first save / HTML export / broken image fallback / unresolved image visibility smoke を再確認してください。
 

@@ -54,7 +54,8 @@
     "test:mdast-structure": "npm run test:node",
     "test:release": "npm run plugin:contract:check && npm run electron:build && node --test tests/release/*.spec.mjs",
     "test:e2e": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test",
-    "test:e2e:electron": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test -c playwright.electron.config.ts",
+    "test:e2e:electron": "tsc -p tsconfig.playwright.json --noEmit && npm run build && node ./scripts/run-electron-e2e.mjs",
+    "test:e2e:electron:visible": "tsc -p tsconfig.playwright.json --noEmit && npm run build && node ./scripts/run-electron-e2e.mjs --visible",
     "test:e2e:headed": "tsc -p tsconfig.playwright.json --noEmit && npm run build && playwright test --headed",
     "test:e2e:install": "playwright install chromium"
   },

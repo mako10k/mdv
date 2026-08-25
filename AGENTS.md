@@ -19,6 +19,7 @@
 - In early contract review mode, use an explicit base / head range for committed WIP, treat only contract/evidence/fail-closed gaps as blockers, and stop after one pass plus at most one blocker-confirmation pass. Do not require candidate or final release evidence before those artifacts are expected.
 - Primary validation is `npm run build`.
 - Run `npm run lint` when touching TypeScript, React, Electron, or build scripts.
+- Run `npm run test:e2e:electron` for routine Electron E2E. On Linux / WSL this uses an isolated Xvfb display and fails closed if `xvfb-run` is unavailable; use `npm run test:e2e:electron:visible` only when host focus, visibility, or native window-manager behavior is part of the check. Windows and macOS use the host display for both entrypoints.
 - Automated checks exist for build, Playwright E2E, and release validation. Do not overstate coverage beyond the commands you actually ran.
 
 ## Architecture Boundaries
