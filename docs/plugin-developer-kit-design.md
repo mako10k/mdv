@@ -3,14 +3,14 @@
 ## State
 
 - `contract_state: active_contract`
-- Related proposal: `PROPOSED-PLUGIN-SLICE-001`
-- Proposal state: `future_requires_acceptance`
-- Internal Developer Kit: proposed first-slice deliverable, not implemented
+- Implementation backlog: `ENG-BL-005` (accepted from `PROPOSED-PLUGIN-SLICE-001`)
+- `backlog_state: completed`
+- Internal Developer Kit: implemented, packaged-conformance validated, and exact-diff reviewed
 - Public third-party SDK: future, requires a separate decision and backlog acceptance
 - Governing architecture: [Plugin Architecture Design](plugin-architecture-design.md)
 - Developer entrypoint: [Plugin Developer Guide](plugin-developer-guide.md)
 
-The 2026-08-25 request authorized only this staging design and proposal revision. It did not accept or authorize implementation of the catalog, diagnostics, Internal Developer Kit, Plugin runtime, or Public SDK.
+The 2026-08-25 user message explicitly accepted the recorded first-slice allowed / blocked scope and authorized implementation as ENG-BL-005. Public SDK, executable Driver/runtime surfaces, Skill loading, and third-party distribution remain unaccepted.
 
 ## Objective
 
@@ -37,7 +37,7 @@ The later Public SDK is for developers outside the MDV release boundary. Publish
 
 ## Internal Developer Kit Contract
 
-The proposed first-slice Kit contains:
+The ENG-BL-005 Kit contains:
 
 - one canonical machine-readable manifest schema and a drift check for any generated or derived TypeScript types
 - a strict validator API and command-line wrapper that use the same parser and diagnostic codes as the main-owned catalog
@@ -48,7 +48,22 @@ The proposed first-slice Kit contains:
 - source-fingerprint, electron-builder allowlist, stale-candidate, and Windows-host shared-`--prepackaged` checks required by the release contract
 - the [Plugin Developer Guide](plugin-developer-guide.md), manifest reference generated or checked against the canonical schema, and a security/packaging checklist
 
-The exact file format, module names, command names, and repository layout are part of the post-acceptance exact design. Documentation must not publish placeholder commands as if they already work.
+The implemented layout and commands are:
+
+- canonical contract: `plugin-contract/contract.json`
+- generated JSON Schema: `plugin-contract/manifest.schema.json`
+- generated TypeScript/public diagnostics declarations: `src/electron/main/plugin-manifest-contract-types.generated.d.cts`
+- generated CommonJS runtime contract and bundled registration list: `src/electron/main/plugin-manifest-contract.generated.cts`
+- shared runtime parser/catalog: `src/electron/main/plugin-catalog.cts`
+- validator/conformance API: `scripts/plugin-conformance.mjs`
+- validator CLI: `npm run plugin:validate -- --root <package-root> --manifest plugin.json [--host-version x.y.z] [--json]`
+- packaged view CLI: `npm run plugin:validate -- --asar <app.asar> --manifest <bundle-relative-plugin.json> [--host-version x.y.z] [--json]`
+- contract generation/check: `npm run plugin:contract:generate` and `npm run plugin:contract:check`
+- shared fixture tests: `npm run test:plugin`
+- metadata-only sample: `plugins/bundled/diagnostics-sample/`
+- generated manifest/diagnostic reference: [Plugin Manifest Reference](plugin-manifest-reference.md)
+
+The CLI requires exactly one explicit `--root` or `--asar` source. It never enumerates directories, rejects missing option values, validates real-path containment, rejects symlinked package paths, and reads only the manifest plus its declared resources.
 
 ## Single-Source And Symmetry Rules
 
@@ -110,9 +125,9 @@ The future Public SDK must keep these versions distinct:
 
 The later versioning ADR must define compatibility evaluation, prerelease policy, deprecation, migration, and failure diagnostics before any axis is advertised as stable.
 
-## Proposed First-Slice Acceptance
+## First-Slice Acceptance
 
-If `PROPOSED-PLUGIN-SLICE-001` is explicitly accepted, the Internal Developer Kit is complete only when:
+ENG-BL-005 is release-ready only when:
 
 1. the developer validator and main catalog return equivalent typed results for the shared fixture corpus
 2. the sample is metadata-only and cannot register/dispatch a Driver or inject/run a Skill
@@ -121,6 +136,8 @@ If `PROPOSED-PLUGIN-SLICE-001` is explicitly accepted, the Internal Developer Ki
 5. packaged validation covers fingerprint freshness, actual packaged resources, and the shared Windows-host candidate path
 6. the guide clearly labels implemented commands separately from future examples and states that third-party/public compatibility is unavailable
 7. no public npm package, stable SDK claim, dynamic discovery, or execution API is introduced
+
+Items 1-7 have implementation, automated/package evidence, and final exact-diff review recorded in the [ENG-BL-005 work memo](release-work-memos/eng-bl-005-plugin-first-slice.md). The bounded Internal Kit slice is release-ready; Public SDK readiness remains a separate future decision.
 
 ## Blocked Scope
 

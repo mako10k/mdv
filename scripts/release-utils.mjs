@@ -8,6 +8,7 @@ import YAML from 'yaml'
 
 import { assertRendererSecurityEntry, findPackagedRendererEntryPath } from './renderer-security-check.mjs'
 import { computeReleaseSourceFingerprint } from './release-source-fingerprint.mjs'
+import { validateBundledPluginCatalogInAsar } from './plugin-conformance.mjs'
 
 const PRODUCT_NAME = 'MarkDownViewer'
 
@@ -184,6 +185,56 @@ function validatePackagedRendererSecurity(appArchivePath, expectedVersion, error
   }
 }
 
+async function validatePackagedPluginCatalog(appArchivePath, expectedVersion, errors) {
+  try {
+    const result = await validateBundledPluginCatalogInAsar({
+      asarPath: appArchivePath,
+      hostVersion: expectedVersion,
+    })
+    if (!result.ok) {
+      for (const packageResult of result.packages) {
+        for (const diagnostic of packageResult.diagnostics) {
+          errors.push(`Packaged Plugin catalog check failed for ${packageResult.catalogId}: ${diagnostic.code}${diagnostic.relativeLocation ? ` at ${diagnostic.relativeLocation}` : ''}`)
+        }
+      }
+    }
+  } catch (error) {
+    errors.push(`Packaged Plugin catalog check failed for ${appArchivePath}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function validatePackagedPluginRepresentations(appArchivePath, rootDir, errors) {
+  const requiredRepresentations = [
+    'plugin-contract/contract.json',
+    'plugin-contract/manifest.schema.json',
+    'electron/lib/main/plugin-catalog.cjs',
+    'electron/lib/main/plugin-manifest-contract.generated.cjs',
+  ]
+
+  for (const relativePath of requiredRepresentations) {
+    try {
+      const sourceBytes = await fs.readFile(path.join(rootDir, ...relativePath.split('/')))
+      const packagedBytes = extractFile(appArchivePath, relativePath)
+      const sourceDigest = createHash('sha256').update(sourceBytes).digest('hex')
+      const packagedDigest = createHash('sha256').update(packagedBytes).digest('hex')
+      if (sourceDigest !== packagedDigest) {
+        errors.push(`Packaged Plugin representation mismatch for ${relativePath} in ${appArchivePath}`)
+      }
+    } catch (error) {
+      errors.push(`Packaged Plugin representation is missing or unreadable for ${relativePath} in ${appArchivePath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+function validatePluginPackagingConfiguration(packageJson, rootDir, errors) {
+  const packagedFiles = Array.isArray(packageJson?.build?.files) ? packageJson.build.files : []
+  for (const requiredInput of ['plugin-contract/**/*', 'plugins/bundled/**/*']) {
+    if (!packagedFiles.includes(requiredInput)) {
+      errors.push(`package.json build.files must include ${requiredInput} for bundled Plugin packaging at ${rootDir}`)
+    }
+  }
+}
+
 async function validateLatestYml(rootDir, artifactSource, version, expectedTag, errors) {
   const artifactRoot = resolveArtifactRoot(rootDir, artifactSource)
   const versionedExeName = `${PRODUCT_NAME}-${version}-win.exe`
@@ -322,10 +373,13 @@ export async function validateReleaseWorkspace(options = {}) {
   const requireCleanGit = options.requireCleanGit !== false
   const artifactSource = options.artifactSource === 'candidate' ? 'candidate' : 'release'
   const version = await readPackageVersion(rootDir)
+  const packageJson = await readPackageJson(rootDir)
   const expectedTag = options.expectedTag ?? getExpectedReleaseTag(version)
   const artifacts = getReleaseArtifactManifest(rootDir, version, artifactSource)
   const errors = []
   const sourceFingerprintSha256 = await computeReleaseSourceFingerprint(rootDir)
+
+  validatePluginPackagingConfiguration(packageJson, rootDir, errors)
 
   if (expectedTag !== getExpectedReleaseTag(version)) {
     errors.push(`Expected tag ${expectedTag} does not match package.json version ${version}`)
@@ -387,6 +441,8 @@ export async function validateReleaseWorkspace(options = {}) {
   const appArchive = artifacts.find((artifact) => artifact.label === 'win-unpacked app archive')
   if (appArchive && await pathExists(appArchive.path)) {
     validatePackagedRendererSecurity(appArchive.path, version, errors)
+    await validatePackagedPluginRepresentations(appArchive.path, rootDir, errors)
+    await validatePackagedPluginCatalog(appArchive.path, version, errors)
   }
 
   let gitStatus = []

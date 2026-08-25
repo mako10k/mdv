@@ -22,6 +22,105 @@
   margin-top: 14px;
 }
 
+.about-plugin-diagnostics {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-panel);
+}
+
+.about-plugin-heading,
+.about-plugin-package-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.about-plugin-heading h2,
+.about-plugin-heading p,
+.about-plugin-package-title h3,
+.about-plugin-contributions h4,
+.about-plugin-contributions p {
+  margin: 0;
+}
+
+.about-plugin-heading p,
+.about-plugin-contributions span {
+  color: var(--text-muted);
+}
+
+.about-plugin-conclusion {
+  margin: 0;
+  font-weight: 600;
+}
+
+.about-plugin-package {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-panel-strong);
+}
+
+.about-plugin-package-title span[data-status='ready'] {
+  color: var(--success, #15803d);
+}
+
+.about-plugin-package-title span:not([data-status='ready']) {
+  color: var(--danger, #d14343);
+}
+
+.about-plugin-facts {
+  margin: 12px 0 0;
+}
+
+.about-plugin-developer-details {
+  display: grid;
+  gap: 12px;
+}
+
+.about-plugin-developer-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.about-plugin-developer-details > .settings-status {
+  margin-top: 10px;
+}
+
+.about-plugin-contributions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.about-plugin-contributions > div {
+  display: grid;
+  gap: 8px;
+}
+
+.about-plugin-contributions ul,
+.about-plugin-errors {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.about-plugin-contributions li {
+  display: grid;
+  gap: 2px;
+}
+
+.about-plugin-diagnostics code {
+  overflow-wrap: anywhere;
+}
+
 .about-guide-card {
   padding: 16px 18px;
   border: 1px solid var(--border);

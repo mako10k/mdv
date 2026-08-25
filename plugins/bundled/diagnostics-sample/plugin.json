@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.mdv.diagnostics-sample",
+  "displayName": "MDV Plugin Diagnostics Sample",
+  "version": "0.1.0",
+  "compatibility": {
+    "mdv": {
+      "minVersion": "0.2.0",
+      "maxVersionExclusive": "2.0.0"
+    },
+    "pluginApiVersion": 1
+  },
+  "resources": [
+    {
+      "id": "sample-guide",
+      "path": "resources/sample-guide.md",
+      "sha256": "f7dac32ee1fd2242f93b988bfced1833149c85c37e6c793bc3d02dc217744685",
+      "mediaType": "text/markdown",
+      "purpose": "skill-instructions"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "dev.mdv.diagnostics-sample.codeblock",
+      "family": "codeblock",
+      "contractVersion": 1,
+      "permissions": [],
+      "resourceIds": [],
+      "languages": [
+        "mdv-sample"
+      ]
+    },
+    {
+      "id": "dev.mdv.diagnostics-sample.text",
+      "family": "text-rendering",
+      "contractVersion": 1,
+      "permissions": [],
+      "resourceIds": [],
+      "formats": [
+        "markdown-text"
+      ]
+    },
+    {
+      "id": "dev.mdv.diagnostics-sample.tool",
+      "family": "llm-tool",
+      "contractVersion": 1,
+      "permissions": [],
+      "resourceIds": [],
+      "toolNames": [
+        "sample_readonly_metadata"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "id": "dev.mdv.diagnostics-sample.workflow",
+      "displayName": "Diagnostics Sample Workflow Metadata",
+      "version": "0.1.0",
+      "instructionResourceId": "sample-guide",
+      "resourceIds": []
+    }
+  ]
+}

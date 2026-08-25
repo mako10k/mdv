@@ -1,5 +1,7 @@
 const { abbreviateInlineDataImageMarkdownInText } = require('./inline-data-url-display.cjs')
 
+import type { PluginPublicCatalogDiagnostics } from './plugin-manifest-contract-types.generated.cjs'
+
 type WebContentsLike = {
   id: number
 }
@@ -210,6 +212,7 @@ type MainIpcContext = {
   persistSecrets: () => Promise<void>
   getProviderStatus: () => ProviderStatus
   getAppMetadata: () => Promise<unknown> | unknown
+  getPluginDiagnostics: () => Promise<PluginPublicCatalogDiagnostics> | PluginPublicCatalogDiagnostics
   getEditorWindowForAiAction: (window: BrowserWindowLike | null) => BrowserWindowLike | null
   requestEditorContext: (window: BrowserWindowLike | null) => Promise<unknown>
   ensureEditorRuntimeState: (window: BrowserWindowLike | null) => EditorRuntimeState
@@ -301,6 +304,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
     persistSecrets,
     getProviderStatus,
     getAppMetadata,
+    getPluginDiagnostics,
     getEditorWindowForAiAction,
     requestEditorContext,
     ensureEditorRuntimeState,
@@ -625,6 +629,7 @@ function registerMainIpcHandlers(context: MainIpcContext) {
 
   ipcMain.handle('mdv:settings-provider-status', async () => getProviderStatus())
   ipcMain.handle('mdv:get-app-metadata', async () => getAppMetadata())
+  ipcMain.handle('mdv:plugins-get-diagnostics', async () => getPluginDiagnostics())
 
   ipcMain.handle('mdv:ai-chat-get-context', async (event: unknown) => {
     const editorWindow = getEditorWindowForAiAction(BrowserWindow.fromWebContents((event as IpcEventLike).sender))

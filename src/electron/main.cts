@@ -65,6 +65,10 @@ const {
 const { createUpdaterController } = require('./main/updater-controller.cjs')
 const { createWindowController } = require('./main/window-controller.cjs')
 const {
+  loadBundledPluginCatalogFromFileSystem,
+  toPublicPluginDiagnostics,
+} = require('./main/plugin-catalog.cjs')
+const {
   abbreviateInlineDataImageMarkdownInText,
   abbreviateInlineDataImageMarkdownSlice,
 } = require('./main/inline-data-url-display.cjs')
@@ -2626,6 +2630,16 @@ function getAppMetadata() {
     platform: process.platform,
     aiModels: getModelRegistryMetadata(settingsState.ai.openai.model),
   }
+}
+
+let bundledPluginCatalogPromise = null
+
+function getPluginDiagnostics() {
+  if (!bundledPluginCatalogPromise) {
+    bundledPluginCatalogPromise = loadBundledPluginCatalogFromFileSystem(app.getAppPath(), app.getVersion())
+  }
+
+  return bundledPluginCatalogPromise.then(toPublicPluginDiagnostics)
 }
 
 const aiToolDefinitions = [
@@ -6054,6 +6068,7 @@ registerMainIpcHandlers({
   persistSecrets,
   getProviderStatus,
   getAppMetadata,
+  getPluginDiagnostics,
   getEditorWindowForAiAction,
   requestEditorContext,
   ensureEditorRuntimeState,

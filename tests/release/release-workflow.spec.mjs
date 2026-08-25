@@ -36,11 +36,32 @@ async function makeTempRepo(version, options = {}) {
   await fs.mkdir(path.join(rootDir, 'docs', 'release-notes'), { recursive: true })
   await fs.mkdir(path.join(rootDir, 'src'), { recursive: true })
   await fs.writeFile(path.join(rootDir, 'src', 'App.tsx'), 'export const fixture = true\n')
+  await fs.cp(
+    path.join(process.cwd(), 'plugins', 'bundled', 'diagnostics-sample'),
+    path.join(rootDir, 'plugins', 'bundled', 'diagnostics-sample'),
+    { recursive: true },
+  )
+  await fs.cp(
+    path.join(process.cwd(), 'plugin-contract'),
+    path.join(rootDir, 'plugin-contract'),
+    { recursive: true },
+  )
+  await fs.mkdir(path.join(rootDir, 'electron', 'lib', 'main'), { recursive: true })
+  for (const fileName of ['plugin-catalog.cjs', 'plugin-manifest-contract.generated.cjs']) {
+    await fs.copyFile(
+      path.join(process.cwd(), 'electron', 'lib', 'main', fileName),
+      path.join(rootDir, 'electron', 'lib', 'main', fileName),
+    )
+  }
 
   await fs.writeFile(path.join(rootDir, 'package.json'), JSON.stringify({
     name: 'fixture',
     version,
     build: {
+      files: [
+        'plugin-contract/**/*',
+        'plugins/bundled/**/*',
+      ],
       publish: [
         {
           provider: 'generic',
@@ -88,6 +109,39 @@ async function makeTempRepo(version, options = {}) {
   if (options.includeAppArchive !== false) {
     const asarInput = await fs.mkdtemp(path.join(os.tmpdir(), 'mdv-release-asar-'))
     await fs.mkdir(path.join(asarInput, 'dist', 'assets'), { recursive: true })
+    await fs.cp(
+      path.join(process.cwd(), 'plugins', 'bundled', 'diagnostics-sample'),
+      path.join(asarInput, 'plugins', 'bundled', 'diagnostics-sample'),
+      { recursive: true },
+    )
+    if (typeof options.packagedPluginResource === 'string') {
+      await fs.writeFile(
+        path.join(asarInput, 'plugins', 'bundled', 'diagnostics-sample', 'resources', 'sample-guide.md'),
+        options.packagedPluginResource,
+      )
+    }
+    if (!options.omitPackagedPluginContract) {
+      await fs.cp(
+        path.join(process.cwd(), 'plugin-contract'),
+        path.join(asarInput, 'plugin-contract'),
+        { recursive: true },
+      )
+    }
+    if (!options.omitPackagedPluginRuntime) {
+      await fs.mkdir(path.join(asarInput, 'electron', 'lib', 'main'), { recursive: true })
+      for (const fileName of ['plugin-catalog.cjs', 'plugin-manifest-contract.generated.cjs']) {
+        await fs.copyFile(
+          path.join(process.cwd(), 'electron', 'lib', 'main', fileName),
+          path.join(asarInput, 'electron', 'lib', 'main', fileName),
+        )
+      }
+    }
+    if (options.driftPackagedGeneratedRuntime) {
+      await fs.appendFile(
+        path.join(asarInput, 'electron', 'lib', 'main', 'plugin-manifest-contract.generated.cjs'),
+        '\n// stale generated contract fixture\n',
+      )
+    }
     await fs.writeFile(path.join(asarInput, 'package.json'), JSON.stringify({
       version: options.packagedVersion ?? version,
       dependencies: { dompurify: '3.4.12' },
@@ -275,6 +329,70 @@ test('release check fails when candidate source inputs drift after generation', 
   assert.match(result.stderr, /Artifact metadata source fingerprint mismatch/)
 })
 
+test('release check fails when a bundled Plugin input drifts after candidate generation', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { artifactSource: 'candidate' })
+  await fs.appendFile(
+    path.join(rootDir, 'plugins', 'bundled', 'diagnostics-sample', 'resources', 'sample-guide.md'),
+    '\nchanged after packaging\n',
+  )
+
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate', '--skip-git'])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Artifact metadata source fingerprint mismatch/)
+})
+
+test('release check fails when the canonical Plugin contract drifts after candidate generation', async () => {
+  const rootDir = await makeTempRepo('1.2.3', { artifactSource: 'candidate' })
+  const contractPath = path.join(rootDir, 'plugin-contract', 'contract.json')
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'))
+  contract.fixtureRevision = 2
+  await fs.writeFile(contractPath, `${JSON.stringify(contract, null, 2)}\n`)
+
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate', '--skip-git'])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Artifact metadata source fingerprint mismatch/)
+})
+
+test('release check fails when a packaged Plugin resource digest does not match', async () => {
+  const rootDir = await makeTempRepo('1.2.3', {
+    artifactSource: 'candidate',
+    packagedPluginResource: 'tampered packaged resource\n',
+  })
+
+  const result = await runReleaseCheckCli(['--root', rootDir, '--artifact-source', 'candidate', '--skip-git'])
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Packaged Plugin catalog check failed.*PLUGIN_DIGEST_MISMATCH/)
+})
+
+test('release check fails when packaged Plugin contract or runtime representations are absent or stale', async () => {
+  const missingContractRoot = await makeTempRepo('1.2.3', {
+    artifactSource: 'candidate',
+    omitPackagedPluginContract: true,
+  })
+  const missingContract = await runReleaseCheckCli(['--root', missingContractRoot, '--artifact-source', 'candidate', '--skip-git'])
+  assert.notEqual(missingContract.status, 0)
+  assert.match(missingContract.stderr, /Packaged Plugin representation is missing.*plugin-contract\/contract\.json/)
+
+  const missingRuntimeRoot = await makeTempRepo('1.2.3', {
+    artifactSource: 'candidate',
+    omitPackagedPluginRuntime: true,
+  })
+  const missingRuntime = await runReleaseCheckCli(['--root', missingRuntimeRoot, '--artifact-source', 'candidate', '--skip-git'])
+  assert.notEqual(missingRuntime.status, 0)
+  assert.match(missingRuntime.stderr, /Packaged Plugin representation is missing.*plugin-catalog\.cjs/)
+
+  const staleRuntimeRoot = await makeTempRepo('1.2.3', {
+    artifactSource: 'candidate',
+    driftPackagedGeneratedRuntime: true,
+  })
+  const staleRuntime = await runReleaseCheckCli(['--root', staleRuntimeRoot, '--artifact-source', 'candidate', '--skip-git'])
+  assert.notEqual(staleRuntime.status, 0)
+  assert.match(staleRuntime.stderr, /Packaged Plugin representation mismatch.*plugin-manifest-contract\.generated\.cjs/)
+})
+
 test('release check fails when packaged renderer still contains legacy DOMPurify', async () => {
   const rootDir = await makeTempRepo('1.2.3', {
     artifactSource: 'candidate',
@@ -354,6 +472,13 @@ test('workspace package config includes Windows updater publish metadata', async
   ])
 })
 
+test('workspace package config includes the canonical and bundled Plugin roots', async () => {
+  const packageJson = await readWorkspacePackageJson()
+
+  assert.ok(packageJson.build.files.includes('plugin-contract/**/*'))
+  assert.ok(packageJson.build.files.includes('plugins/bundled/**/*'))
+})
+
 test('workspace resolves the patched Markdown security dependency set', async () => {
   const packageJson = await readWorkspacePackageJson()
   const packageLock = await readWorkspacePackageLock()
@@ -379,4 +504,6 @@ test('Windows host generation invalidates stale candidates and promotion require
   assert.match(script, /sourceFingerprintSha256 = \$SourceFingerprintSha256/)
   assert.match(script, /generationId = \[Guid\]::NewGuid\(\)\.ToString\(\)/)
   assert.match(script, /Write-ArtifactMetadata -ArtifactRoot \$artifactStageDest -ArtifactSource 'release' -SourceFingerprintSha256 \$validatedSourceFingerprint/)
+  assert.match(script, /\$prepackagedPath = Join-Path \$workRoot 'release\\win-unpacked'/)
+  assert.match(script, /electron-builder -- --prepackaged \$prepackagedPath --win \$plan\.target/)
 })

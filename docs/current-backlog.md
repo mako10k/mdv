@@ -97,7 +97,7 @@ MD-BL-022 は 2026-06-04 に修正済みで、新規 draft editor の untitled p
 
 P1 Editor Comfort の current accepted scope は MD-BL-029 を含めて完了済みである。MD-BL-006 表編集補助は table template / source format / add-after row / add-after column / column alignment selector まで閉じた。
 
-P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。2026-08-12 の user 指示で優先した ENG-BL-004 Plugin Architecture inventory は 2026-08-24 に完了した。proposed runtime slice は未受理のため実装順へ入れず、次は通常順の P2 Editor Expansion に戻って MD-BL-021 を棚卸する。
+P0 が完了済みで、P1 Editor Comfort も current accepted scope は完了済みである。ENG-BL-004 Plugin Architecture inventory は 2026-08-24 に完了し、2026-08-25 に user が記載済み allowed / blocked scope を明示受理したため、first implementation slice を ENG-BL-005 として正式登録した。ENG-BL-005 の implementation、指定 automated regression、Windows-host candidate archive/package conformance、final exact-diff review は完了し、通常順は P2 Editor Expansion の棚卸へ戻る。
 
 ここでいう inline image 表現は、Markdown 本文内の `![](data:image...)` を保存後も画像の正本として扱う方式である。editor-only widget や隠し app-managed blob を正本にする意味ではない。
 
@@ -282,10 +282,11 @@ v0.1.14 で閉じた最小範囲:
 
 ### Supporting Backlog
 
-1. [完了] ENG-BL-004 Plugin Architecture と capability-separated driver contracts の inventory
-2. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
-3. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
-4. [新規受理 / 棚卸待ち] REL-BL-002 更新適用前の Release Note 確認
+1. [完了] ENG-BL-005 bundled Plugin Manifest Catalog、read-only diagnostics、Internal Developer Contract/Conformance Kit
+2. [完了] ENG-BL-004 Plugin Architecture と capability-separated driver contracts の inventory
+3. [残件棚卸待ち] ENG-BL-001 Electron main の TypeScript 化と interface layer への縮退
+4. [一部完了・後続あり] REL-BL-001 アップデート基盤と version metadata surface の整備
+5. [新規受理 / 棚卸待ち] REL-BL-002 更新適用前の Release Note 確認
 
 これらは user-facing な editor comfort より後ろに置くが、公開情報整理と保守性改善として継続管理する。
 
@@ -302,11 +303,21 @@ v0.1.14 で閉じた最小範囲:
   - `result`: 現行 code block / Mermaid viewer / Markdown safety / AI tool / preload / settings / packaging を棚卸しし、manifest facts、located facts、derived lifecycle state の分離、Codeblock Driver / Text Rendering Engine / LLM Tool Driver の独立 contract、Skill を fourth driver ではなく AI-CFG-002 所有の workflow contribution とする接続境界を確定した
   - `developer_experience_contract`: [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md)
   - `developer_guide`: [Plugin Developer Guide](plugin-developer-guide.md)
-  - `proposal_revision_state`: 2026-08-25 の user 指示は Developer Kit / Public SDK staging design と proposal revision の作成だけを許可した。catalog、diagnostics、Kit、runtime、Public SDK の実装受理ではない
   - `user_outcome`: Codeblock Driver、LLM Tool Driver、Text Rendering Engine を、安全性、診断可能性、packaged compatibility を保った plugin capability として段階的に追加でき、MDV/bundled developer が実行前に metadata/package 適合性を検証できる設計基盤を得る
-  - `proposed_next_slice`: `PROPOSED-PLUGIN-SLICE-001` bundled-only Plugin Manifest Catalog、read-only diagnostics、Internal Developer Contract/Conformance Kit。`backlog_state: future_requires_acceptance` であり正式 backlog ID は未付与
-  - `proposed_allowed_scope`: 明示 import された bundled manifest の strict parser、identity / compatibility / family-specific declaration / Skill contribution metadata / path containment / digest / collision / packaged resource agreement の検証、typed diagnostics IPC/UI、canonical manifest contract と TypeScript symmetry、catalog parser/diagnostics を共有する validator API/CLI、valid/invalid fixtures、metadata-only bundled sample、diagnostic reference、明示指定された1つの manifest/package root または packaged `app.asar` view と宣言済み contained resource だけを検査する conformance helper、developer guide、全 Plugin 入力を release-source fingerprint と electron-builder `files` allowlist に接続する検査、Windows-host shared `win-unpacked/resources/app.asar` と同一 `--prepackaged` input 由来の portable / NSIS package tests。driver dispatch、Skill injection、script execution、Mermaid migration は含まない
-  - `blocked_scope`: proposed slice の user 明示受理と current-backlog 登録前の runtime/Kit 実装、Public SDK/package publication、stable third-party compatibility/support promise、自動 Plugin directory discovery/enumeration、dynamic load、user/workspace plugin code/instruction execution、renderer Node access、任意HTML/SVG injection、Mermaid viewer の先行移行、marketplace / remote install / auto-update、Skill による permission grant、三 driver contract を一つの permissive schema に統合すること
+  - `accepted_next_slice`: ENG-BL-005
+
+- ENG-BL-005:
+  - `design_contract`: [Plugin Architecture Design](plugin-architecture-design.md) と [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md)
+  - `decision_record`: [ADR 0030](adr/0030-capability-separated-plugin-architecture.md)
+  - `milestone_plan`: [Plugin Architecture PERT](milestones/plugin-architecture.pert)
+  - `contract_state: active_contract`
+  - `backlog_state: completed`
+  - `inventory_status: inventory_confirmed`
+  - `acceptance_evidence`: 2026-08-25 user message が `PROPOSED-PLUGIN-SLICE-001` の記載済み allowed / blocked scope を受理し、current-backlog への正式登録と実装を明示した
+  - `allowed_scope`: 明示登録された bundled manifest の strict JSON Schema/parser、immutable / located / derived state、identity / compatibility / family-specific declaration / Skill contribution metadata / real-path containment / digest / collision / packaged resource agreement の検証、typed read-only main/preload/About diagnostics、canonical machine contract から生成する schema / TypeScript / reference、同じ parser/diagnostics を使う validator API/CLI、fixture corpus、metadata-only bundled sample、diagnostic catalog、明示指定された1つの manifest/package root または packaged `app.asar` view だけを検査する conformance helper、developer guide、release-source fingerprint / electron-builder allowlist / candidate app.asar representation checks、Windows-host shared `--prepackaged` portable / NSIS contract test
+  - `blocked_scope`: driver dispatch、executable entrypoint、Skill selection/injection/loading/script execution、Mermaid migration、user-installed/workspace-local discovery、自動 directory enumeration、install/uninstall/marketplace/remote update/signature UX、Public SDK/package publication、stable third-party compatibility/support promise、新しい file/network/editor permission、任意HTML/SVG、renderer Node access、三 driver family を一つの permissive execution schema に統合すること
+  - `implementation_status`: completed。catalog / diagnostics UI / Internal Kit / bundled sample / release fail-closed checks を実装し、Plugin 16、Node IPC を含む Node 122、renderer browser 82、release 36、build/lint、Windows-host candidate archive check、packaged sample CLI conformance、final exact-diff consistency / packaging / plain-eye review が合格した。packaged About runtime の live smoke は未実施であり、合格を主張しない
+  - `evidence`: `plugin-contract/contract.json`、`src/electron/main/plugin-catalog.cts`、`electron/preload.cjs`、`src/about/AboutApp.tsx`、`scripts/plugin-conformance.mjs`、`scripts/validate-plugin.mjs`、`plugins/bundled/diagnostics-sample/`、`tests/plugin/plugin-catalog.spec.mjs`、`tests/release/release-workflow.spec.mjs`、[ENG-BL-005 work memo](release-work-memos/eng-bl-005-plugin-first-slice.md)
 
 - REL-BL-001 は [docs/adr/0008-version-source-and-release-numbering.md](adr/0008-version-source-and-release-numbering.md) の「package.json version が正本」という決定を前提にする
 - 範囲には one-click を目標とする自動 update 導線、release/candidate binary と app 内 version 表示の追従厳密化、help surface と AI metadata/introspection tool から共有できる version metadata 提供、model registry の release 前整合チェックを含める
@@ -538,7 +549,7 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 - AI-P1 は完了済み。現行 assistant の待ち時間知覚を改善する response UX 修正は、streaming IPC、bubble-level realtime update、delta rendering、Markdown render tuning まで閉じた
 - MD-BL-024 と ENG-BL-002 は 2026-07-21 に完了済み。rendered link activation は main-owned document navigation contract へ移し、UNC watcher failure は bounded backoff と log suppression で fail-soft にした
-- ENG-BL-004 inventory は完了した。`PROPOSED-PLUGIN-SLICE-001` は user 明示受理と formal backlog ID がないため実装順へ入れず、通常順の P2 Editor Expansion に戻る
+- ENG-BL-004 inventory と、明示受理された ENG-BL-005 first slice は完了した。指定 automated validation、Windows-host candidate archive/package conformance、final exact-diff review は合格済みである
 - MD-BL-005 / MD-BL-023、MD-BL-006、MD-BL-007、MD-BL-013 current accepted gate、MD-BL-019 は完了済み。画像管理 UI は現時点の active P1 に含めない
 - REL-BL-001 は package.json version を正本とする既存 release rule を、実際の binary/update/help/AI metadata surface に接続する基盤として AI-P2 より前に置く
 - AI-CM は thread / persistence / retention の運用面を扱うため、Phase 1 context 管理の直後に置く
@@ -548,8 +559,8 @@ AI-CM では durable / resumed thread に selected agent、invoked prompt、load
 
 次の release line では、次を中核メッセージ候補として扱う。
 
-- ENG-BL-004 Plugin Architecture inventory と capability / Skill contribution / Developer Kit-Public SDK staging contract は確定済み。bundled catalog/diagnostics/internal Kit の proposed slice は user acceptance 待ちで、現在の実装順には入れない
-- 現在は P2 Editor Expansion へ戻り、次 slice を棚卸結果に沿って扱う
+- ENG-BL-004 Plugin Architecture inventory と capability / Skill contribution / Developer Kit-Public SDK staging contract は確定済み。ENG-BL-005 では bundled catalog、read-only diagnostics、internal Kit を実装し、Driver execution / Skill loading / Public SDK は引き続き blocked とする
+- ENG-BL-005 完了後は P2 Editor Expansion へ戻り、次 slice を棚卸結果に沿って扱う
 - viewer-first workspace の安定化
 - assistant dock と editor workspace の共存改善
 - assistant 応答のリアルタイム性改善

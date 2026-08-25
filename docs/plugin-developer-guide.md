@@ -2,16 +2,16 @@
 
 ## Availability
 
-This is a contract preview for MDV maintainers and future bundled-package developers.
+This is the Internal Developer Kit guide for MDV maintainers and bundled-package developers.
 
-- Plugin runtime: not implemented
-- Internal Developer Kit: proposed, not implemented
+- Plugin Manifest Catalog/read-only diagnostics: implemented by ENG-BL-005
+- Internal Developer Kit: implemented; internal/experimental
 - Public third-party SDK: unavailable and unaccepted
 - Driver dispatch and Skill injection: unavailable
 
-There is currently no command that installs, validates, or runs an MDV Plugin. Do not infer a working API from illustrative names or examples in this guide.
+The implemented validator checks metadata/package conformance only. There is no command that installs or runs an MDV Plugin, dispatches a Driver, or loads/injects a Skill.
 
-The 2026-08-25 proposal revision approved only this developer-experience design. It did not authorize catalog, diagnostics, Kit, runtime, or SDK implementation. A Public SDK is a possible later proposal, not a committed roadmap item.
+The 2026-08-25 user message accepted the recorded first-slice allowed / blocked scope as ENG-BL-005. A Public SDK remains a possible later proposal, not a committed roadmap item.
 
 ## Start Here
 
@@ -38,7 +38,7 @@ A Skill tells the LLM how to perform a workflow. It is not a Driver and does not
 
 ## Who The Early Kit Is For
 
-The proposed Internal Developer Kit targets:
+The Internal Developer Kit targets:
 
 - MDV maintainers changing the manifest/catalog contract
 - contributors adding release-reviewed bundled package metadata
@@ -46,24 +46,24 @@ The proposed Internal Developer Kit targets:
 
 It does not target external Plugin distribution. Validator success will mean that package metadata conforms to the catalog contract, not that Plugin code can execute.
 
-## Planned Authoring Flow
+## Authoring Flow
 
-After the proposed slice is explicitly accepted and implemented, the intended bundled-development flow is:
+The bundled-development flow is:
 
 1. Start from the checked-in non-executable bundled sample and pass its manifest/root explicitly; the Kit does not discover Plugin directories.
 2. Declare package identity, package version, host compatibility, and family-specific metadata.
 3. Reference only bundle-relative resources contained by the package root.
-4. Run the developer validator against the same strict parser used by the main catalog.
-5. Run the shared valid/invalid fixture and conformance suite.
+4. Run `npm run plugin:validate -- --root <package-root> --manifest plugin.json --json` against the same strict parser used by the main catalog.
+5. Run `npm run test:plugin` and `npm run plugin:contract:check`.
 6. Confirm the manifest/resource inputs affect the release-source fingerprint and electron-builder allowlist.
 7. Validate the Windows-host shared `win-unpacked/resources/app.asar` candidate used for portable and NSIS.
 8. Review typed public diagnostics without exposing absolute paths or executable internals.
 
-The concrete command names and file layout will be documented only after they exist and pass the accepted tests.
+For a packaged view, use `npm run plugin:validate -- --asar <app.asar> --manifest <bundle-relative-plugin.json> --host-version <x.y.z> --json`. Both modes inspect exactly one supplied package; neither discovers sibling directories.
 
-## Planned Manifest Reference
+## Manifest Reference
 
-The exact serialization and fields are not yet accepted. The canonical contract must eventually cover these concepts:
+The exact field shapes and limits are generated in [Plugin Manifest Reference](plugin-manifest-reference.md) and [JSON Schema](../plugin-contract/manifest.schema.json). The manifest covers:
 
 - manifest schema version
 - stable package ID, display name, and package version
@@ -131,4 +131,4 @@ Before MDV publishes a Public SDK, it must separately accept trust/loading, inst
 
 ## Current Contribution Rule
 
-This guide records the current contract proposal only. Plugin runtime, Kit implementation, SDK publication, driver execution, Skill injection, and third-party loading remain blocked until their stated backlog/acceptance gates are satisfied.
+This guide records the implemented internal metadata/package conformance surface. SDK publication, Driver execution, Skill loading/injection, and third-party loading remain blocked until their stated backlog/acceptance gates are separately satisfied.

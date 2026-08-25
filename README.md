@@ -40,7 +40,7 @@ Windows で動作する Markdown ワークスペースです。Electron 上で�
 - [docs/plugin-architecture-design.md](docs/plugin-architecture-design.md): capability-separated Plugin lifecycle と Skill contribution 接続の設計
 - [docs/plugin-developer-guide.md](docs/plugin-developer-guide.md): 現在の可用性、将来の bundled authoring flow、安全境界を示す Plugin 開発者向け入口
 - [docs/plugin-developer-kit-design.md](docs/plugin-developer-kit-design.md): internal Developer Kit と第三者向け Public SDK の段階契約
-- [docs/milestones/plugin-architecture-inventory.md](docs/milestones/plugin-architecture-inventory.md): 現行 extension point、trust、packaging の棚卸結果と proposed first slice
+- [docs/milestones/plugin-architecture-inventory.md](docs/milestones/plugin-architecture-inventory.md): 現行 extension point、trust、packaging の棚卸結果と受理済み first metadata/catalog slice
 - [docs/current-backlog.md](docs/current-backlog.md): 現在の正本バックログと実装順
 - [docs/ai-chat-task-breakdown.md](docs/ai-chat-task-breakdown.md): AI チャット初期分解の履歴資料
 - [docs/settings-design.md](docs/settings-design.md): 設定画面、設定保存、秘密情報の扱いの設計

@@ -470,6 +470,8 @@ type MdvAppMetadata = {
   }
 }
 
+type MdvPluginCatalogDiagnostics = import('./electron/main/plugin-manifest-contract-types.generated.cjs').PluginPublicCatalogDiagnostics
+
 type MdvAiModelRegistryEntry = {
   modelId: string
   displayName: string
@@ -764,6 +766,9 @@ interface Window {
       startupRecoveryDelayMs?: number
     }
     getAppMetadata: () => Promise<MdvAppMetadata>
+    plugins: {
+      getDiagnostics: () => Promise<MdvPluginCatalogDiagnostics>
+    }
     updater: {
       getState: () => Promise<MdvUpdaterState>
       checkForUpdates: () => Promise<MdvUpdaterState>

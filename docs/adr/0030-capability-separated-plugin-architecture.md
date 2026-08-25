@@ -2,7 +2,7 @@
 
 Status
 
-Accepted. The architecture inventory is confirmed. Runtime implementation remains unaccepted until a proposed slice receives explicit user acceptance and current-backlog recording.
+Accepted. The architecture inventory is confirmed. The user explicitly accepted the bounded metadata/catalog/Internal Kit slice on 2026-08-25, and current-backlog records it as `ENG-BL-005`. Executable drivers, Skill runtime integration, dynamic discovery, installation, and Public SDK scope remain unaccepted.
 
 Context
 
@@ -14,14 +14,14 @@ Decision
 
 Main process が discovery、compatibility、permission、lifecycle、diagnostics、privileged operation を所有し、renderer access は typed preload boundary に限定する。identity collision、incompatible manifest、path escape、resource mismatch は fail closed とし、origin precedence や last-wins shadowing を使わない。Plugin-origin raw HTML/SVG、Skill による permission grant、Skill script execution はこの contract で許可しない。
 
-Mermaid viewer は既存 built-in のまま維持し、将来 Codeblock Driver consumer にできるかを後続 slice で評価する。inventory が提案した最初の runtime 候補は、明示 import された bundled manifest だけを検証する main-owned catalog、read-only diagnostics、internal Developer Contract/Conformance Kit であり、driver dispatch や Skill injection は含まない。この候補も user acceptance と current-backlog 記録まで実装しない。
+Mermaid viewer は既存 built-in のまま維持し、将来 Codeblock Driver consumer にできるかを後続 slice で評価する。`ENG-BL-005` は、明示登録された bundled manifest だけを検証する main-owned catalog、read-only diagnostics、internal Developer Contract/Conformance Kit を実装する。canonical machine-readable contract から schema、TypeScript contract、reference を生成し、catalog と developer validator は同じ parser/diagnostic path を使う。driver dispatch や Skill injection は含まない。
 
 Developer support は二段階にする。最初の候補には MDV maintainer / bundled-package developer 向けの internal/experimental Developer Contract and Conformance Kit を含め、catalog と同じ schema/parser/diagnostics、型 symmetry、fixture、metadata-only sample、packaging conformance、guide を提供する。外部 Plugin developer 向け Public SDK は別 decision とし、third-party trust/load、install/update/rollback、versioning/deprecation/migration、family-specific execution/isolation、packaged E2E、distribution acceptance が揃うまで公開・互換性保証しない。Skill は Public Driver SDK family に数えず、`AI-CFG-002` workflow contract に接続する。
 
 Consequences
 
-Inventory は完了し、三 driver family と Skill contribution の接続境界を説明できるようになった。manifest/lifecycle の共通化は identity、compatibility、packaging、diagnostics の drift を抑えるが、capability dispatch の証明にはならない。各 family は入力 schema、runtime validation、permission、execution、rendering safety、failure isolation を独立して受理・検証する必要がある。
+Inventory と `ENG-BL-005` implementation により、三 driver family と Skill contribution の接続境界に加え、bundled package identity、compatibility、packaging、diagnostics を機械的に検証できる。これは capability dispatch の証明にはならない。各 family は入力 schema、runtime validation、permission、execution、rendering safety、failure isolation を独立して受理・検証する必要がある。
 
-Dynamic loading、user/workspace discovery、public plugin API、Mermaid migration、Skill injection/script execution は引き続き blocked である。次の通常 product work は current-backlog に従い、Plugin runtime は proposed slice の明示受理がある場合だけ再開する。
+Dynamic loading、user/workspace discovery、public plugin API、Mermaid migration、Skill injection/script execution は引き続き blocked である。`ENG-BL-005` を release-ready とする前に exact-diff review、automated regression、Windows packaged-candidate evidence を完了する。
 
 Internal Kit は早期に authoring/packaging drift を検出できるが、validator success は execution authorization ではない。Public SDK への昇格は通常 refactor ではなく、support obligation を追加する明示 decision change になる。

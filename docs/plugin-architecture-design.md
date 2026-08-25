@@ -6,14 +6,15 @@
 - Governing inventory backlog: `ENG-BL-004`
 - `backlog_state: completed`
 - `inventory_status: inventory_confirmed`
-- Proposed runtime slice: `PROPOSED-PLUGIN-SLICE-001`
-- Proposed runtime state: `future_requires_acceptance`
+- First implementation backlog: `ENG-BL-005` (accepted from `PROPOSED-PLUGIN-SLICE-001` on 2026-08-25)
+- `backlog_state: completed`
+- Implementation state: catalog, diagnostics, Internal Kit, and sample are implemented; specified unit/browser/IPC/release checks, Windows-host candidate archive and CLI package-conformance checks, and final exact-diff reviews are complete; no live packaged About runtime smoke is claimed
 - Inventory evidence: [ENG-BL-004 Plugin Architecture Inventory](milestones/plugin-architecture-inventory.md)
 - Governed plan: [Plugin Architecture PERT](milestones/plugin-architecture.pert)
 - Developer experience contract: [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md)
 - Developer entrypoint: [Plugin Developer Guide](plugin-developer-guide.md)
 
-The 2026-08-25 request accepted only the Developer Kit/Public SDK staging design and proposal revision. It did not accept the proposed slice's allowed/blocked scope for implementation; catalog, diagnostics, Kit, runtime, and SDK implementation remain unauthorized.
+The 2026-08-25 user message explicitly accepted the recorded allowed / blocked scope and authorized current-backlog registration and implementation as ENG-BL-005. That acceptance does not extend to Driver execution, Skill loading/injection, third-party Plugin loading, or Public SDK publication.
 
 ## Objective
 
@@ -160,7 +161,7 @@ Skill scripts are resources only under this contract. Local or hosted script exe
 
 ### Bundled
 
-Bundled is the only origin eligible for `PROPOSED-PLUGIN-SLICE-001`. Resources become part of the MDV release/update boundary only when every manifest/resource input is inside an existing release-fingerprinted package root or is explicitly added to both `computeReleaseSourceFingerprint()` and electron-builder's `files` allowlist. Packaged verification uses the Windows-host shared `win-unpacked/resources/app.asar` input for portable and NSIS; Linux/WSL direct Windows packaging is not acceptance evidence.
+Bundled is the only origin eligible for ENG-BL-005. Resources become part of the MDV release/update boundary only when every manifest/resource input is inside an existing release-fingerprinted package root or is explicitly added to both `computeReleaseSourceFingerprint()` and electron-builder's `files` allowlist. Packaged verification uses the Windows-host shared `win-unpacked/resources/app.asar` input for portable and NSIS; Linux/WSL direct Windows packaging is not acceptance evidence.
 
 ### User-installed
 
@@ -191,11 +192,11 @@ The early Kit validates metadata/package conformance only. It does not expose Dr
 
 The exact contract is [Plugin Developer Kit And Public SDK Design](plugin-developer-kit-design.md). Moving from the internal Kit to a Public SDK is a future decision change and cannot occur automatically after one bundled reference implementation.
 
-## Proposed First Implementation Slice
+## First Implementation Slice: ENG-BL-005
 
-`PROPOSED-PLUGIN-SLICE-001` is a bundled-only Plugin Manifest Catalog, read-only diagnostics surface, and Internal Developer Contract/Conformance Kit.
+ENG-BL-005 is the accepted bundled-only Plugin Manifest Catalog, read-only diagnostics surface, and Internal Developer Contract/Conformance Kit.
 
-It would:
+It implements:
 
 - strictly parse explicitly imported bundled manifests without scanning directories
 - keep declared, located, and derived state in separate typed models
@@ -205,11 +206,22 @@ It would:
 - provide one canonical manifest contract with checked TypeScript symmetry, a validator API/CLI using the catalog parser, shared fixtures, a non-executable bundled sample, a diagnostic reference, a conformance helper, and the developer guide
 - add source-fingerprint freshness, electron-builder allowlist, Windows-host shared `app.asar`, and same-`--prepackaged` portable/NSIS release tests while preserving existing Windows packaging workarounds
 
-It would not execute a driver, inject a Skill, run a script, migrate Mermaid, discover user/workspace packages, grant a new permission, publish a Public SDK, or promise third-party compatibility.
+It does not execute a driver, inject/load a Skill, run a script, migrate Mermaid, discover user/workspace packages, grant a new permission, publish a Public SDK, or promise third-party compatibility.
 
 It also does not add mutable package enable/disable persistence or a quarantine authority. The catalog may define the broader lifecycle vocabulary for forward compatibility, but first-slice acceptance exercises only statuses derivable from immutable/located facts and validation outcomes, such as `ready`, `invalid`, `incompatible`, and `failed`.
 
-The exact allowed/blocked scope and acceptance tests are recorded in the [inventory proposal](milestones/plugin-architecture-inventory.md#proposed-first-implementation-slice). This slice is not authorized until the user explicitly accepts that scope and current-backlog records a formal item.
+The accepted allowed/blocked scope and acceptance tests are recorded in the [inventory](milestones/plugin-architecture-inventory.md#first-implementation-slice-eng-bl-005) and [current backlog](current-backlog.md). Any broader scope still requires a separate decision change.
+
+### Exact catalog contract
+
+- `plugin-contract/contract.json` is the canonical machine-readable source for manifest schema version, limits, capability families, explicit bundled registrations, and diagnostic definitions
+- `npm run plugin:contract:generate` derives `plugin-contract/manifest.schema.json`, shared public/manifest declarations in `src/electron/main/plugin-manifest-contract-types.generated.d.cts`, CommonJS runtime constants in `src/electron/main/plugin-manifest-contract.generated.cts`, and `docs/plugin-manifest-reference.md`; `npm run plugin:contract:check` fails when any derived output is stale
+- `src/electron/main/plugin-catalog.cts` validates the generated JSON Schema with Ajv 2020-12, then applies semantic compatibility, resource reference, collision, real-path/symlink, digest, and lifecycle checks
+- runtime registration comes only from the generated `BUNDLED_PLUGIN_REGISTRATIONS` list; no directory enumeration or dynamic entrypoint exists
+- manifest top-level fields are `schemaVersion`, `id`, `displayName`, `version`, `compatibility`, `resources`, `capabilities`, and `skills`; family shapes remain mutually exclusive and `permissions` must be empty in this slice
+- main returns the generated `PluginPublicCatalogDiagnostics` type through `mdv:plugins-get-diagnostics`; preload exposes only `plugins.getDiagnostics()`, and About renders only bounded public fields
+- public contribution state means `declared` metadata or `unavailable`; every capability and Skill record explicitly carries `executable: false` and `loaded: false`
+- internal located facts may contain package roots and resource evidence, but public diagnostics exclude absolute paths, raw manifests, executable references, developer detail, and secrets
 
 ## Blocked Scope
 
@@ -237,6 +249,6 @@ The exact allowed/blocked scope and acceptance tests are recorded in the [invent
 - future driver tests cover valid/invalid payload, permission denial, timeout/crash isolation, fallback, disable/recovery, and ambiguous side-effect handling per family
 - security-sensitive renderer or generated runtime changes use release workflow early contract review
 
-## Next Gate
+## Completed Slice And Future Acceptance Boundary
 
-The inventory is complete. Runtime implementation remains blocked at `WAIT_FIRST_SLICE_ACCEPTANCE` in the [governed PERT](milestones/plugin-architecture.pert). If the proposed slice is not explicitly accepted, product work returns to the next item in [Current Backlog](current-backlog.md).
+ENG-BL-005 reached `FIRST_SLICE_RELEASE_READY` with specified contract/browser/IPC/release regression, Windows-host candidate archive/package conformance, and exact-diff review complete; no live packaged About runtime smoke is claimed. Driver execution, Skill loading, third-party discovery, and Public SDK work remain outside the completed slice and require separate backlog acceptance.

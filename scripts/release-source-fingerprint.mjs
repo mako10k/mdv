@@ -23,6 +23,8 @@ const ROOT_INPUTS = [
 const DIRECTORY_INPUTS = [
   'build',
   'electron',
+  'plugin-contract',
+  'plugins',
   'scripts',
   'src',
   'vendor/mdast-control/package.json',

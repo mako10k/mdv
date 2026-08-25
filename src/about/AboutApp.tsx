@@ -5,6 +5,7 @@ function AboutApp() {
   const { t } = useI18n()
   const [appMetadata, setAppMetadata] = useState<MdvAppMetadata | null>(null)
   const [updaterState, setUpdaterState] = useState<MdvUpdaterState | null>(null)
+  const [pluginDiagnostics, setPluginDiagnostics] = useState<MdvPluginCatalogDiagnostics | null>(null)
   const [logPath, setLogPath] = useState<string>(t.common.unavailable)
   const [actionText, setActionText] = useState<string>('')
 
@@ -59,6 +60,10 @@ function AboutApp() {
       setUpdaterState(nextUpdaterState ?? null)
       setLogPath(nextLogPath ?? t.common.unavailable)
     })
+
+    void window.mdvDesktop?.plugins.getDiagnostics()
+      .then((diagnostics) => setPluginDiagnostics(diagnostics ?? null))
+      .catch(() => setPluginDiagnostics(null))
 
     const unsubscribe = window.mdvDesktop?.updater.onStateChanged((nextUpdaterState) => {
       setUpdaterState(nextUpdaterState)
@@ -182,6 +187,87 @@ function AboutApp() {
             {t.about.installUpdate}
           </button>
         </div>
+
+        <section className="about-plugin-diagnostics" aria-labelledby="plugin-diagnostics-title">
+          <div className="about-plugin-heading">
+            <div>
+              <h2 id="plugin-diagnostics-title">{t.about.pluginDiagnosticsTitle}</h2>
+              <p>{t.about.pluginDiagnosticsSubtitle}</p>
+            </div>
+          </div>
+
+          <p className="settings-note about-plugin-conclusion">{t.about.pluginDiagnosticsConclusion}</p>
+
+          {pluginDiagnostics?.packages.map((pluginPackage) => (
+            <article className="about-plugin-package" key={pluginPackage.catalogId}>
+              <div className="about-plugin-package-title">
+                <h3>{pluginPackage.displayName ?? pluginPackage.packageId ?? pluginPackage.catalogId}</h3>
+                <span data-status={pluginPackage.status}>{t.about.pluginStatus[pluginPackage.status]}</span>
+              </div>
+              <details className="about-plugin-developer-details">
+                <summary>{t.about.pluginDeveloperDetails}</summary>
+                <p className="settings-status">contract v{pluginDiagnostics.contractVersion}</p>
+                <dl className="settings-facts about-plugin-facts">
+                  <div>
+                    <dt>{t.about.pluginPackageId}</dt>
+                    <dd>{pluginPackage.packageId ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.about.pluginVersion}</dt>
+                    <dd>{pluginPackage.version ?? t.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.about.pluginOrigin}</dt>
+                    <dd>{pluginPackage.origin}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.about.pluginDigest}</dt>
+                    <dd className="settings-break">{pluginPackage.packageDigestSha256 ?? t.common.unavailable}</dd>
+                  </div>
+                </dl>
+
+                <div className="about-plugin-contributions">
+                  <div>
+                    <h4>{t.about.pluginCapabilities}</h4>
+                    {pluginPackage.capabilities.length > 0 ? (
+                      <ul>
+                        {pluginPackage.capabilities.map((capability) => (
+                          <li key={capability.id}>
+                            <code>{capability.id}</code>
+                            <span>{capability.family} v{capability.version} · {t.about.pluginMetadataOnly}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p>{t.common.unavailable}</p>}
+                  </div>
+                  <div>
+                    <h4>{t.about.pluginSkills}</h4>
+                    {pluginPackage.skills.length > 0 ? (
+                      <ul>
+                        {pluginPackage.skills.map((skill) => (
+                          <li key={skill.id}>
+                            <code>{skill.id}</code>
+                            <span>{t.about.pluginSkillNotLoaded}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p>{t.common.unavailable}</p>}
+                  </div>
+                </div>
+
+                {pluginPackage.diagnostics.length > 0 ? (
+                  <ul className="about-plugin-errors">
+                    {pluginPackage.diagnostics.map((diagnostic, diagnosticIndex) => (
+                      <li key={`${diagnostic.code}:${diagnosticIndex}`}><code>{diagnostic.code}</code>: {diagnostic.message}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </details>
+            </article>
+          ))}
+
+          {pluginDiagnostics && pluginDiagnostics.packages.length === 0 ? <p>{t.about.pluginNoPackages}</p> : null}
+        </section>
 
         <div className="about-shortcuts">
           <h2>{t.about.shortcutsTitle}</h2>

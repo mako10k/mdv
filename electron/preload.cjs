@@ -102,6 +102,9 @@ contextBridge.exposeInMainWorld('mdvDesktop', {
     startupRecoveryDelayMs: Number.parseInt(process.env.MDV_E2E_STARTUP_RECOVERY_DELAY_MS ?? '0', 10) || 0,
   },
   getAppMetadata: () => ipcRenderer.invoke('mdv:get-app-metadata'),
+  plugins: {
+    getDiagnostics: () => ipcRenderer.invoke('mdv:plugins-get-diagnostics'),
+  },
   updater: {
     getState: () => ipcRenderer.invoke('mdv:updater-get-state'),
     checkForUpdates: () => ipcRenderer.invoke('mdv:updater-check'),

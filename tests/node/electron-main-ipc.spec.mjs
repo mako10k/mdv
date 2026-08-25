@@ -118,6 +118,7 @@ function createContext(overrides = {}) {
     persistSecrets: async () => {},
     getProviderStatus: () => ({ openaiConfigured: false, tavilyConfigured: false }),
     getAppMetadata: () => ({ version: '0.1.9' }),
+    getPluginDiagnostics: () => ({ contractVersion: 1, hostVersion: '0.1.9', packages: [] }),
     getEditorWindowForAiAction: (window) => window ?? focusedWindow,
     requestEditorContext: async () => ({ editorId: 'editor:1' }),
     ensureEditorRuntimeState: () => ({ editorId: 'editor:1' }),
@@ -212,6 +213,45 @@ test('settings bootstrap returns persisted/readable flags and launch panel', () 
     hasInitialLaunchRequest: true,
     initialPanel: 'write',
   })
+})
+
+test('Plugin diagnostics IPC returns only the main-owned read-only snapshot', async () => {
+  const snapshot = {
+    contractVersion: 1,
+    hostVersion: '0.2.3',
+    packages: [{
+      catalogId: 'sample',
+      packageId: 'dev.mdv.diagnostics-sample',
+      displayName: 'Diagnostics Sample',
+      version: '1.0.0',
+      origin: 'bundled',
+      status: 'ready',
+      packageDigestSha256: 'a'.repeat(64),
+      capabilities: [{
+        id: 'sample-codeblock',
+        family: 'codeblock',
+        version: 1,
+        availability: 'declared',
+        executable: false,
+        loaded: false,
+      }],
+      skills: [{
+        id: 'sample-guide',
+        family: 'skill',
+        version: '1.0.0',
+        availability: 'declared',
+        executable: false,
+        loaded: false,
+      }],
+      diagnostics: [],
+    }],
+  }
+  const { handles } = createContext({ getPluginDiagnostics: () => snapshot })
+
+  const result = await handles.get('mdv:plugins-get-diagnostics')({})
+  assert.deepEqual(result, snapshot)
+  assert.equal('packageRoot' in result.packages[0], false)
+  assert.equal('manifest' in result.packages[0], false)
 })
 
 test('settings update validates a model selection before persistence', async () => {
