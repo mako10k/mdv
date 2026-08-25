@@ -1204,8 +1204,11 @@ test('saved relative image export inlines image data', async () => {
     await expect(page.locator('.preview-panel img').first()).toHaveAttribute('src', /^data:image\/svg\+xml;base64,|^data:image\/svg;base64,/)
     await page.locator('button[aria-label="HTML を書き出し"], button[aria-label="Export HTML"]').click()
 
-    await expect.poll(async () => fs.readFile(exportPath, 'utf8')).toContain('Saved Export Image')
+    const exportStatus = page.locator('.statusbar-status')
+    await expect(exportStatus).toContainText(/(HTML を書き出しました|Exported HTML as)/)
+    await expect(exportStatus).toContainText('saved-export-image.html')
     const html = await fs.readFile(exportPath, 'utf8')
+    expect(html).toContain('Saved Export Image')
     expect(html).toContain('src="data:image/svg+xml;base64,')
     expect(html).toContain('alt="export-diagram"')
   } finally {

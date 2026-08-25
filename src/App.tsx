@@ -3469,6 +3469,10 @@ function App() {
   const hasFocusedOutlineDrawerRef = useRef(false)
   const activePreviewHeadingRef = useRef<HTMLElement | null>(null)
   const currentDraftWorkspaceRef = useRef<MdvDraftWorkspace | null>(null)
+  const updateCurrentDraftWorkspace = (nextDraftWorkspace: MdvDraftWorkspace | null) => {
+    currentDraftWorkspaceRef.current = nextDraftWorkspace
+    setCurrentDraftWorkspace(nextDraftWorkspace)
+  }
   const updateCurrentFilePath = (nextFilePath: string | null) => {
     currentFilePathRef.current = nextFilePath
     setCurrentFilePath(nextFilePath)
@@ -4395,20 +4399,16 @@ function App() {
   }
 
   const cleanupCurrentDraftWorkspace = async (draftWorkspaceOverride?: MdvDraftWorkspace | null) => {
-    const draftWorkspace = draftWorkspaceOverride ?? currentDraftWorkspace
+    const draftWorkspace = draftWorkspaceOverride ?? currentDraftWorkspaceRef.current
 
     if (!draftWorkspace) {
       return
     }
 
     await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace })
-    setCurrentDraftWorkspace((currentWorkspace) => {
-      if (!currentWorkspace || currentWorkspace.workspaceId !== draftWorkspace.workspaceId) {
-        return currentWorkspace
-      }
-
-      return null
-    })
+    if (currentDraftWorkspaceRef.current?.workspaceId === draftWorkspace.workspaceId) {
+      updateCurrentDraftWorkspace(null)
+    }
   }
 
   const invalidateEditorSearch = () => {
@@ -4430,7 +4430,7 @@ function App() {
     setIsUntouchedUntitledBuffer(false)
     updateCurrentFilePath(snapshot.currentFilePath)
     currentFileSnapshotRef.current = snapshot.fileSnapshot || null
-    setCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
+    updateCurrentDraftWorkspace(snapshot.draftWorkspace ?? null)
     updatePendingImportedAssets(Array.isArray(snapshot.pendingImportedAssets) ? snapshot.pendingImportedAssets : [])
     setDisplayTitle(snapshot.displayTitle || basename(snapshot.currentFilePath, i18nRef.current.app.untitledTitle))
     selectActivePanel(snapshot.activePanel)
@@ -4450,8 +4450,10 @@ function App() {
       return
     }
 
-    if (currentDraftWorkspace && !hasUnsavedChanges) {
-      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    const draftWorkspace = currentDraftWorkspaceRef.current
+
+    if (draftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(draftWorkspace)
     }
 
     invalidateEditorSearch()
@@ -4461,7 +4463,7 @@ function App() {
     setIsUntouchedUntitledBuffer(false)
     updateCurrentFilePath(payload.path)
     currentFileSnapshotRef.current = payload.snapshot
-    setCurrentDraftWorkspace(null)
+    updateCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('document')
@@ -4493,8 +4495,10 @@ function App() {
   })
 
   const loadDetachedFile = (fileName: string, content: string) => {
-    if (currentDraftWorkspace && !hasUnsavedChanges) {
-      void cleanupCurrentDraftWorkspace(currentDraftWorkspace)
+    const draftWorkspace = currentDraftWorkspaceRef.current
+
+    if (draftWorkspace && !hasUnsavedChanges) {
+      void cleanupCurrentDraftWorkspace(draftWorkspace)
     }
 
     invalidateEditorSearch()
@@ -4504,7 +4508,7 @@ function App() {
     setIsUntouchedUntitledBuffer(false)
     updateCurrentFilePath(null)
     currentFileSnapshotRef.current = null
-    setCurrentDraftWorkspace(null)
+    updateCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('document')
@@ -4620,13 +4624,24 @@ function App() {
       }
     }
 
-    void window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: requestedWorkspaceId }).then((workspace) => {
-      if (!active || !workspace || currentFilePathRef.current !== null || recoveryKeyRef.current !== requestedWorkspaceId) {
-        return
-      }
+    void window.mdvDesktop?.ensureDraftWorkspace({ workspaceId: requestedWorkspaceId })
+      .then(async (workspace) => {
+        if (!workspace) {
+          return
+        }
 
-      setCurrentDraftWorkspace(workspace)
-    })
+        if (!active || currentFilePathRef.current !== null || recoveryKeyRef.current !== requestedWorkspaceId) {
+          if (currentDraftWorkspaceRef.current?.workspaceId !== workspace.workspaceId) {
+            await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: workspace })
+          }
+          return
+        }
+
+        updateCurrentDraftWorkspace(workspace)
+      })
+      .catch(() => {
+        // Draft provisioning and stale-workspace cleanup are best-effort maintenance.
+      })
 
     return () => {
       active = false
@@ -4672,7 +4687,7 @@ function App() {
 
     if (currentDraftWorkspace) {
       await window.mdvDesktop?.cleanupDraftWorkspace({ draftWorkspace: currentDraftWorkspace })
-      setCurrentDraftWorkspace(null)
+      updateCurrentDraftWorkspace(null)
     }
 
     await clearAutosaveRecovery()
@@ -4766,7 +4781,7 @@ function App() {
     setIsUntouchedUntitledBuffer(true)
     updateCurrentFilePath(null)
     currentFileSnapshotRef.current = null
-    setCurrentDraftWorkspace(null)
+    updateCurrentDraftWorkspace(null)
     updatePendingImportedAssets([])
     setHeadingOutline([])
     setHeadingOutlineMode('placeholder')
@@ -4793,7 +4808,7 @@ function App() {
 
         if (matchesCurrentBuffer && recoverySnapshot.draftWorkspace) {
           draftWorkspace = recoverySnapshot.draftWorkspace
-          setCurrentDraftWorkspace(recoverySnapshot.draftWorkspace)
+          updateCurrentDraftWorkspace(recoverySnapshot.draftWorkspace)
         }
       }
 
@@ -4823,7 +4838,7 @@ function App() {
       invalidateEditorSearch()
       updateCurrentFilePath(result.path)
       currentFileSnapshotRef.current = result.snapshot
-      setCurrentDraftWorkspace(null)
+      updateCurrentDraftWorkspace(null)
       const referencedImportedAssets = collectReferencedImportedAssetPaths(result.content)
       const abandonedImportedAssets = currentPendingImportedAssets
         .filter((asset) => !referencedImportedAssets.has(asset.relativePath))

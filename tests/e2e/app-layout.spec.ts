@@ -203,6 +203,7 @@ async function installDesktopImageResolutionStub(page: Page, options: {
     assetDir: string
     manifestPath: string
   } | null
+  deferDraftWorkspace?: boolean
   dataUrlMap: Record<string, string>
   changeProposal?: boolean
   changeProposalDetailDelayMs?: number
@@ -283,6 +284,9 @@ async function installDesktopImageResolutionStub(page: Page, options: {
     let changeProposalOpenCallback: ((proposal: MdvAiChangeProposalSummary) => void) | null = null
     let changeProposalResolvedCallback: ((resolution: MdvAiChangeProposalResolution) => void) | null = null
     let menuActionCallback: ((action: MdvMenuAction) => void) | null = null
+    let serverCommandCallback: ((command: MdvServerCommand) => void) | null = null
+    let resolveDraftWorkspace: ((workspace: MdvDraftWorkspace | null) => void) | null = null
+    const cleanedDraftWorkspaceIds: string[] = []
     let pendingAiEditorResponse: {
       resolve: (payload: MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null) => void
       reject: (error: Error) => void
@@ -337,6 +341,49 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       rejectNext: (message) => {
         nextTypographyAdjustmentError = message
       },
+    }
+
+    const draftWorkspaceTestWindow = testWindow as Window & {
+      __mdvDraftWorkspaceTest?: {
+        hasPendingEnsure: () => boolean
+        canAdoptConfiguredWorkspace: () => boolean
+        resolveEnsure: () => Promise<void>
+        adoptConfiguredWorkspace: () => void
+        getCleanupWorkspaceIds: () => string[]
+      }
+    }
+    draftWorkspaceTestWindow.__mdvDraftWorkspaceTest = {
+      hasPendingEnsure: () => resolveDraftWorkspace !== null,
+      canAdoptConfiguredWorkspace: () => serverCommandCallback !== null && Boolean(config.draftWorkspace),
+      resolveEnsure: async () => {
+        const resolve = resolveDraftWorkspace
+        resolveDraftWorkspace = null
+        resolve?.(config.draftWorkspace ?? null)
+        await new Promise((settled) => window.setTimeout(settled, 0))
+      },
+      adoptConfiguredWorkspace: () => {
+        if (!serverCommandCallback || !config.draftWorkspace) {
+          throw new Error('Draft workspace adoption is unavailable')
+        }
+
+        serverCommandCallback({
+          type: 'resume',
+          requestId: 'draft-workspace:e2e',
+          snapshot: {
+            markdownText: '',
+            persistedMarkdown: '',
+            currentFilePath: null,
+            fileSnapshot: null,
+            draftWorkspace: config.draftWorkspace,
+            pendingImportedAssets: [],
+            displayTitle: 'Untitled',
+            activePanel: 'preview',
+            isUntouchedUntitledBuffer: true,
+            recoveryKey: config.draftWorkspace.workspaceId,
+          },
+        })
+      },
+      getCleanupWorkspaceIds: () => [...cleanedDraftWorkspaceIds],
     }
 
     const requestAiEditor = (request: MdvAiEditorRequest) => new Promise<MdvAiChangeProposalCapturePayload | MdvAiChangeProposalApplyPayload | null>((resolve, reject) => {
@@ -513,8 +560,20 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       },
       trackCurrentFile: async () => {},
       onCurrentFileChanged: () => () => {},
-      ensureDraftWorkspace: async () => config.draftWorkspace ?? null,
-      cleanupDraftWorkspace: async () => {},
+      ensureDraftWorkspace: async () => {
+        if (!config.deferDraftWorkspace) {
+          return config.draftWorkspace ?? null
+        }
+
+        return new Promise<MdvDraftWorkspace | null>((resolve) => {
+          resolveDraftWorkspace = resolve
+        })
+      },
+      cleanupDraftWorkspace: async ({ draftWorkspace }: { draftWorkspace?: MdvDraftWorkspace | null }) => {
+        if (draftWorkspace) {
+          cleanedDraftWorkspaceIds.push(draftWorkspace.workspaceId)
+        }
+      },
       cleanupImportedAssets: async () => {},
       getLatestAutosaveRecovery: async () => null,
       getAutosaveRecoveryForFile: async () => null,
@@ -525,7 +584,14 @@ async function installDesktopImageResolutionStub(page: Page, options: {
       exportHtml: async () => null,
       openSettingsWindow: async () => null,
       onWindowCloseApproved: () => () => {},
-      onServerCommand: () => () => {},
+      onServerCommand: (callback: (command: MdvServerCommand) => void) => {
+        serverCommandCallback = callback
+        return () => {
+          if (serverCommandCallback === callback) {
+            serverCommandCallback = null
+          }
+        }
+      },
       sendServerCommandResult: () => {},
       onOpenFileRequested: () => () => {},
       notifyInitialLaunchOpenHandled: () => {},
@@ -2954,6 +3020,104 @@ test.describe('markdown insert commands', () => {
     const image = page.locator('.preview-panel img').first()
     await expect(image).toHaveAttribute('alt', 'diagram')
     await expect(image).toHaveAttribute('src', /^data:image\/png;base64,UVJFVklFVw==$/)
+  })
+
+  test('a draft workspace that resolves after opening a saved file is cleaned up', async ({ page }) => {
+    const workspaceId = 'workspace-late-after-open'
+
+    await installDesktopImageResolutionStub(page, {
+      openFilePayload: {
+        path: '/workspace/docs/opened-before-draft.md',
+        content: '# Opened before draft\n',
+        snapshot: {
+          path: '/workspace/docs/opened-before-draft.md',
+          contentHash: 'opened-before-draft-hash',
+          size: 22,
+          mtimeMs: 1718000000000,
+        },
+      },
+      draftWorkspace: {
+        workspaceId,
+        rootDir: `/tmp/mdv-draft/${workspaceId}`,
+        markdownFilePath: `/tmp/mdv-draft/${workspaceId}/untitled.md`,
+        assetDir: `/tmp/mdv-draft/${workspaceId}/assets`,
+        manifestPath: `/tmp/mdv-draft/${workspaceId}/manifest.json`,
+      },
+      deferDraftWorkspace: true,
+      dataUrlMap: {},
+    })
+
+    await page.reload()
+    await expect.poll(() => page.evaluate(() => {
+      const testApi = (window as Window & {
+        __mdvDraftWorkspaceTest?: { hasPendingEnsure: () => boolean }
+      }).__mdvDraftWorkspaceTest
+      return testApi?.hasPendingEnsure() ?? false
+    })).toBe(true)
+
+    await triggerPrimaryShortcut(page, 'o')
+    await expect(page.locator('.title-strip h1')).toContainText('opened-before-draft.md')
+    await page.evaluate(async () => {
+      const testApi = (window as Window & {
+        __mdvDraftWorkspaceTest?: { resolveEnsure: () => Promise<void> }
+      }).__mdvDraftWorkspaceTest
+      await testApi?.resolveEnsure()
+    })
+
+    await expect.poll(() => page.evaluate(() => {
+      const testApi = (window as Window & {
+        __mdvDraftWorkspaceTest?: { getCleanupWorkspaceIds: () => string[] }
+      }).__mdvDraftWorkspaceTest
+      return testApi?.getCleanupWorkspaceIds() ?? []
+    })).toEqual([workspaceId])
+  })
+
+  test('a late ensure result does not clean an already adopted workspace with the same ID', async ({ page }) => {
+    const workspaceId = 'workspace-adopted-before-ensure'
+
+    await installDesktopImageResolutionStub(page, {
+      openFilePayload: null,
+      draftWorkspace: {
+        workspaceId,
+        rootDir: `/tmp/mdv-draft/${workspaceId}`,
+        markdownFilePath: `/tmp/mdv-draft/${workspaceId}/untitled.md`,
+        assetDir: `/tmp/mdv-draft/${workspaceId}/assets`,
+        manifestPath: `/tmp/mdv-draft/${workspaceId}/manifest.json`,
+      },
+      deferDraftWorkspace: true,
+      dataUrlMap: {},
+    })
+
+    await page.reload()
+    await expect.poll(() => page.evaluate(() => {
+      const testApi = (window as Window & {
+        __mdvDraftWorkspaceTest?: {
+          hasPendingEnsure: () => boolean
+          canAdoptConfiguredWorkspace: () => boolean
+        }
+      }).__mdvDraftWorkspaceTest
+      return Boolean(testApi?.hasPendingEnsure() && testApi.canAdoptConfiguredWorkspace())
+    })).toBe(true)
+
+    const cleanupWorkspaceIds = await page.evaluate(async () => {
+      const testApi = (window as Window & {
+        __mdvDraftWorkspaceTest?: {
+          adoptConfiguredWorkspace: () => void
+          resolveEnsure: () => Promise<void>
+          getCleanupWorkspaceIds: () => string[]
+        }
+      }).__mdvDraftWorkspaceTest
+
+      if (!testApi) {
+        throw new Error('Draft workspace test API is unavailable')
+      }
+
+      testApi.adoptConfiguredWorkspace()
+      await testApi.resolveEnsure()
+      return testApi.getCleanupWorkspaceIds()
+    })
+
+    expect(cleanupWorkspaceIds).toEqual([])
   })
 
   test('WYSIWYG resolves draft-workspace relative images for unsaved documents', async ({ page }) => {
