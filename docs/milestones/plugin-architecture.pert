@@ -1,21 +1,25 @@
 project MDV_PLUGIN_ARCHITECTURE:
   version 1
-  title "Plugin Architecture inventory と first implementation gate"
+  title "Third-party Plugin platform の final goal と staged delivery"
   description |
-    ENG-BL-004 の現行 extension point、trust boundary、packaging、Skill 接続を
-    inventory し、capability-separated contract と first implementation slice を
-    提案する。PROPOSED-PLUGIN-SLICE-001 は 2026-08-25 に user が明示受理し、
-    ENG-BL-005 として current-backlog に登録済みである。catalog、read-only
-    diagnostics、internal Developer Contract/Conformance Kit、developer guide は
-    実装・指定 validation・exact-diff review を完了した。
-    duration は比較用の三点見積りであり納期の約束ではない。blocked task の
-    user decision 待ち時間は所要日数に含めない。product priority は
-    docs/current-backlog.md を正本とし、この PERT は ENG-BL-005 の受理範囲を
-    blocked scope へ広げない。
+    final goal は、第三者ベンダーが MDV の正式 contract と Public SDK を使って
+    Plugin を開発・検証・配布し、利用者が明示的な trust / install 手順を経て
+    supported capability を安全に実行できる状態である。Codeblock Driver、
+    Text Rendering Engine、LLM Tool Driver は family ごとの contract を維持し、
+    Skill contribution は AI-CFG-002 の workflow runtime へ接続する。
+    ENG-BL-005 で指定した driver execution、third-party loading、Public SDK などの
+    非ゴールは first slice に限った defer であり、final goal からの取消しではない。
+    first slice の完了は foundation の到達だけを表し、この PERT の finish にはしない。
+    ただし、現行 design contract と current-backlog は後続実装を未受理としているため、
+    今回は final goal と successor obligation を復元し、後続の allowed / blocked scope が
+    design・backlog に反映され user に明示受理されるまで実装 task を開始しない。
+    duration は未確定 contract を含む比較用の初期三点見積りであり、各 contract 確定後に
+    rebaseline する。納期、release、publication の約束ではない。product priority は
+    docs/current-backlog.md を正本とする。
   as_of 2026-08-25
   duration_unit point
   velocity 1p/1d
-  finish FIRST_SLICE_RELEASE_READY
+  finish THIRD_PARTY_PLUGIN_PLATFORM_READY
 
 milestone NOW:
   title "ENG-BL-004 inventory 開始"
@@ -34,7 +38,7 @@ milestone DEVELOPER_EXPERIENCE_PROPOSAL_CONFIRMED:
   state reached
 
 milestone FIRST_SLICE_ACCEPTED:
-  title "user 明示受理と current-backlog 登録完了"
+  title "first slice の user 明示受理と current-backlog 登録完了"
   state reached
 
 milestone CATALOG_CONTRACT_READY:
@@ -54,12 +58,172 @@ milestone FIRST_SLICE_IMPLEMENTED:
   state reached
 
 milestone FIRST_SLICE_VALIDATED:
-  title "contract・browser UI・IPC・release archive/package conformance の指定検証完了"
+  title "first slice の指定 contract・runtime・package 検証完了"
   state reached
 
 milestone FIRST_SLICE_RELEASE_READY:
   title "first slice が独立 release 候補"
   state reached
+
+milestone FINAL_GOAL_RESTATED:
+  title "third-party Plugin platform の final goal と後続義務を再確認"
+  state reached
+
+milestone SUCCESSOR_PLANNING_ALLOWED:
+  title "final goal を満たす successor scope の設計開始を user が許可"
+
+milestone THIRD_PARTY_LIFECYCLE_SCOPE_PROPOSED:
+  title "third-party package lifecycle の design contract と backlog scope 提示完了"
+
+milestone THIRD_PARTY_LIFECYCLE_SCOPE_ACCEPTED:
+  title "third-party package lifecycle slice の user 明示受理完了"
+
+milestone THIRD_PARTY_PACKAGE_LIFECYCLE_READY:
+  title "third-party package lifecycle 実装・統合検証完了"
+
+milestone FIRST_DRIVER_SCOPE_PROPOSED:
+  title "最初に公開する capability family の design contract と backlog scope 提示完了"
+
+milestone FIRST_DRIVER_SCOPE_ACCEPTED:
+  title "最初の executable Driver family slice の user 明示受理完了"
+
+milestone FIRST_DRIVER_FAMILY_READY:
+  title "最初の capability family の executable runtime / testkit 検証完了"
+
+milestone EXTERNAL_CONFORMANCE_PROTOTYPE_DESIGN_INPUTS_READY:
+  title "internal evidence prototype に必要な lifecycle と最初の executable family が揃う"
+
+milestone EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_PROPOSED:
+  title "internal evidence prototype と外部形式fixtureのscope提示完了"
+
+milestone EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_ACCEPTED:
+  title "非公開evidence prototype sliceのuser明示受理完了"
+
+milestone EXTERNAL_CONFORMANCE_PROTOTYPE_READY:
+  title "非公開SDK/testkit prototypeと外部形式fixture実装完了"
+
+milestone PROTOTYPE_EXTERNAL_REFERENCE_VALIDATED:
+  title "外部形式reference Pluginのprototype conformance検証完了"
+
+milestone PROTOTYPE_PACKAGED_E2E_VALIDATED:
+  title "prototypeのWindows-host packaged E2Eとsource freshness検証完了"
+
+milestone PUBLIC_SDK_READINESS_EVIDENCE_READY:
+  title "Public SDKを提案するためのreadiness evidenceが揃う"
+
+milestone PUBLIC_SDK_SCOPE_PROPOSED:
+  title "Public SDK の versioning・compatibility・distribution scope 提示完了"
+
+milestone PUBLIC_SDK_SCOPE_ACCEPTED:
+  title "Public SDK candidate 実装と public compatibility scope の user 明示受理完了"
+
+milestone PUBLIC_SDK_CANDIDATE_READY:
+  title "受理済み public contract に基づく未公開 Public SDK candidate 実装完了"
+
+milestone PUBLIC_SDK_CANDIDATE_EXTERNAL_VALIDATED:
+  title "exact Public SDK candidate で外部形式reference Plugin再検証完了"
+
+milestone PUBLIC_SDK_CANDIDATE_PACKAGED_VALIDATED:
+  title "exact Public SDK candidate のWindows-host packaged E2E再検証完了"
+
+milestone PUBLIC_SDK_PUBLICATION_EVIDENCE_READY:
+  title "Public SDK publication 判断に必要な candidate evidence が揃う"
+
+milestone PUBLIC_SDK_PUBLICATION_AUTHORIZED:
+  title "exact candidate の Public SDK package publication を user が明示許可"
+
+milestone PUBLIC_SDK_READY:
+  title "外部開発者向け Public SDK / conformance testkit 公開・readback完了"
+
+milestone THIRD_PARTY_PLUGIN_FIRST_FAMILY_READY:
+  title "最初の supported family で第三者Pluginの開発・install・execute・recoverが可能"
+
+milestone REMAINING_DRIVER_SCOPES_PROPOSED:
+  title "残る capability family ごとの独立 contract と backlog scope 提示完了"
+
+milestone REMAINING_DRIVER_SCOPES_ACCEPTED:
+  title "残る各 capability family slice の個別 user 明示受理完了"
+
+milestone ALL_DRIVER_FAMILIES_IMPLEMENTED:
+  title "Codeblock・Text Rendering・LLM Tool の残るfamily実装・外部形式検証完了"
+
+milestone REMAINING_DRIVER_SDK_UPDATE_CANDIDATE_READY:
+  title "残るfamilyのexact SDK/testkit更新candidate作成完了"
+
+milestone REMAINING_DRIVER_SDK_EXTERNAL_VALIDATED:
+  title "残るfamilyのexact SDK更新で外部形式Plugin再検証完了"
+
+milestone REMAINING_DRIVER_SDK_PACKAGED_VALIDATED:
+  title "残るfamilyのexact SDK更新でWindows-host packaged E2E再検証完了"
+
+milestone REMAINING_DRIVER_SDK_PUBLICATION_EVIDENCE_READY:
+  title "残るfamilyのSDK/testkit更新公開に必要なexact evidenceが揃う"
+
+milestone REMAINING_DRIVER_SDK_PUBLICATION_AUTHORIZED:
+  title "残るfamilyのexact SDK/testkit更新公開をuserが明示許可"
+
+milestone ALL_DRIVER_FAMILIES_PUBLICLY_AVAILABLE:
+  title "Codeblock・Text Rendering・LLM Tool の全family SDK更新公開・readback完了"
+
+milestone AI_CFG_002_INVENTORY_CONFIRMED:
+  title "AI-CFG-002 の現行 contract・実装・残件 inventory 完了"
+
+milestone AI_CFG_002_IMPLEMENTATION_GATE_CONFIRMED:
+  title "AI-CFG-002 の design/backlog gate と実装可能 scope 確認完了"
+
+milestone AI_CFG_002_READY:
+  title "AI-CFG-002 Skill workflow runtime の受理済み scope 実装・検証完了"
+
+milestone PLUGIN_SKILL_DESIGN_INPUTS_READY:
+  title "base Public SDK、third-party package lifecycle、Skill workflow runtimeが接続可能"
+
+milestone PLUGIN_SKILL_SCOPE_PROPOSED:
+  title "Plugin-origin Skill contribution の design contract と backlog scope 提示完了"
+
+milestone PLUGIN_SKILL_SCOPE_ACCEPTED:
+  title "Plugin-origin Skill contribution slice の user 明示受理完了"
+
+milestone PLUGIN_SKILL_CONTRIBUTION_IMPLEMENTED:
+  title "Plugin-origin Skill contribution の trust・loading・diagnostics 検証完了"
+
+milestone PLUGIN_SKILL_UPDATE_CANDIDATE_READY:
+  title "Plugin-origin Skillのexact public contract/Kit更新candidate作成完了"
+
+milestone PLUGIN_SKILL_EXTERNAL_VALIDATED:
+  title "Plugin-origin Skill更新candidateの外部形式package fixture検証完了"
+
+milestone PLUGIN_SKILL_PACKAGED_VALIDATED:
+  title "Plugin-origin Skill更新candidateのWindows-host packaged検証完了"
+
+milestone PLUGIN_SKILL_PUBLICATION_EVIDENCE_READY:
+  title "Plugin-origin Skill更新公開に必要なexact evidenceが揃う"
+
+milestone PLUGIN_SKILL_PUBLICATION_AUTHORIZED:
+  title "Plugin-origin Skillのpublic contract/Kit更新公開をuserが明示許可"
+
+milestone PLUGIN_SKILL_CONTRIBUTION_PUBLICLY_AVAILABLE:
+  title "Plugin-origin Skillのpublic contract/Kit更新公開・readback完了"
+
+milestone PLATFORM_COMPONENTS_PUBLICLY_READY:
+  title "全Driver familyとPlugin-origin Skillの公開contract/Kitが出揃う"
+
+milestone COMBINED_PLUGIN_HOST_CANDIDATE_READY:
+  title "全Plugin runtime/Skill integrationを含むexact MDV host candidate生成完了"
+
+milestone COMBINED_PLUGIN_HOST_EXTERNAL_VALIDATED:
+  title "combined hostで外部Plugin/Skillのcross-family E2E検証完了"
+
+milestone COMBINED_PLUGIN_HOST_PACKAGED_VALIDATED:
+  title "combined Windows-host packageのintegrity・recovery・source freshness検証完了"
+
+milestone COMBINED_PLUGIN_HOST_RELEASE_EVIDENCE_READY:
+  title "exact MDV host release判断に必要なcombined candidate evidenceが揃う"
+
+milestone COMBINED_PLUGIN_HOST_RELEASE_AUTHORIZED:
+  title "exact combined MDV host candidateのreleaseをuserが明示許可"
+
+milestone THIRD_PARTY_PLUGIN_PLATFORM_READY:
+  title "第三者ベンダー向けPlugin platformを含むMDV release公開・artifact readback完了"
 
 task INVENTORY_PLUGIN_ARCHITECTURE NOW -> INVENTORY_CONFIRMED:
   title "固定 extension point と trust / packaging / Skill 境界を棚卸する"
@@ -89,7 +253,7 @@ task ADD_DEVELOPER_EXPERIENCE_STAGING FIRST_SLICE_PROPOSED -> DEVELOPER_EXPERIEN
   source "docs/plugin-developer-kit-design.md"
 
 task WAIT_FIRST_SLICE_ACCEPTANCE DEVELOPER_EXPERIENCE_PROPOSAL_CONFIRMED -> FIRST_SLICE_ACCEPTED:
-  title "PROPOSED-PLUGIN-SLICE-001 の allowed / blocked scope を user が明示受理する"
+  title "PROPOSED-PLUGIN-SLICE-001 の first-slice allowed / blocked scope を user が明示受理する"
   estimate:
     optimistic 0p
     most_likely 0p
@@ -146,3 +310,409 @@ task FINAL_EXACT_DIFF_REVIEW FIRST_SLICE_VALIDATED -> FIRST_SLICE_RELEASE_READY:
     pessimistic 2p
   status done
   source "docs/release-work-memos/eng-bl-005-plugin-first-slice.md"
+
+task RESTATE_FINAL_PLUGIN_GOAL FIRST_SLICE_RELEASE_READY -> FINAL_GOAL_RESTATED:
+  title "first-slice非ゴールを後続義務へ戻し、third-party Plugin platform の final goal を復元する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.1p
+  status done
+
+task WAIT_SUCCESSOR_PLANNING_AUTHORIZATION FINAL_GOAL_RESTATED -> SUCCESSOR_PLANNING_ALLOWED:
+  title "successor scope の設計開始について user の明示許可を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "final goalは再確認済みだが、successor scopeの設計・contract/backlog更新はまだ許可されていない"
+  source "docs/decision-governance.md#change-workflow"
+
+task DESIGN_THIRD_PARTY_PACKAGE_LIFECYCLE SUCCESSOR_PLANNING_ALLOWED -> THIRD_PARTY_LIFECYCLE_SCOPE_PROPOSED:
+  title "明示discovery、trust/consent、signature/integrity、installation transaction、update/rollback、disable/quarantine/recoveryのscopeを提示する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+  source "docs/plugin-developer-kit-design.md#public-sdk-readiness-gates"
+
+task WAIT_THIRD_PARTY_LIFECYCLE_SCOPE_ACCEPTANCE THIRD_PARTY_LIFECYCLE_SCOPE_PROPOSED -> THIRD_PARTY_LIFECYCLE_SCOPE_ACCEPTED:
+  title "third-party package lifecycle slice の allowed / blocked scope を user が明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "third-party package lifecycleのdesign contractとformal backlog acceptanceが未完了"
+  source "docs/decision-governance.md#implementation-gate"
+
+task IMPLEMENT_THIRD_PARTY_PACKAGE_LIFECYCLE THIRD_PARTY_LIFECYCLE_SCOPE_ACCEPTED -> THIRD_PARTY_PACKAGE_LIFECYCLE_READY:
+  title "main-owned third-party package lifecycle と packaged recovery を実装・検証する"
+  estimate:
+    optimistic 5p
+    most_likely 8p
+    pessimistic 13p
+
+task DESIGN_FIRST_DRIVER_FAMILY SUCCESSOR_PLANNING_ALLOWED -> FIRST_DRIVER_SCOPE_PROPOSED:
+  title "最初に公開するfamilyを選定し、input/output・permission・isolation・fallback scopeを提示する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+  source "docs/plugin-architecture-design.md#capability-contracts"
+
+task WAIT_FIRST_DRIVER_SCOPE_ACCEPTANCE FIRST_DRIVER_SCOPE_PROPOSED -> FIRST_DRIVER_SCOPE_ACCEPTED:
+  title "最初の executable Driver family slice の allowed / blocked scope を user が明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "family-specific execution contractとformal backlog acceptanceが未完了"
+  source "docs/decision-governance.md#implementation-gate"
+
+task IMPLEMENT_FIRST_DRIVER_FAMILY FIRST_DRIVER_SCOPE_ACCEPTED -> FIRST_DRIVER_FAMILY_READY:
+  title "最初の executable Driver runtime、bundled reference、family testkit を実装・検証する"
+  estimate:
+    optimistic 5p
+    most_likely 8p
+    pessimistic 13p
+
+gate THIRD_PARTY_LIFECYCLE_FOR_PROTOTYPE THIRD_PARTY_PACKAGE_LIFECYCLE_READY -> EXTERNAL_CONFORMANCE_PROTOTYPE_DESIGN_INPUTS_READY:
+  reason "evidence prototypeに必要なthird-party trust・signature/integrity・installation transaction・recoveryが実証済みであること"
+
+gate FIRST_DRIVER_FOR_PROTOTYPE FIRST_DRIVER_FAMILY_READY -> EXTERNAL_CONFORMANCE_PROTOTYPE_DESIGN_INPUTS_READY:
+  reason "少なくとも一つのfamily-specific executable contractとbundled referenceが実証済みであること"
+
+task DESIGN_EXTERNAL_CONFORMANCE_PROTOTYPE EXTERNAL_CONFORMANCE_PROTOTYPE_DESIGN_INPUTS_READY -> EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_PROPOSED:
+  title "Public SDKを名乗らないinternal prototype、external-form fixture、packaged E2E evidence sliceを提示する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+  source "docs/plugin-developer-kit-design.md#public-sdk-readiness-gates"
+
+task WAIT_EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_ACCEPTANCE EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_PROPOSED -> EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_ACCEPTED:
+  title "非公開evidence prototype sliceのallowed / blocked scopeをuserが明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "外部形式fixtureとpackaged E2E evidenceを作るinternal prototype sliceが未受理"
+  source "docs/decision-governance.md#implementation-gate"
+
+task IMPLEMENT_EXTERNAL_CONFORMANCE_PROTOTYPE EXTERNAL_CONFORMANCE_PROTOTYPE_SCOPE_ACCEPTED -> EXTERNAL_CONFORMANCE_PROTOTYPE_READY:
+  title "非公開SDK/testkit prototype、external sample/fixtures、packaged test inputを実装する"
+  estimate:
+    optimistic 4p
+    most_likely 6p
+    pessimistic 10p
+
+task VALIDATE_PROTOTYPE_EXTERNAL_REFERENCE EXTERNAL_CONFORMANCE_PROTOTYPE_READY -> PROTOTYPE_EXTERNAL_REFERENCE_VALIDATED:
+  title "private MDV internalsに依存しない外部形式Pluginでprototypeの開発・install・execute・update/rollbackを検証する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+
+task VALIDATE_PROTOTYPE_WINDOWS_PACKAGE EXTERNAL_CONFORMANCE_PROTOTYPE_READY -> PROTOTYPE_PACKAGED_E2E_VALIDATED:
+  title "Windows-host prototypeでpermission denial、timeout/crash isolation、ambiguous side effect、safe fallback、package E2E、source freshnessを検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+gate PROTOTYPE_EXTERNAL_EVIDENCE_FOR_PUBLIC_SDK PROTOTYPE_EXTERNAL_REFERENCE_VALIDATED -> PUBLIC_SDK_READINESS_EVIDENCE_READY:
+  reason "external-form sample consumerとconformance fixturesがprivate internalsなしで合格すること"
+
+gate PROTOTYPE_PACKAGED_EVIDENCE_FOR_PUBLIC_SDK PROTOTYPE_PACKAGED_E2E_VALIDATED -> PUBLIC_SDK_READINESS_EVIDENCE_READY:
+  reason "Windows-host packaged E2E、failure semantics、release-source freshnessが合格すること"
+
+task DESIGN_PUBLIC_SDK PUBLIC_SDK_READINESS_EVIDENCE_READY -> PUBLIC_SDK_SCOPE_PROPOSED:
+  title "実証済みevidenceを基にversion軸、compatibility、deprecation/migration、support、distribution scopeを提示する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+  source "docs/plugin-developer-kit-design.md#public-sdk-readiness-gates"
+
+task WAIT_PUBLIC_SDK_SCOPE_ACCEPTANCE PUBLIC_SDK_SCOPE_PROPOSED -> PUBLIC_SDK_SCOPE_ACCEPTED:
+  title "Public SDK candidate と public compatibility / distribution scope を user が明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "Public SDKはseparate decision changeであり、design/ADR/backlog更新と明示受理が未完了"
+  source "docs/plugin-developer-kit-design.md#transition-rule"
+
+task IMPLEMENT_PUBLIC_SDK_CANDIDATE PUBLIC_SDK_SCOPE_ACCEPTED -> PUBLIC_SDK_CANDIDATE_READY:
+  title "prototype evidenceと受理済みpublic contractからexact Public SDK candidate、testkit、documentationを作る"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+
+task REVALIDATE_EXTERNAL_REFERENCE_WITH_PUBLIC_SDK PUBLIC_SDK_CANDIDATE_READY -> PUBLIC_SDK_CANDIDATE_EXTERNAL_VALIDATED:
+  title "exact Public SDK candidateで外部形式reference Pluginとconformance fixturesを再検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+task REVALIDATE_PUBLIC_SDK_WINDOWS_PACKAGE PUBLIC_SDK_CANDIDATE_READY -> PUBLIC_SDK_CANDIDATE_PACKAGED_VALIDATED:
+  title "exact Public SDK candidateでWindows-host packaged E2E、failure semantics、source freshnessを再検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+gate EXACT_EXTERNAL_EVIDENCE_FOR_PUBLICATION PUBLIC_SDK_CANDIDATE_EXTERNAL_VALIDATED -> PUBLIC_SDK_PUBLICATION_EVIDENCE_READY:
+  reason "exact candidateとexternal reference/fixturesの一致を確認済みであること"
+
+gate EXACT_PACKAGED_EVIDENCE_FOR_PUBLICATION PUBLIC_SDK_CANDIDATE_PACKAGED_VALIDATED -> PUBLIC_SDK_PUBLICATION_EVIDENCE_READY:
+  reason "exact candidateのWindows-host package E2Eとsource freshnessを確認済みであること"
+
+task WAIT_PUBLIC_SDK_PUBLICATION_AUTHORIZATION PUBLIC_SDK_PUBLICATION_EVIDENCE_READY -> PUBLIC_SDK_PUBLICATION_AUTHORIZED:
+  title "exact candidate と compatibility/support obligation を提示し、package publication の明示許可を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "candidate evidenceの完成と、exact publication actionに対する別途のuser許可が必要"
+
+task PUBLISH_PUBLIC_SDK PUBLIC_SDK_PUBLICATION_AUTHORIZED -> PUBLIC_SDK_READY:
+  title "Public SDK / conformance testkit を一度だけ公開し、registry/artifactをreadbackする"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
+
+gate PUBLISHED_SDK_FOR_FIRST_EXTERNAL_PLUGIN PUBLIC_SDK_READY -> THIRD_PARTY_PLUGIN_FIRST_FAMILY_READY:
+  reason "外部開発者が取得できるPublic SDKとsupport contractが公開済みであること"
+
+gate VALIDATED_REFERENCE_FOR_FIRST_EXTERNAL_PLUGIN PUBLIC_SDK_CANDIDATE_EXTERNAL_VALIDATED -> THIRD_PARTY_PLUGIN_FIRST_FAMILY_READY:
+  reason "外部形式reference Pluginがexact Public SDK candidate conformanceを通過済みであること"
+
+task DESIGN_REMAINING_DRIVER_FAMILIES THIRD_PARTY_PLUGIN_FIRST_FAMILY_READY -> REMAINING_DRIVER_SCOPES_PROPOSED:
+  title "未公開のDriver familyごとに独立contract、SDK/testkit、allowed / blocked scopeを提示する"
+  estimate:
+    optimistic 4p
+    most_likely 8p
+    pessimistic 13p
+
+task WAIT_EACH_REMAINING_DRIVER_SCOPE_ACCEPTANCE REMAINING_DRIVER_SCOPES_PROPOSED -> REMAINING_DRIVER_SCOPES_ACCEPTED:
+  title "残る各Driver familyについて個別のdesign/backlog更新とuser明示受理を確認する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "残るfamilyを一括許可せず、familyごとのcontractとacceptanceが必要"
+  source "docs/decision-governance.md#change-workflow"
+
+task IMPLEMENT_REMAINING_DRIVER_FAMILIES REMAINING_DRIVER_SCOPES_ACCEPTED -> ALL_DRIVER_FAMILIES_IMPLEMENTED:
+  title "個別受理済みscopeで残るfamilyを実装し、それぞれ外部形式Pluginで検証する"
+  estimate:
+    optimistic 8p
+    most_likely 13p
+    pessimistic 21p
+
+task BUILD_REMAINING_DRIVER_SDK_UPDATE_CANDIDATE ALL_DRIVER_FAMILIES_IMPLEMENTED -> REMAINING_DRIVER_SDK_UPDATE_CANDIDATE_READY:
+  title "残るfamilyの受理済みcontractからexact SDK/testkit更新candidateを作る"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+task VALIDATE_REMAINING_DRIVER_SDK_EXTERNAL REMAINING_DRIVER_SDK_UPDATE_CANDIDATE_READY -> REMAINING_DRIVER_SDK_EXTERNAL_VALIDATED:
+  title "exact SDK/testkit更新candidateで各familyの外部形式Pluginとfailure semanticsを再検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+task VALIDATE_REMAINING_DRIVER_SDK_WINDOWS_PACKAGE REMAINING_DRIVER_SDK_UPDATE_CANDIDATE_READY -> REMAINING_DRIVER_SDK_PACKAGED_VALIDATED:
+  title "exact SDK更新candidateでWindows-host packaged E2E、isolation/fallback、source freshnessを再検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+gate REMAINING_DRIVER_EXTERNAL_EVIDENCE_FOR_PUBLICATION REMAINING_DRIVER_SDK_EXTERNAL_VALIDATED -> REMAINING_DRIVER_SDK_PUBLICATION_EVIDENCE_READY:
+  reason "exact SDK更新と各familyのexternal-form fixturesが一致して合格すること"
+
+gate REMAINING_DRIVER_PACKAGED_EVIDENCE_FOR_PUBLICATION REMAINING_DRIVER_SDK_PACKAGED_VALIDATED -> REMAINING_DRIVER_SDK_PUBLICATION_EVIDENCE_READY:
+  reason "exact SDK更新のWindows-host packaged E2Eとrelease-source freshnessが合格すること"
+
+task WAIT_REMAINING_DRIVER_SDK_PUBLICATION_AUTHORIZATION REMAINING_DRIVER_SDK_PUBLICATION_EVIDENCE_READY -> REMAINING_DRIVER_SDK_PUBLICATION_AUTHORIZED:
+  title "残るfamilyのexact SDK/testkit更新とevidenceを提示し、公開の明示許可を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "実装受理は後続SDK/testkit更新のpublication authorizationを兼ねない"
+
+task PUBLISH_REMAINING_DRIVER_SDK_UPDATES REMAINING_DRIVER_SDK_PUBLICATION_AUTHORIZED -> ALL_DRIVER_FAMILIES_PUBLICLY_AVAILABLE:
+  title "残るfamilyのSDK/testkit更新を一度だけ公開し、registry/artifactをreadbackする"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
+
+task INVENTORY_AI_CFG_002 SUCCESSOR_PLANNING_ALLOWED -> AI_CFG_002_INVENTORY_CONFIRMED:
+  title "AI-CFG-002の現行contract・runtime・Skill source・enabled/loading/diagnostics残件を棚卸する"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+  source "docs/ai-customization-layering-design.md"
+
+task CONFIRM_AI_CFG_002_IMPLEMENTATION_GATE AI_CFG_002_INVENTORY_CONFIRMED -> AI_CFG_002_IMPLEMENTATION_GATE_CONFIRMED:
+  title "inventory結果が受理済みscope内か確認し、必要ならdesign/backlog更新とuser明示受理を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0.5p
+    pessimistic 2p
+  status blocked
+  blocked_reason "AI-CFG-002はinventory_pendingで、実装可能scopeの確認が未完了"
+  source "docs/decision-governance.md#implementation-intake-workflow"
+
+task IMPLEMENT_AI_CFG_002 AI_CFG_002_IMPLEMENTATION_GATE_CONFIRMED -> AI_CFG_002_READY:
+  title "受理済みscopeでSkill一覧・enabled条件・instruction/resource loading・診断を実装・検証する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+
+gate THIRD_PARTY_LIFECYCLE_FOR_SKILL_DESIGN THIRD_PARTY_PACKAGE_LIFECYCLE_READY -> PLUGIN_SKILL_DESIGN_INPUTS_READY:
+  reason "Plugin-origin Skill resourceが第三者packageのtrust/lifecycleに束縛されること"
+
+gate AI_CFG_002_FOR_PLUGIN_SKILL_DESIGN AI_CFG_002_READY -> PLUGIN_SKILL_DESIGN_INPUTS_READY:
+  reason "Skill eligibility・enabled state・loading・turn diagnosticsのproduct runtimeが利用可能であること"
+
+gate PUBLIC_SDK_FOR_PLUGIN_SKILL_DESIGN PUBLIC_SDK_READY -> PLUGIN_SKILL_DESIGN_INPUTS_READY:
+  reason "Plugin-origin Skillのpublic contract/Kit更新元となるbase Public SDKが公開・readback済みであること"
+
+task DESIGN_PLUGIN_SKILL_CONTRIBUTION PLUGIN_SKILL_DESIGN_INPUTS_READY -> PLUGIN_SKILL_SCOPE_PROPOSED:
+  title "Plugin provenanceとAI-CFG-002の接続、trust、loading、diagnostics、Tool権限非継承scopeを提示する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+task WAIT_PLUGIN_SKILL_SCOPE_ACCEPTANCE PLUGIN_SKILL_SCOPE_PROPOSED -> PLUGIN_SKILL_SCOPE_ACCEPTED:
+  title "Plugin-origin Skill contribution slice の allowed / blocked scope を user が明示受理する"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "Plugin-origin Skill loadingはAI-CFG-002本体と別のdesign/backlog acceptanceが必要"
+  source "docs/decision-governance.md#implementation-gate"
+
+task IMPLEMENT_PLUGIN_SKILL_CONTRIBUTION PLUGIN_SKILL_SCOPE_ACCEPTED -> PLUGIN_SKILL_CONTRIBUTION_IMPLEMENTED:
+  title "受理済みscopeでPlugin provenanceとAI-CFG-002を接続し、Tool権限非拡張を検証する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+
+task BUILD_PLUGIN_SKILL_UPDATE_CANDIDATE PLUGIN_SKILL_CONTRIBUTION_IMPLEMENTED -> PLUGIN_SKILL_UPDATE_CANDIDATE_READY:
+  title "受理済みSkill contribution contractからexact public contract/Kit更新candidateを作る"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+
+task VALIDATE_PLUGIN_SKILL_EXTERNAL_FIXTURE PLUGIN_SKILL_UPDATE_CANDIDATE_READY -> PLUGIN_SKILL_EXTERNAL_VALIDATED:
+  title "exact Skill更新candidateで外部形式package fixture、trust/loading診断、Tool権限非継承を再検証する"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+
+task VALIDATE_PLUGIN_SKILL_WINDOWS_PACKAGE PLUGIN_SKILL_UPDATE_CANDIDATE_READY -> PLUGIN_SKILL_PACKAGED_VALIDATED:
+  title "exact Skill更新candidateでWindows-host packaged resource、source freshness、unavailable recoveryを再検証する"
+  estimate:
+    optimistic 1p
+    most_likely 2p
+    pessimistic 4p
+
+gate PLUGIN_SKILL_EXTERNAL_EVIDENCE_FOR_PUBLICATION PLUGIN_SKILL_EXTERNAL_VALIDATED -> PLUGIN_SKILL_PUBLICATION_EVIDENCE_READY:
+  reason "exact public contract/Kit更新とexternal-form Skill fixtureが一致して合格すること"
+
+gate PLUGIN_SKILL_PACKAGED_EVIDENCE_FOR_PUBLICATION PLUGIN_SKILL_PACKAGED_VALIDATED -> PLUGIN_SKILL_PUBLICATION_EVIDENCE_READY:
+  reason "exact Skill更新のWindows-host packaged resourceとrelease-source freshnessが合格すること"
+
+task WAIT_PLUGIN_SKILL_PUBLICATION_AUTHORIZATION PLUGIN_SKILL_PUBLICATION_EVIDENCE_READY -> PLUGIN_SKILL_PUBLICATION_AUTHORIZED:
+  title "Plugin-origin Skillのexact public contract/Kit更新とevidenceを提示し、公開の明示許可を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "Skill contribution実装受理はpublic contract/Kit更新のpublication authorizationを兼ねない"
+
+task PUBLISH_PLUGIN_SKILL_CONTRACT_UPDATE PLUGIN_SKILL_PUBLICATION_AUTHORIZED -> PLUGIN_SKILL_CONTRIBUTION_PUBLICLY_AVAILABLE:
+  title "Plugin-origin Skillのpublic contract/Kit更新を一度だけ公開し、artifactをreadbackする"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
+
+gate FIRST_EXTERNAL_PLUGIN_READY THIRD_PARTY_PLUGIN_FIRST_FAMILY_READY -> PLATFORM_COMPONENTS_PUBLICLY_READY:
+  reason "第三者が少なくとも一つのsupported familyでPluginを開発・配布・導入・実行できること"
+
+gate ALL_DRIVER_FAMILIES_SUPPORTED ALL_DRIVER_FAMILIES_PUBLICLY_AVAILABLE -> PLATFORM_COMPONENTS_PUBLICLY_READY:
+  reason "宣言済み三familyのSDK/testkit更新が公開・readback済みでthird-party対応していること"
+
+gate PLUGIN_SKILL_SUPPORTED PLUGIN_SKILL_CONTRIBUTION_PUBLICLY_AVAILABLE -> PLATFORM_COMPONENTS_PUBLICLY_READY:
+  reason "Plugin-origin Skillのpublic contract/Kit更新が公開・readback済みで安全に利用できること"
+
+task BUILD_COMBINED_PLUGIN_HOST_CANDIDATE PLATFORM_COMPONENTS_PUBLICLY_READY -> COMBINED_PLUGIN_HOST_CANDIDATE_READY:
+  title "third-party lifecycle、全Driver family、AI-CFG-002、Plugin Skill integrationを含むexact MDV host candidateを生成する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+task VALIDATE_COMBINED_PLUGIN_HOST_EXTERNAL_E2E COMBINED_PLUGIN_HOST_CANDIDATE_READY -> COMBINED_PLUGIN_HOST_EXTERNAL_VALIDATED:
+  title "同一host candidateで外部Pluginのinstall/update/rollback、全family実行、Skill利用、failure isolationをE2E検証する"
+  estimate:
+    optimistic 3p
+    most_likely 5p
+    pessimistic 8p
+
+task VALIDATE_COMBINED_PLUGIN_HOST_WINDOWS_PACKAGE COMBINED_PLUGIN_HOST_CANDIDATE_READY -> COMBINED_PLUGIN_HOST_PACKAGED_VALIDATED:
+  title "同一Windows-host packageでsignature/integrity、source freshness、disable/quarantine/recovery、artifact一致を検証する"
+  estimate:
+    optimistic 2p
+    most_likely 3p
+    pessimistic 5p
+
+gate COMBINED_EXTERNAL_EVIDENCE_FOR_RELEASE COMBINED_PLUGIN_HOST_EXTERNAL_VALIDATED -> COMBINED_PLUGIN_HOST_RELEASE_EVIDENCE_READY:
+  reason "同一exact host candidateでcross-family外部E2Eが合格すること"
+
+gate COMBINED_PACKAGED_EVIDENCE_FOR_RELEASE COMBINED_PLUGIN_HOST_PACKAGED_VALIDATED -> COMBINED_PLUGIN_HOST_RELEASE_EVIDENCE_READY:
+  reason "同一exact Windows-host packageでintegrity/recovery/source freshnessが合格すること"
+
+task WAIT_COMBINED_PLUGIN_HOST_RELEASE_AUTHORIZATION COMBINED_PLUGIN_HOST_RELEASE_EVIDENCE_READY -> COMBINED_PLUGIN_HOST_RELEASE_AUTHORIZED:
+  title "exact combined MDV host candidateとevidenceを提示し、releaseの明示許可を得る"
+  estimate:
+    optimistic 0p
+    most_likely 0p
+    pessimistic 0.5p
+  status blocked
+  blocked_reason "component publicationはcombined MDV application releaseのauthorizationを兼ねない"
+
+task RELEASE_COMBINED_PLUGIN_HOST COMBINED_PLUGIN_HOST_RELEASE_AUTHORIZED -> THIRD_PARTY_PLUGIN_PLATFORM_READY:
+  title "combined MDV releaseを一度だけ公開し、release artifact・version・download sourceをreadbackする"
+  estimate:
+    optimistic 0.5p
+    most_likely 1p
+    pessimistic 2p
