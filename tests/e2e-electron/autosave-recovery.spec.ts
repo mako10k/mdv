@@ -13,6 +13,13 @@ async function makeTempDir(prefix: string) {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix))
 }
 
+async function makeNativeWatchTempDir(prefix: string) {
+  // WSL can map os.tmpdir() to /mnt/c, where the native watch contract is not guaranteed.
+  const nativeWatchTempRoot = process.platform === 'linux' ? '/tmp' : os.tmpdir()
+
+  return fs.mkdtemp(path.join(nativeWatchTempRoot, prefix))
+}
+
 async function launchElectronApp(options: {
   userDataDir: string
   args?: string[]
@@ -436,7 +443,7 @@ test('merge preview can redirect conflict save into Save As before writing', asy
 })
 
 test('clean tracked files auto-reload on-disk changes and report the refresh', async () => {
-  const tempRoot = await makeTempDir('mdv-electron-e2e-')
+  const tempRoot = await makeNativeWatchTempDir('mdv-electron-watch-e2e-')
   const userDataDir = path.join(tempRoot, 'user-data')
   const filePath = path.join(tempRoot, 'external-refresh.md')
 
